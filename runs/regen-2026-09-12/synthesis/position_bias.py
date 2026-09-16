@@ -9,8 +9,18 @@ For every record under results/records/ (synthetic and original arms):
   a_first_rate : over all decisive single-order verdicts, fraction won by the model shown first
                [check vs record diagnostics.a_first_rate]
 Identical result sets (raw == ["identical"]) count as ties (0.5) for every rating refit and are excluded
-from the order-specific counts. Any raw token outside {A, B, tie, identical} is counted, scored 0.5 in
-the order-specific refits and excluded from decisive counts.
+from the order-specific counts. A raw token outside {A, B, tie, identical} is scored 0.5 in the
+order-specific refits and excluded from decisive counts, and every verdict without exactly two tokens is
+counted once in n_invalid_raw. The package coerces unparseable judge answers before it writes the
+verdict file, so n_invalid_raw is 0 on this sweep even though the records report parse failures
+(diagnostics.parse_failure_rate, 61 calls of 210,140); read that field for the parse-failure count.
+
+How to read rho_order1 against rho_order2: both refits use the same pairs, so order 1 always hands the
+first-position bonus to each pair file's model_a and order 2 always to its model_b. The roster is not
+random with respect to quality (later entrants are better on average), so the two single-order refits
+are biased in opposite directions along the roster and their gap measures the roster, not the judge.
+Compare each of them with rho_both, or use their mean; do not compare them with each other. Part of
+the rho_both advantage is de-noising (one verdict per pair against two) rather than de-biasing.
 """
 import json
 from pathlib import Path
@@ -131,7 +141,7 @@ def analyse(rec_path: Path):
         "raw_token_counts": dict(tok),
         "rho_both": rho_both,
         "rho_both_record": rec_rho,
-        "rho_both_matches_record": (None if rec_rho is None else abs(rho_both - rec_rho) < 1e-9),
+        "rho_both_matches_record": (None if rec_rho is None or rho_both is None else abs(rho_both - rec_rho) < 1e-9),
         "max_abs_rating_diff_vs_record": max_rating_diff,
         "rho_order1": rho_o1,
         "rho_order2": rho_o2,
@@ -142,7 +152,7 @@ def analyse(rec_path: Path):
         "n_first_wins": first,
         "a_first_rate": a_first,
         "a_first_rate_record": rec_af,
-        "a_first_rate_matches_record": (None if rec_af is None else abs(a_first - rec_af) < 1e-12),
+        "a_first_rate_matches_record": (None if rec_af is None or a_first is None else abs(a_first - rec_af) < 1e-12),
         "ratings_both": {m.name: m.rating for m in r_both},
         "ratings_order1": {m.name: m.rating for m in r_o1},
         "ratings_order2": {m.name: m.rating for m in r_o2},
@@ -159,7 +169,7 @@ def main():
     out = {"synthetic": [], "original": []}
     for p in recs:
         row = analyse(p)
-        out["synthetic" if "original-queries" not in p.name else "original"].append(row)
+        out[row["arm"]].append(row)
         print(f"{row['arm']:9s} {row['task']:28s} rho_both={fmt(row['rho_both'])} (rec {fmt(row['rho_both_record'])}) "
               f"o1={fmt(row['rho_order1'])} o2={fmt(row['rho_order2'])} split={fmt(row['split_rate'])} "
               f"a_first={fmt(row['a_first_rate'])} (rec {fmt(row['a_first_rate_record'])}) "
@@ -167,9 +177,10 @@ def main():
 
     def summ(rows):
         keys = ["rho_both", "rho_order1", "rho_order2", "split_rate", "a_first_rate"]
-        return {k: {"mean": float(np.mean([r[k] for r in rows if r[k] is not None])),
-                    "median": float(np.median([r[k] for r in rows if r[k] is not None])),
-                    "n": sum(r[k] is not None for r in rows)} for k in keys}
+        cols = {k: [r[k] for r in rows if r[k] is not None] for k in keys}
+        return {k: {"mean": float(np.mean(v)) if v else None,
+                    "median": float(np.median(v)) if v else None,
+                    "n": len(v)} for k, v in cols.items()}
     out["summary"] = {arm: summ(rows) for arm, rows in out.items() if rows}
     out["definitions"] = __doc__
     (AN / "position_bias.json").write_text(json.dumps(out, indent=1))

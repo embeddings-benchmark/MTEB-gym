@@ -11,8 +11,35 @@ For every record under results/records/ (synthetic and original arms):
   a_first_rate : over all decisive single-order verdicts, fraction won by the model shown first
                [check vs record diagnostics.a_first_rate]
 Identical result sets (raw == ["identical"]) count as ties (0.5) for every rating refit and are excluded
-from the order-specific counts. Any raw token outside {A, B, tie, identical} is counted, scored 0.5 in
-the order-specific refits and excluded from decisive counts.
+from the order-specific counts. A raw token outside {A, B, tie, identical} is scored 0.5 in the
+order-specific refits and excluded from decisive counts. The package coerces unparseable judge answers
+before it writes the verdict file, so the invalid count is 0 on this sweep even though the records
+report parse failures (`diagnostics.parse_failure_rate`, 61 calls of 210,140).
+
+## How to read the two single-order columns
+
+`rho_order1` and `rho_order2` are refit over the same pairs, so order 1 always hands the first-position
+bonus to each pair file's `model_a` and order 2 always to its `model_b`. The roster is not random with
+respect to quality: recovering the implied roster from `rank(rating_order1 - rating_order2)` gives the
+same ordering on every record but the two NanoClimateFever ones (mean Spearman 0.90 against the
+NFCorpus one), that ordering
+correlates with the official scores (mean rho +0.24 over the 28 records, up to +0.74 on NanoNQ), and
+the alignment predicts the gap between the two columns (rho -0.89 over the 28 records between
+`rho(roster index, truth)` and `rho_order1 - rho_order2`). So the two single-order columns are biased in
+opposite directions along the roster and their gap measures the roster, not the judge. The two
+NanoClimateFever records, where the implied roster matches least, are also the two with the weakest
+first-position effect (0.44 and 0.52).
+
+What is roster-independent and can be read directly: `a_first_rate` (mean 0.72 on the synthetic arms,
+0.64 on the original arms, 0.5 would be no bias), `split_rate` (among pairs decisive in both orders, the
+winner flips with the order on 0.50 of them on the synthetic arms and 0.39 on the original arms), and
+`rho_both` against
+the two single-order refits taken together (mean of the pair 0.22 against 0.50, synthetic; 0.44 against
+0.57, original). The swing between the two single-order columns on one corpus (NFCorpus 0.37 and 0.72
+against 0.82 from both orders; NanoNQ -0.73 and 0.78 against 0.55) is how far a fixed slot assignment
+can move the ranking, which is why both orders are judged. Part of the `rho_both` advantage is
+de-noising rather than de-biasing, since a single-order refit rests on one verdict per pair; separating
+the two needs a half-split control on the raw verdict rows.
 
 ## synthetic arm (14 records)
 

@@ -62,11 +62,16 @@ official nDCG@10.
 - ArguAna reproduces the paper's instruction repair: S 0.35, where the paper measured 0.15 with the
   generic prompt and 0.35 with the task instruction. The rewrite injects that instruction by default.
 - The judge is position biased in this setup. The first-position rate runs 0.52 to 0.88 across the
-  synthetic arms and commit rates fall to 0.30 on the worst corpora. Both presentation orders are
-  judged and averaged, and that is doing real work: refitting the ratings from one order alone gives
-  rho 0.37 (model A first) and 0.72 (model B first) on NFCorpus against 0.82 from both, and 0.06 and
-  0.13 against 0.76 on NanoHotpotQA (`synthesis/position_bias.md`, all 28 records; the both-order
-  refit reproduces each record's stored rho and first-position rate exactly).
+  synthetic arms (mean 0.72; 0.64 on the original arms) and commit rates fall to 0.30 on the worst
+  corpora. Among pairs the judge decides in both orders, the winner flips with the order on half of
+  them (0.50 synthetic, 0.39 original). Both presentation orders are judged and averaged, which cancels
+  the slot bonus by construction. Refitting from one order alone hands that bonus to whichever model
+  the pair enumeration put in the slot, and the roster is not random with respect to quality, so the
+  two single-order refits swing with the roster (NFCorpus 0.37 and 0.72 against 0.82 from both;
+  NanoNQ -0.73 and 0.78 against 0.55). Read them as a bound on how far a fixed slot assignment can
+  move a ranking, not as one order being more faithful than the other (`synthesis/position_bias.md`,
+  all 28 records; the both-order refit reproduces each record's stored rho and first-position rate
+  exactly).
 - The nano tier is noisy at 40 queries. NFCorpus reads 0.40 nano against 0.82 full, and only 6 of 14
   synthetic-arm rhos reach p < 0.05. Treat the nano rows as a smoke test of the pipeline, not as
   estimates for the main table.
@@ -102,5 +107,5 @@ sbatch scripts/regen_nano_397b.sbatch       # optional: re-judge the same querie
 
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit. `synthesis/sweep_report.md` is a
-cross-corpus summary of the three analyses; its numbers are being re-derived independently and
-should be read as a draft until that lands.
+cross-corpus summary of the three analyses, every number in it read from the JSON files under
+`analysis/` and recomputed against them.
