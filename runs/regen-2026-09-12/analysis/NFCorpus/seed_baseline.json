@@ -1,0 +1,200 @@
+{
+ "task_name": "NFCorpus",
+ "record": "results/records/NFCorpus__Qwen3.6-27B__gpt-oss-20b__q100-s0-75c61651.json",
+ "config_hash": "75c61651",
+ "query_set": "mteb_nfcorpus_ec0fa4fe99da2ff19ca1214b7966684033a58814_default_test-openai_gpt-oss-20b-6e3b1f28fe89",
+ "k": 10,
+ "n_models": 12,
+ "coverage": {
+  "n_queries": 100,
+  "n_covered": 100,
+  "fraction": 1.0,
+  "uncovered": []
+ },
+ "models": [
+  {
+   "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+   "seed_ndcg": 0.3964462672729015,
+   "n_queries_scored": 100,
+   "gym_rating": 1041.8405658901952,
+   "truth_score": 35.08,
+   "seed_rank": 1,
+   "gym_rank": 5,
+   "truth_rank": 6
+  },
+  {
+   "model": "thenlper/gte-large",
+   "seed_ndcg": 0.39108386636202735,
+   "n_queries_scored": 100,
+   "gym_rating": 1095.4505583826933,
+   "truth_score": 38.17,
+   "seed_rank": 2,
+   "gym_rank": 2,
+   "truth_rank": 2
+  },
+  {
+   "model": "thenlper/gte-small",
+   "seed_ndcg": 0.3899194886890333,
+   "n_queries_scored": 100,
+   "gym_rating": 1048.9421950972096,
+   "truth_score": 34.84,
+   "seed_rank": 3,
+   "gym_rank": 3,
+   "truth_rank": 7
+  },
+  {
+   "model": "BAAI/bge-base-en-v1.5",
+   "seed_ndcg": 0.38965300371144274,
+   "n_queries_scored": 100,
+   "gym_rating": 1046.468903393907,
+   "truth_score": 37.37,
+   "seed_rank": 4,
+   "gym_rank": 4,
+   "truth_rank": 4
+  },
+  {
+   "model": "intfloat/e5-base-v2",
+   "seed_ndcg": 0.38939850521115715,
+   "n_queries_scored": 100,
+   "gym_rating": 990.246143388989,
+   "truth_score": 35.42,
+   "seed_rank": 5,
+   "gym_rank": 9,
+   "truth_rank": 5
+  },
+  {
+   "model": "BAAI/bge-large-en-v1.5",
+   "seed_ndcg": 0.386631720247712,
+   "n_queries_scored": 100,
+   "gym_rating": 1041.3783396472422,
+   "truth_score": 38.06,
+   "seed_rank": 6,
+   "gym_rank": 6,
+   "truth_rank": 3
+  },
+  {
+   "model": "mixedbread-ai/mxbai-embed-large-v1",
+   "seed_ndcg": 0.3866077431264976,
+   "n_queries_scored": 100,
+   "gym_rating": 1096.0969275275218,
+   "truth_score": 38.67,
+   "seed_rank": 7,
+   "gym_rank": 1,
+   "truth_rank": 1
+  },
+  {
+   "model": "BAAI/bge-small-en-v1.5",
+   "seed_ndcg": 0.38359881203596663,
+   "n_queries_scored": 100,
+   "gym_rating": 1011.4926065553922,
+   "truth_score": 34.26,
+   "seed_rank": 8,
+   "gym_rank": 8,
+   "truth_rank": 8
+  },
+  {
+   "model": "sentence-transformers/all-mpnet-base-v2",
+   "seed_ndcg": 0.38129962345267593,
+   "n_queries_scored": 100,
+   "gym_rating": 1030.312958127293,
+   "truth_score": 33.29,
+   "seed_rank": 9,
+   "gym_rank": 7,
+   "truth_rank": 9
+  },
+  {
+   "model": "intfloat/multilingual-e5-small",
+   "seed_ndcg": 0.3725210865980461,
+   "n_queries_scored": 100,
+   "gym_rating": 866.4794231598762,
+   "truth_score": 31.1,
+   "seed_rank": 10,
+   "gym_rank": 11,
+   "truth_rank": 12
+  },
+  {
+   "model": "sentence-transformers/all-MiniLM-L6-v2",
+   "seed_ndcg": 0.3712894063918196,
+   "n_queries_scored": 100,
+   "gym_rating": 925.1347127175311,
+   "truth_score": 31.59,
+   "seed_rank": 11,
+   "gym_rank": 10,
+   "truth_rank": 11
+  },
+  {
+   "model": "mteb/baseline-bm25s",
+   "seed_ndcg": 0.3448187872393096,
+   "n_queries_scored": 100,
+   "gym_rating": 806.1566661121491,
+   "truth_score": 32.1,
+   "seed_rank": 12,
+   "gym_rank": 12,
+   "truth_rank": 10
+  }
+ ],
+ "seed_ranking": [
+  "Snowflake/snowflake-arctic-embed-l-v2.0",
+  "thenlper/gte-large",
+  "thenlper/gte-small",
+  "BAAI/bge-base-en-v1.5",
+  "intfloat/e5-base-v2",
+  "BAAI/bge-large-en-v1.5",
+  "mixedbread-ai/mxbai-embed-large-v1",
+  "BAAI/bge-small-en-v1.5",
+  "sentence-transformers/all-mpnet-base-v2",
+  "intfloat/multilingual-e5-small",
+  "sentence-transformers/all-MiniLM-L6-v2",
+  "mteb/baseline-bm25s"
+ ],
+ "gym_ranking": [
+  "mixedbread-ai/mxbai-embed-large-v1",
+  "thenlper/gte-large",
+  "thenlper/gte-small",
+  "BAAI/bge-base-en-v1.5",
+  "Snowflake/snowflake-arctic-embed-l-v2.0",
+  "BAAI/bge-large-en-v1.5",
+  "sentence-transformers/all-mpnet-base-v2",
+  "BAAI/bge-small-en-v1.5",
+  "intfloat/e5-base-v2",
+  "sentence-transformers/all-MiniLM-L6-v2",
+  "intfloat/multilingual-e5-small",
+  "mteb/baseline-bm25s"
+ ],
+ "truth_ranking": [
+  "mixedbread-ai/mxbai-embed-large-v1",
+  "thenlper/gte-large",
+  "BAAI/bge-large-en-v1.5",
+  "BAAI/bge-base-en-v1.5",
+  "intfloat/e5-base-v2",
+  "Snowflake/snowflake-arctic-embed-l-v2.0",
+  "thenlper/gte-small",
+  "BAAI/bge-small-en-v1.5",
+  "sentence-transformers/all-mpnet-base-v2",
+  "mteb/baseline-bm25s",
+  "sentence-transformers/all-MiniLM-L6-v2",
+  "intfloat/multilingual-e5-small"
+ ],
+ "truth_source": "--truth analysis/NFCorpus/truth.json",
+ "vs_gym": {
+  "n_models": 12,
+  "spearman_rho": 0.7412587412587414,
+  "spearman_p": 0.005801150474478245,
+  "kendall_tau": 0.5757575757575757,
+  "kendall_p": 0.008757732750788306
+ },
+ "vs_truth": {
+  "n_models": 12,
+  "spearman_rho": 0.6713286713286714,
+  "spearman_p": 0.016831456186893416,
+  "kendall_tau": 0.4545454545454545,
+  "kendall_p": 0.04473689858238469
+ },
+ "gym_vs_truth": {
+  "n_models": 12,
+  "spearman_rho": 0.8181818181818183,
+  "spearman_p": 0.0011431050868040606,
+  "kendall_tau": 0.6363636363636362,
+  "kendall_p": 0.003181646992410881
+ }
+}

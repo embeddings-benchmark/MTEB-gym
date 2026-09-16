@@ -1,0 +1,16 @@
+| metric | synthetic (openai/gpt-oss-20b) | original |
+|---|---|---|
+| queries | 40 | 50 |
+| mean length (words) | 12.175 | 9.040 |
+| median length (words) | 12.000 | 8.500 |
+| question share | 1.000 | 0.880 |
+| copied-word share, mean per query | 0.636 | null |
+| copied-word share, pooled | 0.653 | null |
+| quality score, mean | 4.975 | null |
+| quality score counts | {"4": 1, "5": 39} | null |
+| n_generated | 64 | null |
+| n_dropped | 24 | null |
+| drop rate | 0.375 | null |
+
+n_generated counts queries that passed the length and degeneracy heuristics during generation; the package does not record why a query was dropped after that, so the drop count folds together the quality gate (score < gen_min_score), near-duplicate removal (Jaccard >= gen_dedup) and the cut to n_queries. Heuristic rejections during generation are not counted anywhere.
+-> analysis/NanoNQRetrieval/query_stats.json and analysis/NanoNQRetrieval/query_stats.md
