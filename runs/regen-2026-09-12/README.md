@@ -80,8 +80,13 @@ official nDCG@10.
   positive in 13 of 14 and 11 of 14 records (nominal Wilcoxon p 0.002 and 0.017), and the same holds
   against a roster-permuted baseline (0.21 and 0.12). The noise share, both orders minus random order, is
   0.025 synthetic and 0.003 original, so once the slot is random the second verdict per pair adds little.
-  The actual roster sits inside the roster-permuted band on every record except NanoNQ, where the roster
-  is most aligned with the official scores (0.74). Three records carry an exact tie in total wins that
+  Fixing one random order per pair instead, so the slot bonus repeats across a pair's queries, costs a
+  further 0.11 synthetic and 0.04 original. Of the ten signed-rank tests, Bonferroni keeps the three
+  synthetic bias results, Holm adds one original, the original bias share and per-pair gap survive only a
+  false-discovery-rate step, and the noise shares survive none. The actual roster sits inside the
+  roster-permuted band (1000 draws) on every record except NanoNQ, where the roster is most aligned with
+  the official scores (0.74). The records' own `spearman_ci95` resamples models, not queries, so it is
+  not a query-level uncertainty for these gaps. Three records carry an exact tie in total wins that
   the Bradley-Terry stopping tolerance breaks arbitrarily; scoring the tie as a tie moves their rho by
   0.014 to 0.027 (NanoNQ synthetic 0.545 to 0.518, NanoQuora synthetic 0.238 to 0.224, NanoNFCorpus
   original 0.769 to 0.750).
