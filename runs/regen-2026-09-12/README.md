@@ -145,6 +145,14 @@ The two judges rank the 12 entrants the same to rho 0.95; MiniMax places bge-lar
 official scores put it, while the 27B judge had it sixth. Same query set and judge prompt hash, so only the
 verdicts differ. The original-query arm (S against the corpus qrels) is running.
 
+The same three analyses on the MiniMax record (`analysis/NFCorpus_m27/`): seed documents as labels give
+rho 0.671 against the judge's 0.895, so the judge is worth 0.22 here (0.15 under the 27B judge). Subsampling
+the verdicts, 20 queries give 0.84, 40 give 0.875, 80 give 0.895; a quarter of the pairs gives 0.865 and half
+gives 0.90. Position bias: the single-order refits give 0.671 and 0.860, random order per pair and query
+0.900, one random order per pair 0.843, half the queries with both orders 0.879; bias share 0.134, noise
+share -0.005, first-position rate 0.630, no win ties. So the less biased judge loses less to a fixed slot
+and nothing to a single random order.
+
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit and `synthesis/position_bias_controls.py` the
 controls. `synthesis/sweep_report.md` is a
