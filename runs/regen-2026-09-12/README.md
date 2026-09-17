@@ -24,9 +24,9 @@ main at `eeb7e05` plus `mteb_gym/reliability.py` and `analysis/`), mteb 2.15.1.
 `results/SUMMARY.jsonl` has one row per corpus and arm (diagnostics, rank agreement for the synthetic
 arm, judge reliability for the original arm). `results/leaderboard_export.json` is the leaderboard
 app's data file for the 14 ranked corpora. `results/level_check.md` puts the regen next to the paper's
-tables. The per-run records (`records/*.json`, 28 files) are on the cluster under
-`tmp_regen/results/records/` and will be added to this folder once cluster access is back (the login
-node's SSH host key changed on Sep 16).
+tables. `results/records/` holds the 28 per-run records (one per corpus and arm; config, diagnostics,
+ratings, and the agreement or reliability readout), the package's own output. The verdict, prediction
+and query caches (179 MB) stay on the cluster under `tmp_regen/results/`.
 
 Paper value in brackets where the corpus is in the paper. rho is Spearman between the label-free
 ranking and official nDCG@10 over the 12 entrants; S is the judge's chance-corrected agreement with
@@ -102,8 +102,11 @@ needs `curand.h`, absent from the env), and the env's `lib` on `LIBRARY_PATH` an
 sbatch scripts/regen_nano.sbatch            # both arms, NFCorpus then the 13 nano corpora
 bash scripts/run_analysis.sh NFCorpus       # truth, original queries, then the three analyses
 python scripts/level_check.py results/SUMMARY.jsonl <paper results.tex> --md level_check.md
-sbatch scripts/regen_nano_397b.sbatch       # optional: re-judge the same queries with Qwen3.5-397B (8 GPUs, cached predictions)
+sbatch scripts/regen_nano_397b.sbatch       # optional: re-judge the same queries with Qwen3.5-397B (8 GPUs, cached predictions; not run, see below)
 ```
+
+The 397B pass was submitted on Sep 12 (job 14398) and cancelled while still pending for 8 GPUs; it has not
+run, so every number here is from the 27B judge.
 
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit. `synthesis/sweep_report.md` is a
