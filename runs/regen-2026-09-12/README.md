@@ -72,6 +72,19 @@ official nDCG@10.
   move a ranking, not as one order being more faithful than the other (`synthesis/position_bias.md`,
   all 28 records; the both-order refit reproduces each record's stored rho and first-position rate
   exactly).
+- Three controls on the raw verdict rows separate the two effects behind that gap
+  (`synthesis/position_bias_controls.md`, 28 records, 200 draws per control). Drawing one order at random
+  per pair and query, so one verdict per pair but no fixed slot, gives rho 0.47 on the synthetic arm and
+  0.57 on the original arm, against 0.49 and 0.57 from both orders and 0.22 and 0.44 from a single fixed
+  order. The bias share, random order minus the fixed-order mean, is 0.25 synthetic and 0.13 original,
+  positive in 13 of 14 and 11 of 14 records (nominal Wilcoxon p 0.002 and 0.017), and the same holds
+  against a roster-permuted baseline (0.21 and 0.12). The noise share, both orders minus random order, is
+  0.025 synthetic and 0.003 original, so once the slot is random the second verdict per pair adds little.
+  The actual roster sits inside the roster-permuted band on every record except NanoNQ, where the roster
+  is most aligned with the official scores (0.74). Three records carry an exact tie in total wins that
+  the Bradley-Terry stopping tolerance breaks arbitrarily; scoring the tie as a tie moves their rho by
+  0.014 to 0.027 (NanoNQ synthetic 0.545 to 0.518, NanoQuora synthetic 0.238 to 0.224, NanoNFCorpus
+  original 0.769 to 0.750).
 - The nano tier is noisy at 40 queries. NFCorpus reads 0.40 nano against 0.82 full, and only 6 of 14
   synthetic-arm rhos reach p < 0.05. Treat the nano rows as a smoke test of the pipeline, not as
   estimates for the main table.
@@ -109,6 +122,7 @@ The 397B pass was submitted on Sep 12 (job 14398) and cancelled while still pend
 run, so every number here is from the 27B judge.
 
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
-#57; `synthesis/position_bias.py` is the single-order refit. `synthesis/sweep_report.md` is a
+#57; `synthesis/position_bias.py` is the single-order refit and `synthesis/position_bias_controls.py` the
+controls. `synthesis/sweep_report.md` is a
 cross-corpus summary of the three analyses, every number in it read from the JSON files under
 `analysis/` and recomputed against them.
