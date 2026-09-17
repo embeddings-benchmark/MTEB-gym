@@ -130,7 +130,20 @@ GPUs, a family different from the judge, the generator and every entrant) over t
 predictions is running from `scripts/regen_nano_m27.sbatch`; the driver's `TASKS`, `ARMS`, `WORKERS` and
 `JUDGE_MAX_TOKENS` switches exist for it. That model thinks before it answers (about 30 judge calls a minute
 on 4 H100s), and the gym keeps the last JSON object of the reply. Its records and a `SUMMARY_<judge>.jsonl`
-land here when the pass completes.
+land here as they complete. The synthetic arm is in: `results/records/NFCorpus__MiniMax-M2.7__*.json` and
+`results/SUMMARY_MiniMaxAI_MiniMax-M2.7.jsonl`.
+
+| NFCorpus, synthetic arm, 100 queries | Qwen3.6-27B | MiniMax-M2.7 |
+|---|---|---|
+| rho vs official nDCG@10 (p) | 0.818 (0.001) | 0.895 (8e-5) |
+| top-10 rho, Kendall tau | 0.721, 0.636 | 0.855, 0.758 |
+| commit rate, first-position rate | 0.567, 0.693 | 0.727, 0.630 |
+| parse failures (scored as ties) | 0.02% | 1.99% |
+| judge calls, wall time | 13,198, 73 min on 1 GPU | 13,198, 9.0 h on 4 GPUs |
+
+The two judges rank the 12 entrants the same to rho 0.95; MiniMax places bge-large third, where the
+official scores put it, while the 27B judge had it sixth. Same query set and judge prompt hash, so only the
+verdicts differ. The original-query arm (S against the corpus qrels) is running.
 
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit and `synthesis/position_bias_controls.py` the
