@@ -121,10 +121,16 @@ sbatch scripts/regen_nano.sbatch            # both arms, NFCorpus then the 13 na
 bash scripts/run_analysis.sh NFCorpus       # truth, original queries, then the three analyses
 python scripts/level_check.py results/SUMMARY.jsonl <paper results.tex> --md level_check.md
 sbatch scripts/regen_nano_397b.sbatch       # optional: re-judge the same queries with Qwen3.5-397B (8 GPUs, cached predictions; not run, see below)
+TASKS=NFCorpus sbatch scripts/regen_nano_m27.sbatch   # second judge, MiniMax-M2.7 on 4 GPUs, same queries and predictions
 ```
 
 The 397B pass was submitted on Sep 12 (job 14398) and cancelled while still pending for 8 GPUs; it has not
-run, so every number here is from the 27B judge.
+run, so every number here is from the 27B judge. A second-judge pass with `MiniMaxAI/MiniMax-M2.7` (FP8, 4
+GPUs, a family different from the judge, the generator and every entrant) over the same NFCorpus queries and
+predictions is running from `scripts/regen_nano_m27.sbatch`; the driver's `TASKS`, `ARMS`, `WORKERS` and
+`JUDGE_MAX_TOKENS` switches exist for it. That model thinks before it answers (about 30 judge calls a minute
+on 4 H100s), and the gym keeps the last JSON object of the reply. Its records and a `SUMMARY_<judge>.jsonl`
+land here when the pass completes.
 
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit and `synthesis/position_bias_controls.py` the

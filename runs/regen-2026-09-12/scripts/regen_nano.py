@@ -4,7 +4,9 @@ export. Launched by regen_nano.sbatch on a 2-GPU node; MOCK=1 exercises the whol
 node with the mock LLM and three small models before any GPU slot is used.
 
 Usage: python regen_nano.py <output_folder>
-Env (real run): JUDGE_MODEL JUDGE_URL GEN_MODEL GENERATOR_URL
+Env (real run): JUDGE_MODEL JUDGE_URL GEN_MODEL GENERATOR_URL; optional TASKS (comma list, limits the
+pass), JUDGE_MAX_TOKENS (default 1024; raise it for a judge that reasons before answering), WORKERS (default 16;
+concurrent judge calls, raise it for a server that batches well), ARMS (default synthetic,original).
 """
 
 import json
@@ -58,6 +60,13 @@ MODELS = [
     "intfloat/multilingual-e5-small",  # multilingual-e5-large-instruct fails to load in the venv (Pooling config; job 14253)
 ]
 
+if os.environ.get("TASKS"):  # e.g. TASKS=NFCorpus for a second judge on the level-check corpus only
+    wanted = [t.strip() for t in os.environ["TASKS"].split(",") if t.strip()]
+    unknown = sorted(set(wanted) - set(TASKS))
+    if unknown:
+        sys.exit(f"TASKS names tasks outside the sweep: {unknown}")
+    TASKS = [t for t in TASKS if t in wanted]
+
 if os.environ.get("MOCK"):
     TASKS = [os.environ.get("MOCK_TASK", "NanoNFCorpusRetrieval")]
     MODELS = ["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "sentence-transformers/all-MiniLM-L6-v2"]
@@ -69,7 +78,7 @@ else:
         os.environ["JUDGE_MODEL"],
         base_url=os.environ["JUDGE_URL"],
         api_key="EMPTY",
-        max_tokens=1024,
+        max_tokens=int(os.environ.get("JUDGE_MAX_TOKENS", "1024")),
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     # generator: gpt-oss reasons before answering; low effort, no cap (a cap would count the reasoning),
@@ -77,7 +86,8 @@ else:
     generator = gym.LLM(
         os.environ["GEN_MODEL"], base_url=os.environ["GENERATOR_URL"], api_key="EMPTY", extra_body={"reasoning_effort": "low"}
     )
-    N_QUERIES, BOOTSTRAP, WORKERS = 40, 1000, 16  # 8 workers drove the 27B judge at ~3 calls/s; the server allows 64 sequences
+    N_QUERIES, BOOTSTRAP = 40, 1000
+    WORKERS = int(os.environ.get("WORKERS", "16"))  # 16 drove the 27B judge at ~3 calls/s; a thinking MoE judge wants more in flight
 N_QUERIES_BY_TASK = {"NFCorpus": 100}  # full-scale corpus: the package default; nano corpora keep 40
 
 if os.environ.get("JUDGE_ONLY"):
@@ -105,8 +115,12 @@ def note(row: dict) -> None:
     log.info("SUMMARY %s", json.dumps(row))
 
 
+ARMS = tuple(a.strip() for a in os.environ.get("ARMS", "synthetic,original").split(",") if a.strip())
+if set(ARMS) - {"synthetic", "original"}:
+    sys.exit(f"ARMS must be synthetic and/or original, got {ARMS}")
+
 for task in TASKS:
-    for arm in ("synthetic", "original"):
+    for arm in ARMS:
         t0 = time.time()
         try:
             res = gym.run(
