@@ -530,7 +530,6 @@ def ci95_sentences(S: dict, syn: list[dict], org: list[dict]) -> str:
     n_shared = sorted({r["n_models_in_truth"] for r in syn + org})
     shared = f"all {n_shared[0]} roster models on every record here" if len(n_shared) == 1 else \
         f"{n_shared[0]} to {n_shared[-1]} models here"
-    w_s, w_o = S["synthetic"]["spearman_ci95_width"], S["original"]["spearman_ci95_width"]
     parts = [
         f"The spearman_ci95 interval in a record's agreement block is a model bootstrap, not a query-level "
         f"uncertainty. mteb_gym.agreement.correlate resamples the shared models ({shared}) with replacement "
@@ -539,7 +538,11 @@ def ci95_sentences(S: dict, syn: list[dict], org: list[dict]) -> str:
         f"the 2.5 and 97.5 percentiles, so it measures how much rho depends on which models are in the roster; the "
         f"queries and the verdicts are never resampled, and the judge noise that the controls above measure does not "
         f"enter it."]
-    for arm, w, rows, S_arm in (("synthetic", w_s, syn, S["synthetic"]), ("original", w_o, org, S["original"])):
+    for arm, rows in (("synthetic", syn), ("original", org)):
+        if not rows:
+            continue
+        S_arm = S[arm]
+        w = S_arm["spearman_ci95_width"]
         if w["n"]:
             parts.append(f"Recomputed with that function from the record ratings and truth.json, it is reproduced on "
                          f"{w['n']} of {len(rows)} {arm} records (largest edge difference "
@@ -575,6 +578,8 @@ def correction_sentence(mt: dict) -> str:
 def results_section(out: dict, draws: int, c2_draws: int) -> list[str]:
     """What the controls show, generated from the summaries and the per-record rows."""
     S, syn, org = out["summary"], out["synthetic"], out["original"]
+    if not syn or not org:
+        return single_arm_section(out, draws, c2_draws)
     mt = S["multiple_testing"]
     bs, bo = S["synthetic"]["bias_share"], S["original"]["bias_share"]
     zs, zo = S["synthetic"]["noise_share"], S["original"]["noise_share"]
@@ -664,6 +669,53 @@ def results_section(out: dict, draws: int, c2_draws: int) -> list[str]:
         f"{f3(S['original']['rho_both_tie_aware']['mean'])} (original); the largest per-record shift is "
         f"{f3(S['synthetic']['max_abs_tie_shift'])} synthetic and {f3(S['original']['max_abs_tie_shift'])} original. The "
         f"decomposition above uses the reported rho_both. No other record has a tie.",
+        "",
+    ]
+
+
+def single_arm_section(out: dict, draws: int, c2_draws: int) -> list[str]:
+    """The results section when only one arm is present (for example a --only run), from that arm's
+    summary alone; the two-arm comparison is not written."""
+    arm = "synthetic" if out["synthetic"] else "original"
+    rows, s, mt = out[arm], out["summary"][arm], out["summary"]["multiple_testing"]
+    n, se = len(rows), s["max_mc_se"]
+    bs, zs, cs, gs = s["bias_share"], s["noise_share"], s["both_minus_c3"], s["c1_minus_c1_pair"]
+    top = most_aligned(rows)
+    tests = (f" Wilcoxon p = {bs['wilcoxon_p']:.3f} (bias share), {zs['wilcoxon_p']:.3f} (noise share), "
+             f"{cs['wilcoxon_p']:.3f} (both minus C3) and {gs['wilcoxon_p']:.3f} (C1 minus C1 per pair); "
+             f"{correction_sentence(mt)}" if n > 1 else " Signed-rank tests need more than one record and are not read here.")
+    return [
+        "## What the controls show", "",
+        f"This run covers the {arm} arm only ({n} record{'s' if n != 1 else ''}), so the two-arm comparison is not "
+        f"written and the numbers below are this arm's own.",
+        "",
+        f"The bias share, mean(C1) minus the single-order mean, averages {f3(bs['mean'])} (range {f3(bs['min'])} to "
+        f"{f3(bs['max'])}), positive in {bs['n_positive']} of {n}; mean(C1) minus mean(C2) averages "
+        f"{f3(s['c1_minus_c2']['mean'])}. The noise share, rho_both minus mean(C1), averages {f3(zs['mean'])} (range "
+        f"{f3(zs['min'])} to {f3(zs['max'])}), positive in {zs['n_positive']} of {n}; rho_both minus mean(C3) averages "
+        f"{f3(cs['mean'])} (range {f3(cs['min'])} to {f3(cs['max'])}), positive in {cs['n_positive']} of {n}. The largest "
+        f"absolute noise share over its own C1 draw sd is {s['max_abs_noise_share_over_c1_sd']:.2f}. C1 per pair averages "
+        f"{f3(s['c1_pair_mean']['mean'])}, so C1 minus C1 per pair averages {f3(gs['mean'])} (range {f3(gs['min'])} to "
+        f"{f3(gs['max'])}), positive in {gs['n_positive']} of {n}.{tests} Negative bias shares: {neg_bias(rows)}. "
+        f"{ci95_sentences(out['summary'], out['synthetic'], out['original'])}",
+        "",
+        f"Against the {draws}-draw C2 band, rho_order1 lies inside on {s['n_records_order1_within_c2_band']} of {n} records "
+        f"and rho_order2 on {s['n_records_order2_within_c2_band']} of {n}; out of band: {out_of_band(rows)}. Against the "
+        f"{c2_draws}-draw band, rho_order1 lies inside on {s['n_records_order1_within_c2_1000_band']} of {n} and rho_order2 "
+        f"on {s['n_records_order2_within_c2_1000_band']} of {n}; out of band: {out_of_band(rows, 'c2_1000')}. Cases whose "
+        f"status differs between the two bands: {band_moves(rows, draws, c2_draws)}. The record whose roster is most "
+        f"aligned with truth is {top['task']} ({f3(top['roster_truth_rho'])}); its single-order refits are "
+        f"{f3(top['rho_order1'])} and {f3(top['rho_order2'])}.",
+        "",
+        f"Monte Carlo error. With {draws} draws the standard error of a control mean is at most {se['c1']:.3f} (C1), "
+        f"{se['c2']:.3f} (C2), {se['c3']:.3f} (C3) and {se['c1_pair']:.3f} (C1 per pair) per record; with {c2_draws} draws "
+        f"the C2 standard error is at most {se['c2_1000']:.3f}. Each per-record C1 minus C1 per pair gap carries a Monte "
+        f"Carlo standard error of at most {gap_se(se):.3f}.",
+        "",
+        f"Tie-break. The design is balanced in {s['n_records_balanced']} of {n} records. Exact ties in total wins: "
+        f"{tie_list(rows)}. Giving tied models the mean rating moves the arm mean of rho_both from "
+        f"{f3(s['rho_both']['mean'])} to {f3(s['rho_both_tie_aware']['mean'])}; the largest per-record shift is "
+        f"{f3(s['max_abs_tie_shift'])}.",
         "",
     ]
 
