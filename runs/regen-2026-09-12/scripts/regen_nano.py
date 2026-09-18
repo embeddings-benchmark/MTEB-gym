@@ -6,7 +6,9 @@ node with the mock LLM and three small models before any GPU slot is used.
 Usage: python regen_nano.py <output_folder>
 Env (real run): JUDGE_MODEL JUDGE_URL GEN_MODEL GENERATOR_URL; optional TASKS (comma list, limits the
 pass), JUDGE_MAX_TOKENS (default 1024; raise it for a judge that reasons before answering), WORKERS (default 16;
-concurrent judge calls, raise it for a server that batches well), ARMS (default synthetic,original).
+concurrent judge calls, raise it for a server that batches well), ARMS (default synthetic,original),
+JUDGE_TIMEOUT (seconds per judge call, default 120; a judge that thinks for thousands of tokens under
+load needs more, a timeout ends the whole arm after the client's 4 retries).
 """
 
 import json
@@ -80,6 +82,7 @@ else:
         api_key="EMPTY",
         max_tokens=int(os.environ.get("JUDGE_MAX_TOKENS", "1024")),
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        timeout=float(os.environ.get("JUDGE_TIMEOUT", "120")),
     )
     # generator: gpt-oss reasons before answering; low effort, no cap (a cap would count the reasoning),
     # the server's reasoning parser keeps the reasoning out of the content the gym parses

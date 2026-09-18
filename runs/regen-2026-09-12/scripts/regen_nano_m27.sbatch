@@ -20,7 +20,10 @@ VLLM=$CONDA_ENV/bin/vllm
 NV=$CONDA_ENV/lib/python3.12/site-packages/nvidia
 export JUDGE_MODEL=MiniMaxAI/MiniMax-M2.7
 export GEN_MODEL=openai/gpt-oss-20b                 # cache key only; never called (JUDGE_ONLY)
-export JUDGE_ONLY=1 JUDGE_MAX_TOKENS=6144 TASKS=${TASKS:-NFCorpus} ARMS=${ARMS:-synthetic,original} WORKERS=${WORKERS:-48}
+export JUDGE_ONLY=1 JUDGE_MAX_TOKENS=6144 TASKS=${TASKS:-NFCorpus} ARMS=${ARMS:-synthetic,original}
+# 16 and 48 workers gave the same ~25 calls/min (generation bound), 48 just tripled the per-call latency and
+# one call passed the client's 120 s timeout 4 times, which ends the arm (job 14710, original arm, 10.6 h in)
+export WORKERS=${WORKERS:-24} JUDGE_TIMEOUT=${JUDGE_TIMEOUT:-900}
 export HF_HUB_OFFLINE=1 TQDM_DISABLE=1 HF_HUB_DISABLE_PROGRESS_BARS=1 TRANSFORMERS_VERBOSITY=error
 export VLLM_LOGGING_LEVEL=WARNING PYTHONUNBUFFERED=1
 export PYTHONPATH=$RUNS/MTEB-gym-v2
@@ -37,6 +40,10 @@ export VLLM_USE_FLASHINFER_SAMPLER=0
 # and keep the FP8 block-scaled GEMMs on the kernels compiled into vllm (CUTLASS, Triton) instead of JIT ones
 export VLLM_DISABLED_KERNELS=FlashInferFp8BlockScaledMMKernel,FlashInferFp8DeepGEMMDynamicBlockScaledKernel,DeepGemmFp8BlockScaledMMKernel,FlashInferFP8ScaledMMLinearKernel
 export VLLM_USE_DEEP_GEMM=0 VLLM_USE_FLASHINFER_MOE_FP8=0
+# per-job kernel caches under the run folder: on slinky-0 /tmp/triton holds entries owned by another account
+# and the worker died on 'Permission denied' at the profile run (job 14731)
+export TRITON_CACHE_DIR=$RUNS/kernel_cache/triton VLLM_CACHE_ROOT=$RUNS/kernel_cache/vllm TORCHINDUCTOR_CACHE_DIR=$RUNS/kernel_cache/inductor
+mkdir -p "$TRITON_CACHE_DIR" "$VLLM_CACHE_ROOT" "$TORCHINDUCTOR_CACHE_DIR"
 echo "job $SLURM_JOB_ID on $(hostname)  $(date -Iseconds)  tasks=$TASKS"
 cd "$RUNS/MTEB-gym-v2" && echo "gym at $(git rev-parse --short HEAD) ($(git branch --show-current))" && cd "$RUNS"
 
@@ -44,17 +51,21 @@ IFS=',' read -ra G <<< "${CUDA_VISIBLE_DEVICES:-${SLURM_STEP_GPUS:-}}"
 [ "${#G[@]}" -lt 4 ] && { echo "FATAL: need 4 GPUs, got: ${G[*]:-none}"; exit 1; }
 echo "gpus: ${G[*]}"
 
-"$VLLM" serve "$JUDGE_MODEL" --port 8000 --tensor-parallel-size 4 --trust-remote-code \
+# stale workers from an earlier job of mine on this node would hold GPU memory (the node is not cgroup-isolated);
+# sweep only MiniMax servers (and their process group) before launch; never touch other users' workers
+for p in $(pgrep -f "vllm serve $JUDGE_MODEL" 2>/dev/null); do [ "$p" != "$$" ] && { echo "killing stale server $p"; kill -9 -- -"$(ps -o pgid= -p "$p" | tr -d " ")" 2>/dev/null; kill -9 "$p" 2>/dev/null; }; done
+sleep 3
+setsid "$VLLM" serve "$JUDGE_MODEL" --port 8000 --tensor-parallel-size 4 --trust-remote-code \
     --gpu-memory-utilization 0.90 --max-model-len 12288 --max-num-seqs 64 \
     --served-model-name "$JUDGE_MODEL" > "$RUNS/vllm-judge-$SLURM_JOB_ID.log" 2>&1 &
 JP=$!
-cleanup() { echo "tearing down vllm"; kill $JP 2>/dev/null; sleep 5; kill -9 $JP 2>/dev/null; }
+cleanup() { echo "tearing down vllm (process group)"; kill -- -$JP 2>/dev/null; sleep 8; kill -9 -- -$JP 2>/dev/null; kill -9 $JP 2>/dev/null; }
 trap cleanup EXIT
 
-for i in $(seq 1 180); do   # 215 GB of FP8 weights over the network file system: allow 30 min
+for i in $(seq 1 360); do   # weights load in a minute once cached; CUDA graph capture stalled on slinky-0 (job 14733): allow 60 min
   curl -sf "http://localhost:8000/v1/models" >/dev/null 2>&1 && { echo "judge ready after $((i*10))s"; break; }
   kill -0 "$JP" 2>/dev/null || { echo "FATAL: judge process died; see vllm-judge-$SLURM_JOB_ID.log"; exit 1; }
-  [ "$i" -eq 180 ] && { echo "FATAL: judge did not come up within 1800s"; exit 1; }
+  [ "$i" -eq 360 ] && { echo "FATAL: judge did not come up within 3600s"; exit 1; }
   sleep 10
 done
 

@@ -127,9 +127,12 @@ TASKS=NFCorpus sbatch scripts/regen_nano_m27.sbatch   # second judge, MiniMax-M2
 The 397B pass was submitted on Sep 12 (job 14398) and cancelled while still pending for 8 GPUs; it has not
 run, so every number here is from the 27B judge. A second-judge pass with `MiniMaxAI/MiniMax-M2.7` (FP8, 4
 GPUs, a family different from the judge, the generator and every entrant) over the same NFCorpus queries and
-predictions is running from `scripts/regen_nano_m27.sbatch`; the driver's `TASKS`, `ARMS`, `WORKERS` and
-`JUDGE_MAX_TOKENS` switches exist for it. That model thinks before it answers (about 30 judge calls a minute
-on 4 H100s), and the gym keeps the last JSON object of the reply. Its records and a `SUMMARY_<judge>.jsonl`
+predictions is running from `scripts/regen_nano_m27.sbatch`; the driver's `TASKS`, `ARMS`, `WORKERS`,
+`JUDGE_MAX_TOKENS` and `JUDGE_TIMEOUT` switches exist for it. That model thinks before it answers (about 30
+judge calls a minute on 4 H100s whether 16 or 48 calls are in flight, so the job runs 24 with a 900 s client
+timeout; the package default of 120 s ended one arm after its 4 retries), and the gym keeps the last JSON
+object of the reply. The pass spans several 12 h jobs chained with `--dependency=afterany`; the verdict cache
+resumes at the row. Its records and a `SUMMARY_<judge>.jsonl`
 land here as they complete. The synthetic arm is in: `results/records/NFCorpus__MiniMax-M2.7__*.json` and
 `results/SUMMARY_MiniMaxAI_MiniMax-M2.7.jsonl`.
 
