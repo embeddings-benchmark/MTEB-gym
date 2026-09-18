@@ -156,8 +156,22 @@ gives 0.90. Position bias: the single-order refits give 0.671 and 0.860, random 
 share -0.005, first-position rate 0.630, no win ties. So the less biased judge loses less to a fixed slot
 and nothing to a single random order.
 
+Two more checks on the judge comparison. A query-level bootstrap of rho (`synthesis/rho_query_bootstrap.md`,
+1000 resamples of the queries, both orders kept) puts MiniMax at [0.77, 0.96] and the 27B judge at [0.69,
+0.91] on NFCorpus; paired on the same query draws the difference is 0.063 with interval [-0.03, 0.18], so
+the 0.077 gap does not clear zero. Across all 28 records that query interval is 2.1 to 2.5 times narrower
+than the record's own `spearman_ci95`, which resamples models, and no noise share in the position-bias
+controls exceeds one query-bootstrap sd. The 262 unparsed MiniMax orders (`synthesis/m27_parse_failures.md`)
+are the last rows to finish in each pair file (median completion decile 95 against 48 for other rows),
+correlate with pair wall time, and left no reasoning text, which fits replies cut at the 6144-token cap
+while the model was still thinking; order 2 fails twice as often as order 1 (2.65 against 1.32 percent),
+and the 22 generated queries that carry a non-ASCII character (mostly a non-breaking hyphen) fail at twice
+the rate of the rest. Input length barely varies in this run and does not explain them. 81 percent of the
+affected rows still got a committed verdict from the other order, and dropping the failed rows instead of
+scoring them as ties leaves rho and the 12-model order unchanged.
+
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
-#57; `synthesis/position_bias.py` is the single-order refit and `synthesis/position_bias_controls.py` the
-controls. `synthesis/sweep_report.md` is a
+#57; `synthesis/position_bias.py` is the single-order refit, `synthesis/position_bias_controls.py` the
+controls and `synthesis/rho_query_bootstrap.py` the query bootstrap. `synthesis/sweep_report.md` is a
 cross-corpus summary of the three analyses, every number in it read from the JSON files under
 `analysis/` and recomputed against them.
