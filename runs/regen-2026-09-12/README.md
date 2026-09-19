@@ -132,9 +132,9 @@ predictions is running from `scripts/regen_nano_m27.sbatch`; the driver's `TASKS
 judge calls a minute on 4 H100s whether 16 or 48 calls are in flight, so the job runs 24 with a 900 s client
 timeout; the package default of 120 s ended one arm after its 4 retries), and the gym keeps the last JSON
 object of the reply. The pass spans several 12 h jobs chained with `--dependency=afterany`; the verdict cache
-resumes at the row. Its records and a `SUMMARY_<judge>.jsonl`
-land here as they complete. The synthetic arm is in: `results/records/NFCorpus__MiniMax-M2.7__*.json` and
-`results/SUMMARY_MiniMaxAI_MiniMax-M2.7.jsonl`.
+resumes at the row. Both arms are in: `results/records/NFCorpus__MiniMax-M2.7__*.json`,
+`results/SUMMARY_MiniMaxAI_MiniMax-M2.7.jsonl` (one failed original-arm attempt is kept in it) and
+`results/leaderboard_export_MiniMaxAI_MiniMax-M2.7.json`.
 
 | NFCorpus, synthetic arm, 100 queries | Qwen3.6-27B | MiniMax-M2.7 |
 |---|---|---|
@@ -144,9 +144,20 @@ land here as they complete. The synthetic arm is in: `results/records/NFCorpus__
 | parse failures (scored as ties) | 0.02% | 1.99% |
 | judge calls, wall time | 13,198, 73 min on 1 GPU | 13,198, 9.0 h on 4 GPUs |
 
-The two judges rank the 12 entrants the same to rho 0.95; MiniMax places bge-large third, where the
-official scores put it, while the 27B judge had it sixth. Same query set and judge prompt hash, so only the
-verdicts differ. The original-query arm (S against the corpus qrels) is running.
+| NFCorpus, original arm, 323 queries | Qwen3.6-27B | MiniMax-M2.7 |
+|---|---|---|
+| S against the qrels, committed verdicts (95% CI) | 0.486 [0.440, 0.532] | 0.471 [0.424, 0.521] |
+| committed agreement, clear-winner agreement | 0.743, 0.830 | 0.736, 0.826 |
+| tier | A | A |
+| commit rate, first-position rate | 0.665, 0.606 | 0.777, 0.595 |
+| parse failures (scored as ties) | 0.02% | 4.05% |
+| judge calls, wall time | 42,636, 3.6 h on 1 GPU | 42,636, about 28 h over three chained 4-GPU jobs |
+
+The two judges rank the 12 entrants the same to rho 0.95 on the synthetic arm and 0.92 on the original arm;
+MiniMax places bge-large third, where the official scores put it, while the 27B judge had it sixth. Same
+query sets and judge prompt hash, so only the verdicts differ. On the original arm the agreement with the
+corpus's own labels does not move with the stronger cross-family judge: S 0.471 against 0.486, both tier A,
+both below the paper's 0.565 on the 25-model roster. The parse-failure rate is twice the synthetic arm's.
 
 The same three analyses on the MiniMax record (`analysis/NFCorpus_m27/`): seed documents as labels give
 rho 0.671 against the judge's 0.895, so the judge is worth 0.22 here (0.15 under the 27B judge). Subsampling

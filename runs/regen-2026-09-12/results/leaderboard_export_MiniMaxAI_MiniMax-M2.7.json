@@ -1,0 +1,103 @@
+{
+ "meta": {
+  "generated": "2026-09-19",
+  "judge": "MiniMaxAI/MiniMax-M2.7",
+  "experiment_commit": "71b2cf4a2d566b4cf7290690b00a3b4285c06718",
+  "mteb_version": "2.15.1",
+  "dropped": []
+ },
+ "corpora": {
+  "NFCorpus": {
+   "n_queries": 100,
+   "config_hash": "e3221360",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1098.3,
+     "ci_low": 1074.0,
+     "ci_high": 1122.9
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1091.4,
+     "ci_low": 1062.7,
+     "ci_high": 1123.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1054.5,
+     "ci_low": 1030.3,
+     "ci_high": 1080.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1043.6,
+     "ci_low": 1015.8,
+     "ci_high": 1074.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1033.2,
+     "ci_low": 1006.7,
+     "ci_high": 1062.0
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1025.0,
+     "ci_low": 996.9,
+     "ci_high": 1052.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1016.0,
+     "ci_low": 985.1,
+     "ci_high": 1047.4
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1000.6,
+     "ci_low": 976.2,
+     "ci_high": 1028.3
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 998.9,
+     "ci_low": 972.9,
+     "ci_high": 1026.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 931.3,
+     "ci_low": 895.1,
+     "ci_high": 967.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 884.4,
+     "ci_low": 845.9,
+     "ci_high": 917.5
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 822.9,
+     "ci_low": 781.8,
+     "ci_high": 858.6
+    }
+   ]
+  }
+ },
+ "reliability": {
+  "NFCorpus": {
+   "committed": 0.7357,
+   "kappa": 0.4713,
+   "kappa_ci95": [
+    0.4235,
+    0.5209
+   ],
+   "clear": 0.8261,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 263
+  }
+ }
+}
