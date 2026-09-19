@@ -5,9 +5,9 @@
 #SBATCH --gres=gpu:2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=200G
-#SBATCH --time=12:00:00
+#SBATCH --time=12:00:00                      # job 14359 ran with 6 h and hit the limit; job 14372 resumed from its caches
 #SBATCH --output=/data/home/niklas/tejas/tmp_regen/%x-%j.log
-# Nano-tier regeneration under mteb_gym (branch tejas/reliability-leaderboard = main + reliability).
+# Nano-tier regeneration under mteb_gym at commit 71b2cf4 (branch tejas/analysis-scripts = main + reliability + analysis/).
 # GPU 0: judge Qwen3.6-27B (shared HF cache). GPU 1: generator openai/gpt-oss-20b (own HF_HOME, a
 # different family from the judge and from every entrant) plus the embedders, which is why the
 # generator server leaves most of its GPU free. Everything written stays under tmp_regen/.

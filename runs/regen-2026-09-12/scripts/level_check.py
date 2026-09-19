@@ -62,7 +62,7 @@ def main(argv):
         if r.get("status") == "ok":
             by.setdefault(r["task"], {})[r["arm"]] = r
     lines = [
-        "# Level check: paper (old package) vs regen (mteb_gym main; NFCorpus at full scale, the rest nano tier)",
+        "# Level check of the paper (old package) against the regen (mteb_gym main; NFCorpus at full scale, the rest nano tier)",
         "",
         "Not a replication: nano corpora, a 12-model roster, the rewritten judge prompt with the mteb task",
         "description injected, and a gpt-oss-20b generator. The question is only whether the per-corpus",
@@ -75,16 +75,17 @@ def main(argv):
         paper = NANO_TO_PAPER.get(task, task)
         pr = rho.get(paper) if paper else None
         pk = kappa.get(paper) if paper else None
+        show = (paper or task).replace("\\'", "")  # the paper label is a results.tex key; print it without the LaTeX accent escape
         syn = arms.get("synthetic", {}).get("agreement") or {}
         org = arms.get("original", {}).get("reliability") or {}
         r_txt = f"{syn['spearman_rho']:+.3f} ({syn['n_models']})" if syn.get("spearman_rho") is not None else ("err: " + str(syn.get("error", "no synthetic arm"))[:40])
         s_txt = f"{org['s_committed']:+.3f}" if org.get("s_committed") is not None else ("err: " + str(org.get("error", "no original arm"))[:40])
         lines.append(
-            f"| {paper or task} | {pr[0]:+.3f} ({pr[1]}) | {r_txt} | {pk[0]:.3f} ({pk[1]}) | {s_txt} | {org.get('tier', '')} |"
+            f"| {show} | {pr[0]:+.3f} ({pr[1]}) | {r_txt} | {pk[0]:.3f} ({pk[1]}) | {s_txt} | {org.get('tier', '')} |"
             if pr and pk
-            else f"| {paper or task} | {pr[0]:+.3f} ({pr[1]}) | {r_txt} | n/a | {s_txt} | {org.get('tier', '')} |"
+            else f"| {show} | {pr[0]:+.3f} ({pr[1]}) | {r_txt} | n/a | {s_txt} | {org.get('tier', '')} |"
             if pr
-            else f"| {paper or task} | n/a | {r_txt} | n/a | {s_txt} | {org.get('tier', '')} |"
+            else f"| {show} | n/a | {r_txt} | n/a | {s_txt} | {org.get('tier', '')} |"
         )
     # ordering check over corpora present in both
     both = [(rho[NANO_TO_PAPER[t]][0], a["synthetic"]["agreement"]["spearman_rho"]) for t, a in by.items()

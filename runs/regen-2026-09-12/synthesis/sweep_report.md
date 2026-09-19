@@ -1,8 +1,8 @@
-# MTEB-Gym regeneration sweep: cross-corpus synthesis
+# MTEB-Gym regeneration sweep, cross-corpus synthesis
 
-Inputs: `scratchpad/nano_analysis/<task>/{query_stats.json, seed_baseline.json, scaling.json, level_check.md}` for 14 tasks. NFCorpus is the full corpus with 100 synthetic queries; the 13 Nano* tasks use 40 synthetic queries and the corpus's own 50 queries (NanoTouche2020 has 49). Every number below was read from the JSON with `synthesis/extract.py` (dump in `synthesis/extracted.json`) and the tables were rendered by `synthesis/build_report.py`; nothing was transcribed by eye.
+Inputs: `analysis/<task>/{query_stats.json, seed_baseline.json, scaling.json}` for 14 tasks and `results/level_check.md`. NFCorpus is the full corpus with 100 synthetic queries; the 13 Nano* tasks use 40 synthetic queries and the corpus's own 50 queries (NanoTouche2020 has 49). Every number below is read from those JSON files.
 
-Sanity checks that passed on all 14 tasks: no template-looking `${...}` text in any input; `scaling.full.rho` equals `seed_baseline.gym_vs_truth.spearman_rho`; 12 models, 66 pairs, k=10, 200 draws per grid point, tolerance 0.05; quality `n_unscored` = 0; copied-word `n_missing_seed_docs` = 0; 66/66 pairs found and 0 kept-but-unjudged queries in every record. Generator is `openai/gpt-oss-20b` with seed docs given (`docs_given: true`) everywhere. "Official" and "truth" both mean the official MTEB ranking loaded from `truth.json`.
+On all 14 tasks `scaling.full.rho` equals `seed_baseline.gym_vs_truth.spearman_rho`; 12 models, 66 pairs, k=10, 200 draws per grid point, tolerance 0.05; quality `n_unscored` = 0; copied-word `n_missing_seed_docs` = 0; 66/66 pairs found and 0 kept-but-unjudged queries in every record. Generator is `openai/gpt-oss-20b` with seed docs given (`docs_given: true`) everywhere. "Official" and "truth" both mean the official MTEB ranking loaded from `truth.json`.
 
 ## Table 1. Synthetic queries vs the corpus's own queries (`query_stats.json`)
 
@@ -52,7 +52,7 @@ Spearman rho over the 12-model roster. `gym vs official` = the LLM-judged gym ra
 
 **Summary over 14 corpora.** judge - seed: mean +0.051, median +0.000; the judge wins (difference > 0) on 7 of 14 and loses on 7; |difference| <= 0.10 on 6 of 14 and <= 0.05 on 3. Column means/medians: gym vs official 0.495/0.559, seed vs official 0.443/0.524, seed vs gym 0.566/0.775. Over the 13 nano tasks only: judge - seed mean +0.044, median -0.014, judge wins 6 of 13. gym vs official has p < 0.05 on 6 of 14 (NFCorpus, NanoDBPedia, NanoFiQA2018, NanoHotpotQA, NanoMSMARCO, NanoSciFact); seed vs official has p < 0.05 on 6 of 14 (NFCorpus, NanoArguAna, NanoDBPedia, NanoHotpotQA, NanoNQ, NanoSciFact). Seed coverage is below 1.0 on 4 corpora (NanoClimateFever 0.750, NanoMSMARCO 0.950, NanoTouche2020 0.950, NanoFiQA2018 0.975).
 
-## Table 3. Subsampling: smallest budget whose mean rho is within 0.05 of the full-data rho (`scaling.json`)
+## Table 3. Subsampling, smallest budget whose mean rho is within 0.05 of the full-data rho (`scaling.json`)
 
 All values are **means over 200 random draws** per grid point (seed 0); the criterion is |mean rho at the point - full-data rho| <= 0.05, and the smallest grid point satisfying it is reported. `within` is the fraction of the 200 draws that individually landed within 0.05, a much stricter statement than the mean criterion. Grids: queries {5, 10, 20, 40} (NFCorpus adds 80, 100); pair fraction {0.25, 0.5, 1.0}; models 4..12. `(full)` marks a corpus that only meets the criterion at the full grid point, where it holds trivially. `(nm)` marks an axis that is not monotone, i.e. some larger budget above the reported one falls back outside 0.05. At pair fraction 0.25 only 142 or 143 of the 200 draws produced a defined rho (`n_valid`), so those means rest on fewer draws.
 
@@ -75,9 +75,9 @@ All values are **means over 200 random draws** per grid point (seed 0); the crit
 
 **Summary.** Queries axis: 8 of 14 corpora only reach the criterion at the full query count; the rest reach it at 5 (NanoArguAna, NanoNFCorpus), 10 (NanoFiQA2018, NanoSCIDOCS) or 20 (NFCorpus, NanoSciFact). The per-draw `within` fraction at 20 queries (40 for NFCorpus, whose grid steps 40 -> 80 with no 50) averages 0.352 (range 0.185 to 0.520), and at 5 queries 0.172 (max 0.275). Pairs axis: 0.25 suffices on 10 of 14, 0.5 on 2, and 2 (NanoDBPedia, NanoQuora) need all pairs. Models axis: smallest count ranges 4 to 10, median 5, mean 5.79; the axis is non-monotone on 4 corpora (NanoFEVERRetrieval, NanoNFCorpusRetrieval, NanoQuoraRetrieval, NanoTouche2020Retrieval), and the queries axis is non-monotone on NanoFiQA2018Retrieval (within at 10, outside at 20).
 
-## Level check (paper vs regen, from `level_check.md`)
+## Level check (paper vs regen, from `results/level_check.md`)
 
-The 13 nano tasks share one identical table; the NFCorpus file carries only its own row. The file says it is not a replication (nano corpora, 12-model roster, rewritten judge prompt with the mteb task description injected, gpt-oss-20b generator). It reports Spearman +0.492 between paper rho and regen rho over 13 shared corpora, and +0.351 between paper kappa and regen S over 9 shared corpora. NFCorpus appears twice in that table: +0.818 at full scale (tier A) and +0.399 at nano tier (tier B); those are the same two numbers as `gym vs official` in Table 2 for NFCorpus and NanoNFCorpusRetrieval.
+`results/level_check.md` is one table over all 14 corpus rows. The file says it is not a replication (nano corpora, 12-model roster, rewritten judge prompt with the mteb task description injected, gpt-oss-20b generator). It reports Spearman +0.492 between paper rho and regen rho over 13 shared corpora, and +0.351 between paper kappa and regen S over 9 shared corpora. NFCorpus appears twice in that table: +0.818 at full scale (tier A) and +0.399 at nano tier (tier B); those are the same two numbers as `gym vs official` in Table 2 for NFCorpus and NanoNFCorpusRetrieval.
 
 ## Cross-corpus observations the numbers support
 
@@ -94,5 +94,5 @@ The 13 nano tasks share one identical table; the NFCorpus file carries only its 
 
 ## Files
 
-- extraction: `synthesis/extract.py` -> `synthesis/extracted.json`; report builder: `synthesis/build_report.py`
-- per-task inputs: `nano_analysis/<task>/query_stats.json`, `seed_baseline.json`, `scaling.json`, `level_check.md`
+- per-task inputs: `analysis/<task>/query_stats.json`, `seed_baseline.json`, `scaling.json`
+- level check: `results/level_check.md`

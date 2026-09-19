@@ -23,6 +23,7 @@ Compare each of them with rho_both, or use their mean; do not compare them with 
 the rho_both advantage is de-noising (one verdict per pair against two) rather than de-biasing.
 """
 import json
+import sys
 from pathlib import Path
 from collections import Counter
 
@@ -33,7 +34,7 @@ from mteb_gym.reliability import verdict_file
 from mteb_gym.rank import rate
 from mteb_gym.judge import Verdict
 
-ROOT = Path("/data/home/niklas/tejas/tmp_regen")
+ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/data/home/niklas/tejas/tmp_regen")  # run root holding results/ and analysis_out/
 OUT = ROOT / "results"
 AN = ROOT / "analysis_out"
 O = {"A": 1.0, "tie": 0.5, "B": 0.0}
