@@ -181,6 +181,13 @@ the rate of the rest. Input length barely varies in this run and does not explai
 affected rows still got a committed verdict from the other order, and dropping the failed rows instead of
 scoring them as ties leaves rho and the 12-model order unchanged.
 
+The same controls and bootstrap on the MiniMax original-arm record (`analysis/NFCorpus_m27_orig/`): the
+ratings from the corpus's own queries correlate 0.944 with the official scores, query interval [0.88, 0.97],
+against 0.902 [0.86, 0.96] for the 27B judge; single fixed orders give 0.748 and 0.902, random order per pair and
+query 0.946, one random order per pair 0.913; bias share 0.121, noise share -0.002, first-position rate
+0.595, no win ties. The picture from the synthetic arm repeats: the two-order design is cancelling a slot
+bonus, and a single random order would give the same ranking at half the calls.
+
 `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` come from `analysis/` in
 #57; `synthesis/position_bias.py` is the single-order refit, `synthesis/position_bias_controls.py` the
 controls and `synthesis/rho_query_bootstrap.py` the query bootstrap. `synthesis/sweep_report.md` is a
