@@ -105,20 +105,30 @@ def assign_tier(ci_low: float | None, ci_high: float | None) -> dict[str, Any]:
 
 # ----------------------------------------------------------------------------- the run's artifacts
 def _sha(*parts) -> str:
+    """run._sha: the first 12 hex digits of sha256 over the parts joined with '|'."""
     return hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12]
 
 
 def verdict_file(out: Path, record: dict, a: str, b: str) -> Path:
-    """The pair's verdict file, from the same identity run() used to write it (see run.verdict_key)."""
+    """The pair's verdict file, under the identity run() used to write it.
+
+    This mirrors run.verdict_key from the record's config, since that function takes the live Judge:
+    config.judge_model is the judge id as run() stored it (run._model_id, settings suffix included),
+    judge_system is the resolved prompt, and doc_chars joined the key when the setting was added. A
+    record without config.doc_chars was written before that and keeps the older key; one with it
+    uses the current key. The parts are hashed in run.verdict_key's order.
+    """
     c = record["config"]
     rev = c.get("model_revisions") or {}
-    key = _sha(
-        c["judge_model"], c["judge_system"], c["top_k"], c["query_set"], f"{a}@{rev.get(a)}", f"{b}@{rev.get(b)}"
-    )
+    parts = [c["judge_model"], c["judge_system"], c["top_k"]]
+    if "doc_chars" in c:
+        parts.append(c["doc_chars"])
+    key = _sha(*parts, c["query_set"], f"{a}@{rev.get(a)}", f"{b}@{rev.get(b)}")
     return out / "verdicts" / f"{slug(a)}__{slug(b)}-{key}.json"
 
 
 def prediction_file(out: Path, record: dict, model: str) -> Path:
+    """mteb's prediction file for `model`, where run() wrote it: <model>@<revision>/<query set>/."""
     c = record["config"]
     rev = (c.get("model_revisions") or {}).get(model)
     return out / "predictions" / f"{slug(model)}@{rev}" / c["query_set"] / f"{record['task_name']}_predictions.json"

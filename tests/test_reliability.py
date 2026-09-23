@@ -80,28 +80,101 @@ def test_cell_statistics():
 
 
 def test_verdict_and_prediction_paths_match_run():
-    from mteb_gym.run import verdict_key
+    """The record's config, as run() writes it, leads back to the files run() wrote."""
+    import types
 
-    class Client:
-        model = "judge-x"
+    from mteb_gym.judge import Judge
+    from mteb_gym.llm import MockLLM
+    from mteb_gym.run import _model_id, verdict_key
 
-    class Judge:
-        client = Client()
-        system = "You compare two retrieval systems."
-
+    client = types.SimpleNamespace(model="judge-x", max_tokens=1024, extra_body={"think": False})
+    judge = Judge(client, instruction="Find the answer.", doc_chars=300)
     record = {
         "task_name": "T",
         "config": {
-            "judge_model": "judge-x",
-            "judge_system": Judge.system,
+            "judge_model": _model_id(client),  # "judge-x+<hash>": the settings are part of the id
+            "judge_system": judge.system,
             "top_k": 10,
+            "doc_chars": 300,
             "query_set": "qs",
             "model_revisions": {"m/a": "r1", "m/b": None},
         },
     }
-    key = verdict_key(Judge(), 10, "qs", "m/a", "r1", "m/b", None)
+    key = verdict_key(judge, 10, "qs", "m/a", "r1", "m/b", None)
     assert rel.verdict_file(Path("out"), record, "m/a", "m/b") == Path("out") / "verdicts" / f"m_a__m_b-{key}.json"
     assert rel.prediction_file(Path("out"), record, "m/b") == Path("out/predictions/m_b@None/qs/T_predictions.json")
+    # a plain client has no settings suffix, and the key moves with doc_chars
+    plain = Judge(MockLLM(), doc_chars=2000)
+    record["config"].update(judge_model=_model_id(MockLLM()), judge_system=plain.system, doc_chars=2000)
+    assert record["config"]["judge_model"] == "mock"
+    plain_key = verdict_key(plain, 10, "qs", "m/a", "r1", "m/b", None)
+    assert rel.verdict_file(Path("out"), record, "m/a", "m/b").name.endswith(plain_key + ".json")
+    record["config"]["doc_chars"] = 300
+    assert not rel.verdict_file(Path("out"), record, "m/a", "m/b").name.endswith(plain_key + ".json")
+
+
+def test_record_without_doc_chars_uses_the_key_before_it():
+    """A record written before doc_chars joined the key (a plain judge name, no doc_chars in the
+    config) resolves to the six-part key those runs wrote their verdict files under."""
+    import hashlib
+
+    config = {
+        "judge_model": "Qwen/Qwen3.6-27B",
+        "judge_system": "You compare two retrieval systems.\nThe retrieval task is: find the answer.\n",
+        "top_k": 10,
+        "query_set": "mteb_nfcorpus_ec0fa4fe_default_test-original",
+        "model_revisions": {"BAAI/bge-base-en-v1.5": "a5beb1e3", "intfloat/e5-base-v2": None},
+    }
+    parts = [
+        config["judge_model"],
+        config["judge_system"],
+        10,
+        config["query_set"],
+        "BAAI/bge-base-en-v1.5@a5beb1e3",
+        "intfloat/e5-base-v2@None",
+    ]
+    key = hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12]
+    path = rel.verdict_file(Path("out"), {"config": config}, "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2")
+    assert path == Path("out") / "verdicts" / f"BAAI_bge-base-en-v1.5__intfloat_e5-base-v2-{key}.json"
+    # the same record with doc_chars added is a different file: the current key has seven parts
+    with_doc_chars = {"config": {**config, "doc_chars": 300}}
+    assert rel.verdict_file(Path("out"), with_doc_chars, "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2") != path
+
+
+def test_judge_reliability_on_a_gym_run(tmp_path):
+    """run() on the mock LLM, then judge_reliability on its output folder: the paths derived from the
+    record must be the ones run() wrote, so a change to run.verdict_key fails here and not as a
+    silent "no verdicts" readout in the field."""
+    pytest.importorskip("mteb")
+    pytest.importorskip("bm25s")
+    pytest.importorskip("sentence_transformers")
+    from mteb_gym import run
+    from mteb_gym.llm import MockLLM
+
+    topics = ["heart disease and statins", "vitamin D and asthma", "gut microbiome and fiber", "telomeres and stress"]
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for i in range(12):
+        (docs / f"D{i}.txt").write_text(f"Document {i} about {topics[i % 4]}. " + "clinical evidence " * (i % 5 + 1))
+    out = tmp_path / "out"
+    models = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
+    res = run(docs, models, judge=MockLLM(), n_queries=4, filter_queries=False, output_folder=out, workers=1)
+    rec = res.record
+    assert "doc_chars" in rec["config"] and rec["config"]["judge_model"] == "mock"
+    for m in models:
+        assert rel.prediction_file(out, rec, m).exists()
+    a, b = models
+    assert rel.verdict_file(out, rec, a, b).exists()
+    legacy = {**rec, "config": {k: v for k, v in rec["config"].items() if k != "doc_chars"}}
+    assert not rel.verdict_file(out, legacy, a, b).exists()  # the older key is not what this run wrote
+    # the labels are the seed documents of each generated query, the ones run() scored ndcg_at_10 against
+    cache = json.loads((out / "queries" / f"{rec['config']['query_set']}.json").read_text())
+    qrels = {q["qid"]: {d: 1 for d in q["seed_doc_ids"]} for q in cache["queries"]}
+    readout = rel.judge_reliability(res, out, qrels=qrels, bootstrap=50, write=False)
+    assert "error" not in readout, readout
+    assert readout["n_comparisons"] == rec["config"]["n_queries"] and readout["n_models"] == 2
+    assert readout["n_decisive"] + readout["n_missing_ndcg"] <= readout["n_comparisons"]
+    assert readout["tier"] in {"A", "B", "C"}
 
 
 def test_judge_reliability_end_to_end(tmp_path):
