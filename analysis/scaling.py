@@ -21,7 +21,7 @@ so rho on a near-tied record is only defined up to that order (the mock fixture 
 
 Truth is ordinal: the record's agreement.truth_ranking (the official order, no scores, so mteb is never
 needed), or --truth, a JSON {model: score} that is used instead when given. Verdict files are located
-through mteb_gym.reliability.verdict_file, the same identity run() used to write them.
+through mteb_gym.reliability.verdict_file, from the record's config as run() wrote it.
 
     python -m analysis.scaling --output-folder results --record results/records/<record>.json --out scaling.json
 """

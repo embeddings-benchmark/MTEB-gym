@@ -26,8 +26,8 @@ near-duplicate removal and the cut to n_queries taken together, and the output s
 splitting them into categories that were never recorded.
 
 The queries file is out/queries/<query_set>.json as run() wrote it. The record's prediction and
-verdict files are located through mteb_gym.reliability only, to check that the queries the run
-retrieved and judged on are the ones in that file.
+verdict files are located through mteb_gym.reliability.prediction_file and verdict_file, from the
+record's config, to check that the queries the run retrieved and judged on are the ones in that file.
 
 Word counts split on whitespace. Copied-word share tokenises to lowercase [a-z0-9]+ runs, drops
 STOPWORDS, and counts a query word once however many times it occurs.
