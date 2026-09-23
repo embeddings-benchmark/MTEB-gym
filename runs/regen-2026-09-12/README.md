@@ -5,7 +5,8 @@ package, both query arms, then the nano corpora as a smoke test. Everything here
 scripts in `scripts/` on the cluster at commit `71b2cf4` (branch `tejas/analysis-scripts`, which is
 main at `eeb7e05` plus `mteb_gym/reliability.py` and `analysis/`), mteb 2.15.1. A second judge,
 `MiniMaxAI/MiniMax-M2.7`, was then run over the same NFCorpus queries and predictions (Second judge,
-below).
+below). Main has since changed the judge prompt (#68), the verdict identity (#70) and the original-arm
+sampling (#69), so the numbers here are not reproducible from current main without pinning that commit.
 
 ## Setup
 
@@ -80,7 +81,8 @@ official nDCG@10.
   synthetic-arm rhos reach p < 0.05, so the nano rows are a smoke test of the pipeline, not estimates
   for the main table.
 - Seed documents as labels, with no judge, give rho 0.67 on NFCorpus against the judge's 0.82
-  (`analysis/NFCorpus/seed_baseline.md`; #60 now computes the same baseline inside the package).
+  (`analysis/NFCorpus/seed_baseline.md`, from the `analysis/seed_baseline.py` script of that time; #60
+  now computes the same baseline inside the package).
 - The kept synthetic queries run 13.9 words against 3.3 for the corpus's own and are all phrased as
   questions, and the quality gate filtered nothing (`analysis/NFCorpus/query_stats.md`).
 - More queries help, more pairs barely do (`analysis/NFCorpus/scaling.md`).
@@ -179,7 +181,9 @@ from the other order, and dropping the failed rows instead of scoring them as ti
 12-model order unchanged. The original arm's 4.05 percent (1,725 orders) is not analysed.
 
 Seed baseline (`analysis/NFCorpus/seed_baseline.md`). Seed documents as labels, with no judge, give rho
-0.67 on NFCorpus against the judge's 0.82; #60 now computes the same baseline inside the package.
+0.67 on NFCorpus against the judge's 0.82. The file was written by the `analysis/seed_baseline.py` script
+of commit `71b2cf4`; #60 now computes the same baseline inside the package (`labels_baseline` in the
+agreement block), so the script is no longer in #57.
 
 Query statistics (`analysis/NFCorpus/query_stats.md`). The kept synthetic queries run 13.9 words against
 3.3 for the corpus's own, 100% are phrased as questions against 14%, 63% of the query words appear in the
@@ -248,8 +252,12 @@ is kept and the shipped script no longer writes it.
 - `results/`: `SUMMARY.jsonl`, `leaderboard_export.json`, `level_check.md` and `records/` for the 27B judge
   (30 records in all, 2 of them MiniMax), `SUMMARY_MiniMaxAI_MiniMax-M2.7.jsonl` and
   `leaderboard_export_MiniMaxAI_MiniMax-M2.7.json` for the second judge.
-- `analysis/<task>/scaling.json`, `seed_baseline.json` and `query_stats.json` (with their `.md`) come from
-  `analysis/` in #57; `analysis/NFCorpus_m27/` and `analysis/NFCorpus_m27_orig/` are the MiniMax passes.
+- `analysis/<task>/scaling.json` and `query_stats.json` (with their `.md`) come from `analysis/` in #57;
+  `analysis/<task>/seed_baseline.json` and `.md` were produced by the `analysis/seed_baseline.py` script
+  of commit `71b2cf4`. The package now computes the same baseline (#60, `labels_baseline` in the
+  agreement block), so that script is no longer in #57 and the `analysis.seed_baseline` step of
+  `scripts/run_analysis.sh` does not run against the current branch. `analysis/NFCorpus_m27/` and
+  `analysis/NFCorpus_m27_orig/` are the MiniMax passes.
 - `synthesis/position_bias.py` is the single-order refit, `synthesis/position_bias_controls.py` the
   controls and `synthesis/rho_query_bootstrap.py` the query bootstrap, each with its `.md` and `.json`
   output over every record beside it. `synthesis/m27_parse_failures.md` is the parse-failure study.
