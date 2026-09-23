@@ -48,6 +48,12 @@ def corpus_table(task: str):
             f"**{task}**: judge–qrels κ = {kappa} on this corpus's own human queries. "
             f"{info['n_queries']} frozen queries."
         )
+    baseline = info.get("labels_baseline")
+    if baseline:  # runs that scored nDCG@10 against their own labels also carry the no-judge baseline
+        banner += (
+            f" No-judge baseline: nDCG@10 against {baseline['labels']} labels agrees with the official ranking "
+            f"at Spearman ρ = {baseline['spearman_rho']}."
+        )
     return banner, df
 
 

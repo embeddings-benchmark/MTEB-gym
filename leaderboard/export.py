@@ -32,8 +32,23 @@ def _round(x):
     return None if x is None else round(float(x), 4)
 
 
+def _labels_baseline(rec: dict) -> dict | None:
+    """The record's no-judge baseline, when the run scored one: rank agreement of nDCG@10 against
+    the run's labels with the official ranking. Older records have none, and it is never required."""
+    lb = (rec.get("agreement") or {}).get("labels_baseline")
+    if not lb or "error" in lb or lb.get("spearman_rho") is None:
+        return None
+    return {
+        "labels": lb.get("labels"),
+        "spearman_rho": _round(lb["spearman_rho"]),
+        "kendall_tau": _round(lb.get("kendall_tau")),
+        "n_models": lb.get("n_models"),
+    }
+
+
 def _ranking(rec: dict) -> dict:
     models = sorted(rec["ratings"], key=lambda r: -r["rating"])
+    baseline = _labels_baseline(rec)
     return {
         "n_queries": rec["config"]["n_queries"],
         "config_hash": rec["config"].get("config_hash"),
@@ -43,9 +58,11 @@ def _ranking(rec: dict) -> dict:
                 "rating": round(r["rating"], 1),
                 "ci_low": round(r["ci_low"], 1),
                 "ci_high": round(r["ci_high"], 1),
+                **({"ndcg_at_10": _round(r["ndcg_at_10"])} if r.get("ndcg_at_10") is not None else {}),
             }
             for r in models
         ],
+        **({"labels_baseline": baseline} if baseline else {}),
     }
 
 
@@ -143,7 +160,12 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     ap.add_argument("--output-folder", default="results", help="the gym's output folder (records/ inside)")
     ap.add_argument("--out", default="leaderboard/data/leaderboard_export.json")
-    ap.add_argument("--judge", default=None, help="keep records from this judge model only")
+    ap.add_argument(
+        "--judge",
+        default=None,
+        help="keep records whose config.judge_model is exactly this: the id run() stores, which carries "
+        "a settings suffix (model+hash) when the judge was built with max_tokens or extra_body",
+    )
     ap.add_argument("--generator", default=None, help="keep synthetic records from this generator only")
     ap.add_argument("--pin", action="append", default=[], metavar="TASK=HASH", help="pick one synthetic record")
     ap.add_argument("--allow-missing", action="store_true", help="drop ranked corpora that have no reliability row")

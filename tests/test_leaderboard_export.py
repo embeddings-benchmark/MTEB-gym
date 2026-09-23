@@ -78,6 +78,33 @@ def test_export_shape(tmp_path):
     }
     assert out["meta"]["judge"] == "judge-x" and out["meta"]["experiment_commit"] == "abc1234"
     assert out["meta"]["dropped"] == [] and out["meta"]["mteb_version"] == "2.20.0"
+    # records written before the labels baseline carry neither key
+    assert "labels_baseline" not in sci and all("ndcg_at_10" not in m for m in sci["models"])
+
+
+def test_labels_baseline_is_carried_when_present(tmp_path):
+    rec = record("SciFact", "synthetic")
+    for r, n in zip(rec["ratings"], (0.31234, 0.44321)):
+        r["ndcg_at_10"] = n
+    rec["labels"] = "seed_documents"
+    rec["agreement"] = {
+        "spearman_rho": 0.5,
+        "labels_baseline": {"labels": "seed_documents", "n_models": 2, "spearman_rho": 1.0, "kendall_tau": 0.99999},
+    }
+    write(tmp_path, "sci-syn", rec)
+    write(tmp_path, "sci-orig", record("SciFact", "original", reliability=GOOD))
+    sci = export.build_export(tmp_path)["corpora"]["SciFact"]
+    assert sci["labels_baseline"] == {
+        "labels": "seed_documents",
+        "spearman_rho": 1.0,
+        "kendall_tau": 1.0,
+        "n_models": 2,
+    }
+    assert [m["ndcg_at_10"] for m in sci["models"]] == [0.4432, 0.3123]  # in rating order
+    # a baseline that could not be computed is left out, not exported as a number
+    rec["agreement"]["labels_baseline"] = {"error": "need >=3 shared models, have 2", "shared": []}
+    write(tmp_path, "sci-syn", rec)
+    assert "labels_baseline" not in export.build_export(tmp_path)["corpora"]["SciFact"]
 
 
 def test_missing_reliability_is_refused_unless_dropped(tmp_path):
