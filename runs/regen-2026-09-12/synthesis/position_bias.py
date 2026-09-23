@@ -2,8 +2,8 @@
 
 For every record under results/records/ (synthetic and original arms):
   rho_both   : Spearman(truth, ratings refit from the stored score_a)      [check vs record agreement.spearman_rho]
-  rho_order1 : Spearman(truth, ratings refit from score_a = O[w1])          (model_a shown first)
-  rho_order2 : Spearman(truth, ratings refit from score_a = 1 - O[w2])      (model_b shown first)
+  rho_order1 : Spearman(truth, ratings refit from score_a = SCORE_OF[w1])          (model_a shown first)
+  rho_order2 : Spearman(truth, ratings refit from score_a = 1 - SCORE_OF[w2])      (model_b shown first)
   split_rate : among pairs decisive in BOTH orders, fraction where the two orders favour different MODELS
                (w1 == w2 as letters: the judge picked the same presented slot both times)
   a_first_rate : over all decisive single-order verdicts, fraction won by the model shown first
@@ -22,22 +22,25 @@ are biased in opposite directions along the roster and their gap measures the ro
 Compare each of them with rho_both, or use their mean; do not compare them with each other. Part of
 the rho_both advantage is de-noising (one verdict per pair against two) rather than de-biasing.
 """
+
 import json
 import sys
-from pathlib import Path
 from collections import Counter
+from pathlib import Path
 
 import numpy as np
 from scipy.stats import spearmanr
 
-from mteb_gym.reliability import verdict_file
-from mteb_gym.rank import rate
 from mteb_gym.judge import Verdict
+from mteb_gym.rank import rate
+from mteb_gym.reliability import verdict_file
 
-ROOT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/data/home/niklas/tejas/tmp_regen")  # run root holding results/ and analysis_out/
+ROOT = (
+    Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/data/home/niklas/tejas/tmp_regen")
+)  # run root holding results/ and analysis_out/
 OUT = ROOT / "results"
 AN = ROOT / "analysis_out"
-O = {"A": 1.0, "tie": 0.5, "B": 0.0}
+SCORE_OF = {"A": 1.0, "tie": 0.5, "B": 0.0}
 TEMPLATE_MARK = "$" + "{"
 
 
@@ -46,20 +49,22 @@ def load_rows(path: Path):
         return json.loads(path.read_text())
     p2 = path.with_suffix(".jsonl")
     if p2.exists():
-        return [json.loads(l) for l in p2.read_text().splitlines() if l.strip()]
+        return [json.loads(line) for line in p2.read_text().splitlines() if line.strip()]
     raise FileNotFoundError(str(path))
 
 
 def pair_rows(rec, models):
     rows, found = [], []
     for i, a in enumerate(models):
-        for b in models[i + 1:]:
+        for b in models[i + 1 :]:
             p = verdict_file(OUT, rec, a, b)
             if p.exists() or p.with_suffix(".jsonl").exists():
-                rows.extend(load_rows(p)); found.append(str(p.name))
+                rows.extend(load_rows(p))
+                found.append(str(p.name))
             else:
                 p = verdict_file(OUT, rec, b, a)
-                rows.extend(load_rows(p)); found.append(str(p.name))
+                rows.extend(load_rows(p))
+                found.append(str(p.name))
     return rows, found
 
 
@@ -68,7 +73,8 @@ def rho(ratings_list, truth):
     shared = [m for m in r if m in truth]
     if len(shared) < 3:
         return None, len(shared)
-    g = np.array([r[m] for m in shared]); t = np.array([truth[m] for m in shared])
+    g = np.array([r[m] for m in shared])
+    t = np.array([truth[m] for m in shared])
     return float(spearmanr(g, t)[0]), len(shared)
 
 
@@ -86,32 +92,42 @@ def analyse(rec_path: Path):
     rows, files = pair_rows(rec, models)
 
     both, o1, o2 = [], [], []
-    tok = Counter(); n_ident = 0; n_both_decisive = 0; n_split = 0
-    first = decisive = 0; n_invalid = 0
+    tok = Counter()
+    n_ident = 0
+    n_both_decisive = 0
+    n_split = 0
+    first = decisive = 0
+    n_invalid = 0
     for v in rows:
         raw = v["raw"]
         base = dict(qid=v["qid"], query=v.get("query", ""), model_a=v["model_a"], model_b=v["model_b"])
         both.append(Verdict(score_a=float(v["score_a"]), **base))
         if raw == ["identical"]:
             n_ident += 1
-            o1.append(Verdict(score_a=0.5, **base)); o2.append(Verdict(score_a=0.5, **base))
+            o1.append(Verdict(score_a=0.5, **base))
+            o2.append(Verdict(score_a=0.5, **base))
             continue
         if len(raw) != 2:
-            n_invalid += 1; tok[f"len{len(raw)}"] += 1
-            o1.append(Verdict(score_a=0.5, **base)); o2.append(Verdict(score_a=0.5, **base))
+            n_invalid += 1
+            tok[f"len{len(raw)}"] += 1
+            o1.append(Verdict(score_a=0.5, **base))
+            o2.append(Verdict(score_a=0.5, **base))
             continue
         w1, w2 = raw
         for w in raw:
             tok[w] += 1
             if w in ("A", "B"):
-                decisive += 1; first += (w == "A")
+                decisive += 1
+                first += w == "A"
             elif w != "tie":
                 n_invalid += 1
-        s1 = O.get(w1, 0.5); s2 = 1.0 - O.get(w2, 0.5)
+        s1 = SCORE_OF.get(w1, 0.5)
+        s2 = 1.0 - SCORE_OF.get(w2, 0.5)
         # sanity: stored score_a must equal the two-order average
-        if w1 in O and w2 in O and abs((s1 + s2) / 2 - float(v["score_a"])) > 1e-9:
+        if w1 in SCORE_OF and w2 in SCORE_OF and abs((s1 + s2) / 2 - float(v["score_a"])) > 1e-9:
             raise RuntimeError(f"score_a mismatch in {task} qid={v['qid']} raw={raw} score_a={v['score_a']}")
-        o1.append(Verdict(score_a=s1, **base)); o2.append(Verdict(score_a=s2, **base))
+        o1.append(Verdict(score_a=s1, **base))
+        o2.append(Verdict(score_a=s2, **base))
         if w1 in ("A", "B") and w2 in ("A", "B"):
             n_both_decisive += 1
             if w1 == w2:  # same presented slot both times -> different models favoured
@@ -171,17 +187,22 @@ def main():
     for p in recs:
         row = analyse(p)
         out[row["arm"]].append(row)
-        print(f"{row['arm']:9s} {row['task']:28s} rho_both={fmt(row['rho_both'])} (rec {fmt(row['rho_both_record'])}) "
-              f"o1={fmt(row['rho_order1'])} o2={fmt(row['rho_order2'])} split={fmt(row['split_rate'])} "
-              f"a_first={fmt(row['a_first_rate'])} (rec {fmt(row['a_first_rate_record'])}) "
-              f"maxdiff={row['max_abs_rating_diff_vs_record']:.2e} invalid={row['n_invalid_raw']}", flush=True)
+        print(
+            f"{row['arm']:9s} {row['task']:28s} rho_both={fmt(row['rho_both'])} (rec {fmt(row['rho_both_record'])}) "
+            f"o1={fmt(row['rho_order1'])} o2={fmt(row['rho_order2'])} split={fmt(row['split_rate'])} "
+            f"a_first={fmt(row['a_first_rate'])} (rec {fmt(row['a_first_rate_record'])}) "
+            f"maxdiff={row['max_abs_rating_diff_vs_record']:.2e} invalid={row['n_invalid_raw']}",
+            flush=True,
+        )
 
     def summ(rows):
         keys = ["rho_both", "rho_order1", "rho_order2", "split_rate", "a_first_rate"]
         cols = {k: [r[k] for r in rows if r[k] is not None] for k in keys}
-        return {k: {"mean": float(np.mean(v)) if v else None,
-                    "median": float(np.median(v)) if v else None,
-                    "n": len(v)} for k, v in cols.items()}
+        return {
+            k: {"mean": float(np.mean(v)) if v else None, "median": float(np.median(v)) if v else None, "n": len(v)}
+            for k, v in cols.items()
+        }
+
     out["summary"] = {arm: summ(rows) for arm, rows in out.items() if rows}
     out["definitions"] = __doc__
     (AN / "position_bias.json").write_text(json.dumps(out, indent=1))
@@ -189,21 +210,34 @@ def main():
     lines = ["# Position bias of the judge (regeneration sweep)", "", __doc__.strip(), ""]
     for arm in ("synthetic", "original"):
         rows = out[arm]
-        lines += [f"## {arm} arm ({len(rows)} records)", "",
-                  "| task | n_q | n_pairs | rho_both | rec rho | rho_order1 | rho_order2 | split_rate (n_split/n_both_decisive) | a_first_rate | rec a_first | checks |",
-                  "|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---|"]
+        lines += [
+            f"## {arm} arm ({len(rows)} records)",
+            "",
+            "| task | n_q | n_pairs | rho_both | rec rho | rho_order1 | rho_order2 | split_rate (n_split/n_both_decisive) | a_first_rate | rec a_first | checks |",
+            "|---|---:|---:|---:|---:|---:|---:|---|---:|---:|---|",
+        ]
         for r in rows:
             chk = []
-            chk.append("rho=rec" if r["rho_both_matches_record"] else ("rho no-record" if r["rho_both_matches_record"] is None else "RHO MISMATCH"))
+            chk.append(
+                "rho=rec"
+                if r["rho_both_matches_record"]
+                else ("rho no-record" if r["rho_both_matches_record"] is None else "RHO MISMATCH")
+            )
             chk.append("af=rec" if r["a_first_rate_matches_record"] else "AF MISMATCH")
             chk.append(f"ratings maxdiff {r['max_abs_rating_diff_vs_record']:.1e}")
             if r["n_invalid_raw"]:
                 chk.append(f"invalid raw {r['n_invalid_raw']}")
-            lines.append(f"| {r['task']} | {r['n_queries']} | {r['n_pairs_judged']} | {fmt(r['rho_both'])} | {fmt(r['rho_both_record'])} | "
-                         f"{fmt(r['rho_order1'])} | {fmt(r['rho_order2'])} | {fmt(r['split_rate'])} ({r['n_split']}/{r['n_both_decisive']}) | "
-                         f"{fmt(r['a_first_rate'])} | {fmt(r['a_first_rate_record'])} | {'; '.join(chk)} |")
+            lines.append(
+                f"| {r['task']} | {r['n_queries']} | {r['n_pairs_judged']} | {fmt(r['rho_both'])} | {fmt(r['rho_both_record'])} | "
+                f"{fmt(r['rho_order1'])} | {fmt(r['rho_order2'])} | {fmt(r['split_rate'])} ({r['n_split']}/{r['n_both_decisive']}) | "
+                f"{fmt(r['a_first_rate'])} | {fmt(r['a_first_rate_record'])} | {'; '.join(chk)} |"
+            )
         s = out["summary"][arm]
-        lines += ["", "mean / median over records: " + ", ".join(f"{k} {s[k]['mean']:.3f} / {s[k]['median']:.3f}" for k in s), ""]
+        lines += [
+            "",
+            "mean / median over records: " + ", ".join(f"{k} {s[k]['mean']:.3f} / {s[k]['median']:.3f}" for k in s),
+            "",
+        ]
     (AN / "position_bias.md").write_text("\n".join(lines) + "\n")
     print("wrote", AN / "position_bias.json", AN / "position_bias.md")
 

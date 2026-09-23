@@ -87,10 +87,15 @@ else:
     # generator: gpt-oss reasons before answering; low effort, no cap (a cap would count the reasoning),
     # the server's reasoning parser keeps the reasoning out of the content the gym parses
     generator = gym.LLM(
-        os.environ["GEN_MODEL"], base_url=os.environ["GENERATOR_URL"], api_key="EMPTY", extra_body={"reasoning_effort": "low"}
+        os.environ["GEN_MODEL"],
+        base_url=os.environ["GENERATOR_URL"],
+        api_key="EMPTY",
+        extra_body={"reasoning_effort": "low"},
     )
     N_QUERIES, BOOTSTRAP = 40, 1000
-    WORKERS = int(os.environ.get("WORKERS", "16"))  # 16 drove the 27B judge at ~3 calls/s; a thinking MoE judge wants more in flight
+    WORKERS = int(
+        os.environ.get("WORKERS", "16")
+    )  # 16 drove the 27B judge at ~3 calls/s; a thinking MoE judge wants more in flight
 N_QUERIES_BY_TASK = {"NFCorpus": 100}  # full-scale corpus: the package default; nano corpora keep 40
 
 if os.environ.get("JUDGE_ONLY"):
@@ -104,11 +109,15 @@ if os.environ.get("JUDGE_ONLY"):
     cached = sorted((OUT / "queries").glob(f"*-{slug(gen_id)}-*.json"))  # one per task for this generator
     log.info("JUDGE_ONLY: %d cached query sets for generator %s", len(cached), gen_id)
     if len(cached) < len(TASKS):
-        log.error("JUDGE_ONLY: only %d query sets cached for %d tasks; run the generator job first", len(cached), len(TASKS))
+        log.error(
+            "JUDGE_ONLY: only %d query sets cached for %d tasks; run the generator job first", len(cached), len(TASKS)
+        )
         sys.exit(2)
 
 JUDGE_ID = os.environ.get("JUDGE_MODEL")  # None in MOCK mode
-summary_path = OUT / ("SUMMARY.jsonl" if not os.environ.get("JUDGE_ONLY") else f"SUMMARY_{JUDGE_ID.replace('/', '_')}.jsonl")
+summary_path = OUT / (
+    "SUMMARY.jsonl" if not os.environ.get("JUDGE_ONLY") else f"SUMMARY_{JUDGE_ID.replace('/', '_')}.jsonl"
+)
 
 
 def note(row: dict) -> None:
@@ -156,7 +165,16 @@ for task in TASKS:
             row["reliability"] = (
                 {"error": r["error"]}
                 if "error" in r
-                else {k: r[k] for k in ("committed_agreement", "s_committed", "s_committed_ci95", "clear_winner_agreement", "tier")}
+                else {
+                    k: r[k]
+                    for k in (
+                        "committed_agreement",
+                        "s_committed",
+                        "s_committed_ci95",
+                        "clear_winner_agreement",
+                        "tier",
+                    )
+                }
             )
         else:
             try:
@@ -164,7 +182,9 @@ for task in TASKS:
                 row["agreement"] = (
                     {"error": a["error"]}
                     if "error" in a
-                    else {k: a.get(k) for k in ("n_models", "spearman_rho", "spearman_p", "spearman_top10", "kendall_tau")}
+                    else {
+                        k: a.get(k) for k in ("n_models", "spearman_rho", "spearman_p", "spearman_top10", "kendall_tau")
+                    }
                 )
             except Exception as e:  # anchors need the MTEB results repo or a GPU pass; report, do not stop
                 log.error("%s agreement FAILED: %s", task, e)
@@ -178,6 +198,27 @@ except ExportError as e:
     log.warning("export refused (%s); retrying with --allow-missing", e)
     export = build_export(OUT, judge=JUDGE_ID, allow_missing=True)
     dropped = export["meta"]["dropped"]
-(OUT / ("leaderboard_export.json" if not os.environ.get("JUDGE_ONLY") else f"leaderboard_export_{JUDGE_ID.replace('/', '_')}.json")).write_text(json.dumps(export, indent=1))
-note({"task": "*", "arm": "*", "status": "export", "ranked": sorted(export["corpora"]), "reliability_rows": sorted(export["reliability"]), "dropped": dropped})
-log.info("done: %d ranked corpora, %d reliability rows -> %s", len(export["corpora"]), len(export["reliability"]), OUT / "leaderboard_export.json")
+(
+    OUT
+    / (
+        "leaderboard_export.json"
+        if not os.environ.get("JUDGE_ONLY")
+        else f"leaderboard_export_{JUDGE_ID.replace('/', '_')}.json"
+    )
+).write_text(json.dumps(export, indent=1))
+note(
+    {
+        "task": "*",
+        "arm": "*",
+        "status": "export",
+        "ranked": sorted(export["corpora"]),
+        "reliability_rows": sorted(export["reliability"]),
+        "dropped": dropped,
+    }
+)
+log.info(
+    "done: %d ranked corpora, %d reliability rows -> %s",
+    len(export["corpora"]),
+    len(export["reliability"]),
+    OUT / "leaderboard_export.json",
+)

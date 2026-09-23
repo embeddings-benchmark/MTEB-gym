@@ -1,8 +1,8 @@
 """Controls that separate de-biasing from de-noising in the two-order judge design.
 
 position_bias.py reports, per record, rho_both (Bradley-Terry refit from the two-order averaged
-score_a, Spearman vs official nDCG@10), rho_order1 (refit from O[w1] only) and rho_order2 (refit
-from 1 - O[w2] only). The single-order refits are not comparable with each other because both use
+score_a, Spearman vs official nDCG@10), rho_order1 (refit from SCORE_OF[w1] only) and rho_order2 (refit
+from 1 - SCORE_OF[w2] only). The single-order refits are not comparable with each other because both use
 the same pair enumeration, so order 1 always hands the first-position bonus to each pair file's
 model_a and order 2 to its model_b, and the roster (config.models) correlates with quality. Two
 effects are confounded in "rho_both beats a single-order refit": de-biasing (the two-order average
@@ -10,12 +10,12 @@ cancels the slot bonus) and de-noising (a single-order refit rests on one verdic
 of two). Three controls computed from the raw verdict rows separate them.
 
   C1 random-order refit. For every verdict row (one model pair on one query) draw independently
-     which order's verdict to use, O[w1] or 1 - O[w2], refit, Spearman vs truth. One verdict per pair
+     which order's verdict to use, SCORE_OF[w1] or 1 - SCORE_OF[w2], refit, Spearman vs truth. One verdict per pair
      like a single-order refit, but the slot bonus lands on a random model per pair. The draw is per
      row (pair x query), not once per model pair: a per-pair coin would leave every query of that pair
      with the same slot bonus, and C1 would no longer be unbiased in expectation.
-  C2 roster-permuted fixed-slot refit. Per draw, permute the roster; for every row use O[w1] if
-     model_a precedes model_b in the permuted roster, else 1 - O[w2]. The fixed-slot design with a
+  C2 roster-permuted fixed-slot refit. Per draw, permute the roster; for every row use SCORE_OF[w1] if
+     model_a precedes model_b in the permuted roster, else 1 - SCORE_OF[w2]. The fixed-slot design with a
      random roster. The identity permutation reproduces rho_order1 and the reversed roster
      rho_order2 when every pair file is oriented along the roster (checked and reported). rho_order1
      and rho_order2 are then compared with the C2 2.5 to 97.5 band per record.
@@ -47,7 +47,7 @@ Spearman between the fixed point-estimate ratings and truth on each resample, an
 query-level or judge-noise uncertainty. The script recomputes it with that function from the record
 ratings and truth.json for every record that carries one and fails loudly on a mismatch beyond 1e-9.
 
-Scoring conventions follow position_bias.py. O = {A: 1, tie: 0.5, B: 0}; raw == ["identical"] and any
+Scoring conventions follow position_bias.py. SCORE_OF = {A: 1, tie: 0.5, B: 0}; raw == ["identical"] and any
 raw token outside {A, B, tie} score 0.5 in every refit and are excluded from decisive counts. The
 refit is the package's Bradley-Terry (mteb_gym.rank._bradley_terry on the same win matrix that
 mteb_gym.rank.rate builds), which reproduces the stored record ratings. The script fails loudly on
@@ -63,6 +63,7 @@ and spearmanr scores that as a strict rank difference. rho_both_tie_aware gives 
 of their ratings before correlating; it is reported alongside rho_both and does not enter the
 decomposition.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,13 +80,15 @@ from mteb_gym.judge import Verdict
 from mteb_gym.rank import BASE, SCALE, _bradley_terry, rate
 from mteb_gym.reliability import verdict_file
 
-O = {"A": 1.0, "tie": 0.5, "B": 0.0}
+SCORE_OF = {"A": 1.0, "tie": 0.5, "B": 0.0}
 TEMPLATE_MARK = "$" + "{"
 TOL = 1e-9
 CI95_BOOTSTRAP, CI95_SEED = 1000, 0  # regen_nano.py: res.agreement(bootstrap=BOOTSTRAP, seed=0) with BOOTSTRAP = 1000
 SIGNED_KEYS = ("bias_share", "noise_share", "both_minus_c3", "c1_minus_c2", "c1_minus_c1_pair")
-BAND_FLAGS = (("rho_order1", "order1_in_c2_band", "order1_in_c2_1000_band"),
-              ("rho_order2", "order2_in_c2_band", "order2_in_c2_1000_band"))
+BAND_FLAGS = (
+    ("rho_order1", "order1_in_c2_band", "order1_in_c2_1000_band"),
+    ("rho_order2", "order2_in_c2_band", "order2_in_c2_1000_band"),
+)
 
 
 def load_rows(path: Path) -> list[dict]:
@@ -155,14 +158,23 @@ class Refitter:
                 idx = np.flatnonzero(wins == w)
                 if len(idx) > 1:
                     snapped[idx] = r[idx].mean()
-                    ties.append({"models": [self.names[i] for i in idx], "wins": float(w),
-                                 "rating_gap": float(r[idx].max() - r[idx].min())})
-        return {"balanced_design": balanced, "games_per_model": int(games[0]) if balanced else None,
-                "exact_win_ties": ties, "rho_both_tie_aware": spearman(snapped, self.names, self.truth)}
+                    ties.append(
+                        {
+                            "models": [self.names[i] for i in idx],
+                            "wins": float(w),
+                            "rating_gap": float(r[idx].max() - r[idx].min()),
+                        }
+                    )
+        return {
+            "balanced_design": balanced,
+            "games_per_model": int(games[0]) if balanced else None,
+            "exact_win_ties": ties,
+            "rho_both_tie_aware": spearman(snapped, self.names, self.truth),
+        }
 
 
 def parse_rows(rows: list[dict], task: str) -> dict:
-    """Per-row arrays. s_both = stored score_a, s1 = O[w1], s2 = 1 - O[w2]."""
+    """Per-row arrays. s_both = stored score_a, s1 = SCORE_OF[w1], s2 = 1 - SCORE_OF[w2]."""
     n = len(rows)
     s_both, s1, s2 = np.empty(n), np.empty(n), np.empty(n)
     n_ident = n_invalid = first = decisive = 0
@@ -181,20 +193,33 @@ def parse_rows(rows: list[dict], task: str) -> dict:
                 first += w == "A"
             elif w != "tie":
                 n_invalid += 1
-        s1[k], s2[k] = O.get(w1, 0.5), 1.0 - O.get(w2, 0.5)
-        if w1 in O and w2 in O and abs((s1[k] + s2[k]) / 2 - s_both[k]) > TOL:
+        s1[k], s2[k] = SCORE_OF.get(w1, 0.5), 1.0 - SCORE_OF.get(w2, 0.5)
+        if w1 in SCORE_OF and w2 in SCORE_OF and abs((s1[k] + s2[k]) / 2 - s_both[k]) > TOL:
             raise RuntimeError(f"score_a mismatch in {task} qid={v['qid']} raw={raw} score_a={v['score_a']}")
     return dict(
-        s_both=s_both, s1=s1, s2=s2, n_identical=n_ident, n_invalid_raw=n_invalid,
-        n_decisive_order_verdicts=decisive, n_first_wins=first,
+        s_both=s_both,
+        s1=s1,
+        s2=s2,
+        n_identical=n_ident,
+        n_invalid_raw=n_invalid,
+        n_decisive_order_verdicts=decisive,
+        n_first_wins=first,
         a_first_rate=(first / decisive) if decisive else None,
     )
 
 
 def check_against_package(rows: list[dict], rec: dict, fit: Refitter, s_both: np.ndarray) -> float:
     """rate() on the stored score_a must reproduce the record ratings and the vectorised refit."""
-    verdicts = [Verdict(qid=v["qid"], query=v.get("query", ""), model_a=v["model_a"], model_b=v["model_b"],
-                        score_a=float(v["score_a"])) for v in rows]
+    verdicts = [
+        Verdict(
+            qid=v["qid"],
+            query=v.get("query", ""),
+            model_a=v["model_a"],
+            model_b=v["model_b"],
+            score_a=float(v["score_a"]),
+        )
+        for v in rows
+    ]
     pkg = {m.name: m.rating for m in rate(verdicts, bootstrap=0, seed=0)}
     rec_r = {r["model"]: r["rating"] for r in rec["ratings"]}
     vec = dict(zip(fit.names, fit.ratings(s_both)))
@@ -206,15 +231,23 @@ def check_against_package(rows: list[dict], rec: dict, fit: Refitter, s_both: np
 
 
 def pct(x: np.ndarray) -> dict:
-    return {"mean": float(np.mean(x)), "sd": float(np.std(x, ddof=1)), "p2_5": float(np.percentile(x, 2.5)),
-            "p97_5": float(np.percentile(x, 97.5)), "min": float(np.min(x)), "max": float(np.max(x))}
+    return {
+        "mean": float(np.mean(x)),
+        "sd": float(np.std(x, ddof=1)),
+        "p2_5": float(np.percentile(x, 2.5)),
+        "p97_5": float(np.percentile(x, 97.5)),
+        "min": float(np.min(x)),
+        "max": float(np.max(x)),
+    }
 
 
 def in_band(x: float, d: dict) -> bool:
     return bool(d["p2_5"] <= x <= d["p97_5"])
 
 
-def controls(fit: Refitter, arr: dict, rows: list[dict], roster: list[str], draws: int, seed: int, c2_draws: int) -> dict:
+def controls(
+    fit: Refitter, arr: dict, rows: list[dict], roster: list[str], draws: int, seed: int, c2_draws: int
+) -> dict:
     rng = np.random.default_rng(seed)
     n = len(rows)
     s1, s2, s_both = arr["s1"], arr["s2"], arr["s_both"]
@@ -248,14 +281,26 @@ def controls(fit: Refitter, arr: dict, rows: list[dict], roster: list[str], draw
     pair_keys = sorted({tuple(sorted((v["model_a"], v["model_b"]))) for v in rows})
     pair_idx = {p: i for i, p in enumerate(pair_keys)}
     pair_of_row = np.array([pair_idx[tuple(sorted((v["model_a"], v["model_b"])))] for v in rows])
-    c1p = np.array([fit.rho(np.where((rng_pair.random(len(pair_keys)) < 0.5)[pair_of_row], s1, s2))
-                    for _ in range(draws)])
-    return dict(c1=pct(c1), c2=pct(c2), c3=pct(c3), c2_identity=c2_identity, c2_reversed=c2_reversed,
-                c2_1000={**pct(c2k), "se": float(np.std(c2k, ddof=1) / np.sqrt(c2_draws)), "draws": c2_draws},
-                c1_pair=pct(c1p), n_model_pairs=len(pair_keys),
-                n_unique_qids=int(len(qids)), n_half_queries=half,
-                c1_draws=c1.tolist(), c2_draws=c2.tolist(), c3_draws=c3.tolist(),
-                c2_1000_draws=c2k.tolist(), c1_pair_draws=c1p.tolist())
+    c1p = np.array(
+        [fit.rho(np.where((rng_pair.random(len(pair_keys)) < 0.5)[pair_of_row], s1, s2)) for _ in range(draws)]
+    )
+    return dict(
+        c1=pct(c1),
+        c2=pct(c2),
+        c3=pct(c3),
+        c2_identity=c2_identity,
+        c2_reversed=c2_reversed,
+        c2_1000={**pct(c2k), "se": float(np.std(c2k, ddof=1) / np.sqrt(c2_draws)), "draws": c2_draws},
+        c1_pair=pct(c1p),
+        n_model_pairs=len(pair_keys),
+        n_unique_qids=int(len(qids)),
+        n_half_queries=half,
+        c1_draws=c1.tolist(),
+        c2_draws=c2.tolist(),
+        c3_draws=c3.tolist(),
+        c2_1000_draws=c2k.tolist(),
+        c1_pair_draws=c1p.tolist(),
+    )
 
 
 def analyse(args: tuple) -> dict:
@@ -276,7 +321,9 @@ def analyse(args: tuple) -> dict:
     rows, n_reversed = pair_rows(out, rec, roster)
     names = sorted({m for v in rows for m in (v["model_a"], v["model_b"])})
     idx = {m: i for i, m in enumerate(names)}
-    fit = Refitter(names, np.array([idx[v["model_a"]] for v in rows]), np.array([idx[v["model_b"]] for v in rows]), truth)
+    fit = Refitter(
+        names, np.array([idx[v["model_a"]] for v in rows]), np.array([idx[v["model_b"]] for v in rows]), truth
+    )
     arr = parse_rows(rows, task)
     max_rating_diff = check_against_package(rows, rec, fit, arr["s_both"])
 
@@ -290,28 +337,54 @@ def analyse(args: tuple) -> dict:
     roster_in_truth = [m for m in roster if m in truth]
     roster_truth_rho = float(spearmanr(range(len(roster_in_truth)), [truth[m] for m in roster_in_truth])[0])
     return {
-        "task": task, "arm": arm, "record": rec_path.name, "n_models": len(names),
-        "n_models_in_truth": sum(m in truth for m in names), "n_queries": rec["config"]["n_queries"],
-        "n_unique_qids": ctl.pop("n_unique_qids"), "n_half_queries": ctl.pop("n_half_queries"),
-        "n_pairs_judged": len(rows), "n_pair_files_reversed": n_reversed, "n_model_pairs": ctl["n_model_pairs"],
-        "n_identical": arr["n_identical"], "n_invalid_raw": arr["n_invalid_raw"],
-        "rho_both": rho_both, "rho_order1": rho_o1, "rho_order2": rho_o2, "single_order_mean": single_mean,
-        "a_first_rate": arr["a_first_rate"], "roster_truth_rho": roster_truth_rho,
-        "spearman_ci95": ci95, "spearman_ci95_width": (ci95[1] - ci95[0]) if ci95 else None,
-        "max_abs_rating_diff": max_rating_diff, "checks": checks, **ties,
-        "c1": ctl["c1"], "c2": ctl["c2"], "c3": ctl["c3"], "c1_pair": ctl["c1_pair"], "c2_1000": ctl["c2_1000"],
-        "c2_identity": ctl["c2_identity"], "c2_reversed": ctl["c2_reversed"],
+        "task": task,
+        "arm": arm,
+        "record": rec_path.name,
+        "n_models": len(names),
+        "n_models_in_truth": sum(m in truth for m in names),
+        "n_queries": rec["config"]["n_queries"],
+        "n_unique_qids": ctl.pop("n_unique_qids"),
+        "n_half_queries": ctl.pop("n_half_queries"),
+        "n_pairs_judged": len(rows),
+        "n_pair_files_reversed": n_reversed,
+        "n_model_pairs": ctl["n_model_pairs"],
+        "n_identical": arr["n_identical"],
+        "n_invalid_raw": arr["n_invalid_raw"],
+        "rho_both": rho_both,
+        "rho_order1": rho_o1,
+        "rho_order2": rho_o2,
+        "single_order_mean": single_mean,
+        "a_first_rate": arr["a_first_rate"],
+        "roster_truth_rho": roster_truth_rho,
+        "spearman_ci95": ci95,
+        "spearman_ci95_width": (ci95[1] - ci95[0]) if ci95 else None,
+        "max_abs_rating_diff": max_rating_diff,
+        "checks": checks,
+        **ties,
+        "c1": ctl["c1"],
+        "c2": ctl["c2"],
+        "c3": ctl["c3"],
+        "c1_pair": ctl["c1_pair"],
+        "c2_1000": ctl["c2_1000"],
+        "c2_identity": ctl["c2_identity"],
+        "c2_reversed": ctl["c2_reversed"],
         "c2_identity_equals_order1": abs(ctl["c2_identity"] - rho_o1) < TOL,
         "c2_reversed_equals_order2": abs(ctl["c2_reversed"] - rho_o2) < TOL,
-        "order1_in_c2_band": in_band(rho_o1, ctl["c2"]), "order2_in_c2_band": in_band(rho_o2, ctl["c2"]),
+        "order1_in_c2_band": in_band(rho_o1, ctl["c2"]),
+        "order2_in_c2_band": in_band(rho_o2, ctl["c2"]),
         "order1_in_c2_1000_band": in_band(rho_o1, ctl["c2_1000"]),
         "order2_in_c2_1000_band": in_band(rho_o2, ctl["c2_1000"]),
         "bias_share": ctl["c1"]["mean"] - single_mean,
         "noise_share": rho_both - ctl["c1"]["mean"],
         "both_minus_c3": rho_both - ctl["c3"]["mean"],
         "c1_minus_c1_pair": ctl["c1"]["mean"] - ctl["c1_pair"]["mean"],
-        "draws": {"c1": ctl["c1_draws"], "c2": ctl["c2_draws"], "c3": ctl["c3_draws"],
-                  "c1_pair": ctl["c1_pair_draws"], "c2_1000": ctl["c2_1000_draws"]},
+        "draws": {
+            "c1": ctl["c1_draws"],
+            "c2": ctl["c2_draws"],
+            "c3": ctl["c3_draws"],
+            "c1_pair": ctl["c1_pair_draws"],
+            "c2_1000": ctl["c2_1000_draws"],
+        },
         "seconds": time.time() - t0,
     }
 
@@ -326,12 +399,15 @@ def check_ci95(rec: dict, name: str, truth: dict) -> tuple[str, float | None]:
     got = agree.correlate(ratings, truth, bootstrap=CI95_BOOTSTRAP, seed=CI95_SEED)["spearman_ci95"]
     diff = max(abs(got[0] - ci[0]), abs(got[1] - ci[1]))
     if diff > TOL:
-        raise RuntimeError(f"{name}: spearman_ci95 {got!r} (model bootstrap, {CI95_BOOTSTRAP} resamples) != record {ci!r}")
+        raise RuntimeError(
+            f"{name}: spearman_ci95 {got!r} (model bootstrap, {CI95_BOOTSTRAP} resamples) != record {ci!r}"
+        )
     return f"match (model bootstrap, {CI95_BOOTSTRAP} resamples)", diff
 
 
-def verify(rec: dict, name: str, prior: dict | None, rho_both: float, o1: float, o2: float, af: float | None,
-           truth: dict) -> dict:
+def verify(
+    rec: dict, name: str, prior: dict | None, rho_both: float, o1: float, o2: float, af: float | None, truth: dict
+) -> dict:
     """Loud failure on any mismatch with the record or with position_bias.json."""
     rec_rho = (rec.get("agreement") or {}).get("spearman_rho")
     rec_af = rec["diagnostics"].get("a_first_rate")
@@ -356,17 +432,27 @@ def verify(rec: dict, name: str, prior: dict | None, rho_both: float, o1: float,
 def signed_test(v: np.ndarray) -> dict:
     """Two-sided Wilcoxon signed-rank over records plus mean over its standard error."""
     se = float(v.std(ddof=1) / np.sqrt(len(v)))
-    return {"n_positive": int((v > 0).sum()), "wilcoxon_p": float(wilcoxon(v).pvalue), "mean_over_se": float(v.mean() / se)}
+    return {
+        "n_positive": int((v > 0).sum()),
+        "wilcoxon_p": float(wilcoxon(v).pvalue),
+        "mean_over_se": float(v.mean() / se),
+    }
 
 
-TEST_LABELS = {"bias_share": "bias share", "noise_share": "noise share", "both_minus_c3": "both minus C3",
-               "c1_minus_c2": "mean(C1) minus mean(C2)", "c1_minus_c1_pair": "C1 minus C1 per pair"}
+TEST_LABELS = {
+    "bias_share": "bias share",
+    "noise_share": "noise share",
+    "both_minus_c3": "both minus C3",
+    "c1_minus_c2": "mean(C1) minus mean(C2)",
+    "c1_minus_c1_pair": "C1 minus C1 per pair",
+}
 
 
 def multiple_testing(S: dict, alpha: float = 0.05) -> dict:
     """Bonferroni, Holm and Benjamini-Hochberg over every signed-rank test on every arm, at level alpha."""
-    tests = sorted((S[arm][k]["wilcoxon_p"], arm, k) for arm in ("synthetic", "original") if arm in S
-                   for k in SIGNED_KEYS)
+    tests = sorted(
+        (S[arm][k]["wilcoxon_p"], arm, k) for arm in ("synthetic", "original") if arm in S for k in SIGNED_KEYS
+    )
     m = len(tests)
     bonferroni = [t for t in tests if t[0] <= alpha / m]
     holm: list[tuple] = []
@@ -379,22 +465,38 @@ def multiple_testing(S: dict, alpha: float = 0.05) -> dict:
     def names(ts: list[tuple]) -> list[str]:
         return [f"{arm} {TEST_LABELS[k]}" for _, arm, k in ts]
 
-    return {"alpha": alpha, "n_tests": m, "sorted": [{"arm": a, "key": k, "p": p} for p, a, k in tests],
-            "bonferroni": names(bonferroni), "holm": names(holm), "benjamini_hochberg": names(tests[:k_max])}
+    return {
+        "alpha": alpha,
+        "n_tests": m,
+        "sorted": [{"arm": a, "key": k, "p": p} for p, a, k in tests],
+        "bonferroni": names(bonferroni),
+        "holm": names(holm),
+        "benjamini_hochberg": names(tests[:k_max]),
+    }
 
 
 def summarise(rows: list[dict], draws: int, c2_draws: int) -> dict:
     keys = {
-        "rho_both": lambda r: r["rho_both"], "rho_both_tie_aware": lambda r: r["rho_both_tie_aware"],
+        "rho_both": lambda r: r["rho_both"],
+        "rho_both_tie_aware": lambda r: r["rho_both_tie_aware"],
         "rho_order1": lambda r: r["rho_order1"],
-        "rho_order2": lambda r: r["rho_order2"], "single_order_mean": lambda r: r["single_order_mean"],
-        "c1_mean": lambda r: r["c1"]["mean"], "c2_mean": lambda r: r["c2"]["mean"], "c3_mean": lambda r: r["c3"]["mean"],
-        "c1_sd": lambda r: r["c1"]["sd"], "c2_sd": lambda r: r["c2"]["sd"], "c3_sd": lambda r: r["c3"]["sd"],
-        "bias_share": lambda r: r["bias_share"], "noise_share": lambda r: r["noise_share"],
-        "both_minus_c3": lambda r: r["both_minus_c3"], "a_first_rate": lambda r: r["a_first_rate"],
+        "rho_order2": lambda r: r["rho_order2"],
+        "single_order_mean": lambda r: r["single_order_mean"],
+        "c1_mean": lambda r: r["c1"]["mean"],
+        "c2_mean": lambda r: r["c2"]["mean"],
+        "c3_mean": lambda r: r["c3"]["mean"],
+        "c1_sd": lambda r: r["c1"]["sd"],
+        "c2_sd": lambda r: r["c2"]["sd"],
+        "c3_sd": lambda r: r["c3"]["sd"],
+        "bias_share": lambda r: r["bias_share"],
+        "noise_share": lambda r: r["noise_share"],
+        "both_minus_c3": lambda r: r["both_minus_c3"],
+        "a_first_rate": lambda r: r["a_first_rate"],
         "c1_minus_c2": lambda r: r["c1"]["mean"] - r["c2"]["mean"],
-        "c1_pair_mean": lambda r: r["c1_pair"]["mean"], "c1_pair_sd": lambda r: r["c1_pair"]["sd"],
-        "c2_1000_mean": lambda r: r["c2_1000"]["mean"], "c2_1000_sd": lambda r: r["c2_1000"]["sd"],
+        "c1_pair_mean": lambda r: r["c1_pair"]["mean"],
+        "c1_pair_sd": lambda r: r["c1_pair"]["sd"],
+        "c2_1000_mean": lambda r: r["c2_1000"]["mean"],
+        "c2_1000_sd": lambda r: r["c2_1000"]["sd"],
         "c1_minus_c1_pair": lambda r: r["c1_minus_c1_pair"],
     }
     s = {}
@@ -424,10 +526,16 @@ def summarise(rows: list[dict], draws: int, c2_draws: int) -> dict:
     s["n_records_balanced"] = int(sum(r["balanced_design"] for r in rows))
     s["max_abs_tie_shift"] = float(max(abs(r["rho_both"] - r["rho_both_tie_aware"]) for r in rows))
     widths = [r["spearman_ci95_width"] for r in rows if r["spearman_ci95_width"] is not None]
-    s["spearman_ci95_width"] = ({"n": len(widths), "mean": float(np.mean(widths)), "min": float(min(widths)),
-                                 "max": float(max(widths))} if widths else {"n": 0})
-    diffs = [r["checks"]["spearman_ci95_max_abs_edge_diff"] for r in rows
-             if r["checks"]["spearman_ci95_max_abs_edge_diff"] is not None]
+    s["spearman_ci95_width"] = (
+        {"n": len(widths), "mean": float(np.mean(widths)), "min": float(min(widths)), "max": float(max(widths))}
+        if widths
+        else {"n": 0}
+    )
+    diffs = [
+        r["checks"]["spearman_ci95_max_abs_edge_diff"]
+        for r in rows
+        if r["checks"]["spearman_ci95_max_abs_edge_diff"] is not None
+    ]
     s["spearman_ci95_max_abs_edge_diff"] = float(max(diffs)) if diffs else None
     return s
 
@@ -473,8 +581,14 @@ def arm_paragraph(arm: str, s: dict, n: int, c2_draws: int) -> str:
 
 
 def neg_bias(rows: list[dict]) -> str:
-    return "; ".join(f"{r['task']} (rho_both {f3(r['rho_both'])}, a_first_rate {f3(r['a_first_rate'])})"
-                     for r in rows if r["bias_share"] < 0) or "none"
+    return (
+        "; ".join(
+            f"{r['task']} (rho_both {f3(r['rho_both'])}, a_first_rate {f3(r['a_first_rate'])})"
+            for r in rows
+            if r["bias_share"] < 0
+        )
+        or "none"
+    )
 
 
 def out_of_band(rows: list[dict], which: str = "c2") -> str:
@@ -503,11 +617,13 @@ def band_moves(rows: list[dict], draws: int, c2_draws: int) -> str:
     for r in rows:
         for key, flag200, flag1000 in BAND_FLAGS:
             if r[flag200] != r[flag1000]:
-                items.append(f"{r['task']} {key} {f3(r[key])} {'inside' if r[flag200] else 'outside'} at {draws} draws "
-                             f"[{f3(r['c2']['p2_5'])}, {f3(r['c2']['p97_5'])}], {'inside' if r[flag1000] else 'outside'} at "
-                             f"{c2_draws} draws [{f3(r['c2_1000']['p2_5'])}, {f3(r['c2_1000']['p97_5'])}]; share of draws "
-                             f"beyond it {tail_share(r[key], r['draws']['c2']):.3f} at {draws} and "
-                             f"{tail_share(r[key], r['draws']['c2_1000']):.3f} at {c2_draws}")
+                items.append(
+                    f"{r['task']} {key} {f3(r[key])} {'inside' if r[flag200] else 'outside'} at {draws} draws "
+                    f"[{f3(r['c2']['p2_5'])}, {f3(r['c2']['p97_5'])}], {'inside' if r[flag1000] else 'outside'} at "
+                    f"{c2_draws} draws [{f3(r['c2_1000']['p2_5'])}, {f3(r['c2_1000']['p97_5'])}]; share of draws "
+                    f"beyond it {tail_share(r[key], r['draws']['c2']):.3f} at {draws} and "
+                    f"{tail_share(r[key], r['draws']['c2_1000']):.3f} at {c2_draws}"
+                )
     return "; ".join(items) or "none"
 
 
@@ -519,17 +635,22 @@ def tie_list(rows: list[dict]) -> str:
     items = []
     for r in rows:
         for t in r["exact_win_ties"]:
-            items.append(f"{r['task']} {r['arm']}: {' = '.join(short(m) for m in t['models'])} at {t['wins']:g} wins, "
-                         f"rating gap {t['rating_gap']:.1e}, rho_both {f3(r['rho_both'])} reported, "
-                         f"{f3(r['rho_both_tie_aware'])} with tied ranks")
+            items.append(
+                f"{r['task']} {r['arm']}: {' = '.join(short(m) for m in t['models'])} at {t['wins']:g} wins, "
+                f"rating gap {t['rating_gap']:.1e}, rho_both {f3(r['rho_both'])} reported, "
+                f"{f3(r['rho_both_tie_aware'])} with tied ranks"
+            )
     return "; ".join(items) or "none"
 
 
 def ci95_sentences(S: dict, syn: list[dict], org: list[dict]) -> str:
     """What spearman_ci95 is, from agreement.py, with the reproduction check and the widths."""
     n_shared = sorted({r["n_models_in_truth"] for r in syn + org})
-    shared = f"all {n_shared[0]} roster models on every record here" if len(n_shared) == 1 else \
-        f"{n_shared[0]} to {n_shared[-1]} models here"
+    shared = (
+        f"all {n_shared[0]} roster models on every record here"
+        if len(n_shared) == 1
+        else f"{n_shared[0]} to {n_shared[-1]} models here"
+    )
     parts = [
         f"The spearman_ci95 interval in a record's agreement block is a model bootstrap, not a query-level "
         f"uncertainty. mteb_gym.agreement.correlate resamples the shared models ({shared}) with replacement "
@@ -537,18 +658,21 @@ def ci95_sentences(S: dict, syn: list[dict], org: list[dict]) -> str:
         f"dropped), recomputes Spearman between the fixed point-estimate ratings and truth on each resample, and takes "
         f"the 2.5 and 97.5 percentiles, so it measures how much rho depends on which models are in the roster; the "
         f"queries and the verdicts are never resampled, and the judge noise that the controls above measure does not "
-        f"enter it."]
+        f"enter it."
+    ]
     for arm, rows in (("synthetic", syn), ("original", org)):
         if not rows:
             continue
         S_arm = S[arm]
         w = S_arm["spearman_ci95_width"]
         if w["n"]:
-            parts.append(f"Recomputed with that function from the record ratings and truth.json, it is reproduced on "
-                         f"{w['n']} of {len(rows)} {arm} records (largest edge difference "
-                         f"{S_arm['spearman_ci95_max_abs_edge_diff']:.1e}); its width averages {f3(w['mean'])} (smallest "
-                         f"{f3(w['min'])}), against a largest absolute noise share of {f3(S_arm['max_abs_noise_share'])} "
-                         f"on that arm.")
+            parts.append(
+                f"Recomputed with that function from the record ratings and truth.json, it is reproduced on "
+                f"{w['n']} of {len(rows)} {arm} records (largest edge difference "
+                f"{S_arm['spearman_ci95_max_abs_edge_diff']:.1e}); its width averages {f3(w['mean'])} (smallest "
+                f"{f3(w['min'])}), against a largest absolute noise share of {f3(S_arm['max_abs_noise_share'])} "
+                f"on that arm."
+            )
         else:
             parts.append(f"The {arm} records carry no agreement block, so no interval is reported there.")
     return " ".join(parts)
@@ -570,9 +694,11 @@ def correction_sentence(mt: dict) -> str:
     def listing(names: list[str]) -> str:
         return ", ".join(names) if names else "nothing"
 
-    return (f"At {mt['n_tests']} tests and alpha {mt['alpha']:g}, Bonferroni keeps {listing(bonf)}; Holm adds "
-            f"{listing(holm_extra)}; only a Benjamini-Hochberg false-discovery-rate step keeps {listing(bh_only)}; none "
-            f"of the three keeps {listing(none)}.")
+    return (
+        f"At {mt['n_tests']} tests and alpha {mt['alpha']:g}, Bonferroni keeps {listing(bonf)}; Holm adds "
+        f"{listing(holm_extra)}; only a Benjamini-Hochberg false-discovery-rate step keeps {listing(bh_only)}; none "
+        f"of the three keeps {listing(none)}."
+    )
 
 
 def results_section(out: dict, draws: int, c2_draws: int) -> list[str]:
@@ -591,7 +717,8 @@ def results_section(out: dict, draws: int, c2_draws: int) -> list[str]:
     n_bal = S["synthetic"]["n_records_balanced"] + S["original"]["n_records_balanced"]
     Ss, So = S["synthetic"], S["original"]
     return [
-        "## What the controls show", "",
+        "## What the controls show",
+        "",
         f"De-biasing accounts for almost all of the rho_both advantage over a fixed-slot single order. The bias share, "
         f"mean(C1) minus the single-order mean, averages {f3(bs['mean'])} on the synthetic arm and {f3(bo['mean'])} on the "
         f"original arm, positive in {bs['n_positive']} of {n_s} and {bo['n_positive']} of {n_o} records (Wilcoxon "
@@ -681,11 +808,16 @@ def single_arm_section(out: dict, draws: int, c2_draws: int) -> list[str]:
     n, se = len(rows), s["max_mc_se"]
     bs, zs, cs, gs = s["bias_share"], s["noise_share"], s["both_minus_c3"], s["c1_minus_c1_pair"]
     top = most_aligned(rows)
-    tests = (f" Wilcoxon p = {bs['wilcoxon_p']:.3f} (bias share), {zs['wilcoxon_p']:.3f} (noise share), "
-             f"{cs['wilcoxon_p']:.3f} (both minus C3) and {gs['wilcoxon_p']:.3f} (C1 minus C1 per pair); "
-             f"{correction_sentence(mt)}" if n > 1 else " Signed-rank tests need more than one record and are not read here.")
+    tests = (
+        f" Wilcoxon p = {bs['wilcoxon_p']:.3f} (bias share), {zs['wilcoxon_p']:.3f} (noise share), "
+        f"{cs['wilcoxon_p']:.3f} (both minus C3) and {gs['wilcoxon_p']:.3f} (C1 minus C1 per pair); "
+        f"{correction_sentence(mt)}"
+        if n > 1
+        else " Signed-rank tests need more than one record and are not read here."
+    )
     return [
-        "## What the controls show", "",
+        "## What the controls show",
+        "",
         f"This run covers the {arm} arm only ({n} record{'s' if n != 1 else ''}), so the two-arm comparison is not "
         f"written and the numbers below are this arm's own.",
         "",
@@ -721,29 +853,43 @@ def single_arm_section(out: dict, draws: int, c2_draws: int) -> list[str]:
 
 
 def write_md(out: dict, path: Path, draws: int, seed: int, c2_draws: int) -> None:
-    lines = ["# Position bias controls (regeneration sweep)", "", __doc__.strip(), "",
-             f"Draws per control {draws}, seed {seed}; C2 is drawn again {c2_draws} times (c2_1000) from a separate stream. "
-             "Each control cell is mean (sd over draws) [2.5, 97.5 percentiles over draws]. n_q is the number of queries in "
-             "the record; C3 uses n_q // 2 of them per draw. The checks column reports the position_bias.json check, whether "
-             "the record itself carries a rho to check against, the spearman_ci95 reproduction (model bootstrap), the C2 "
-             f"identity and reversal checks, any single-order refit outside the C2 band at {draws} or {c2_draws} draws, and "
-             "any exact tie in total wins with the tie-aware rho_both.", ""]
-    cols = ("| task | n_q | rho_both | rho_order1 | rho_order2 | C1 mean (sd) [2.5, 97.5] | "
-            "C1 per pair mean (sd) [2.5, 97.5] | C2 mean (sd) [2.5, 97.5] | "
-            f"C2 at {c2_draws} mean (sd) [2.5, 97.5] | C3 mean (sd) [2.5, 97.5] | bias share | noise share | "
-            "both minus C3 | C1 minus C1 per pair | checks |")
+    lines = [
+        "# Position bias controls (regeneration sweep)",
+        "",
+        __doc__.strip(),
+        "",
+        f"Draws per control {draws}, seed {seed}; C2 is drawn again {c2_draws} times (c2_1000) from a separate stream. "
+        "Each control cell is mean (sd over draws) [2.5, 97.5 percentiles over draws]. n_q is the number of queries in "
+        "the record; C3 uses n_q // 2 of them per draw. The checks column reports the position_bias.json check, whether "
+        "the record itself carries a rho to check against, the spearman_ci95 reproduction (model bootstrap), the C2 "
+        f"identity and reversal checks, any single-order refit outside the C2 band at {draws} or {c2_draws} draws, and "
+        "any exact tie in total wins with the tie-aware rho_both.",
+        "",
+    ]
+    cols = (
+        "| task | n_q | rho_both | rho_order1 | rho_order2 | C1 mean (sd) [2.5, 97.5] | "
+        "C1 per pair mean (sd) [2.5, 97.5] | C2 mean (sd) [2.5, 97.5] | "
+        f"C2 at {c2_draws} mean (sd) [2.5, 97.5] | C3 mean (sd) [2.5, 97.5] | bias share | noise share | "
+        "both minus C3 | C1 minus C1 per pair | checks |"
+    )
     for arm in ("synthetic", "original"):
         rows = out[arm]
         if not rows:
             continue
-        lines += [f"## {arm} arm ({len(rows)} records)", "", cols,
-                  "|---|---:|---:|---:|---:|---|---|---|---|---|---:|---:|---:|---:|---|"]
+        lines += [
+            f"## {arm} arm ({len(rows)} records)",
+            "",
+            cols,
+            "|---|---:|---:|---:|---:|---|---|---|---|---|---:|---:|---:|---:|---|",
+        ]
         for r in rows:
-            chk = ["prior " + r["checks"].get("position_bias_json", "absent"),
-                   "record match" if r["checks"]["rho_both_record"] is not None else "no record rho",
-                   "ci95 " + r["checks"]["spearman_ci95"],
-                   "c2 id=o1" if r["c2_identity_equals_order1"] else "c2 id!=o1",
-                   "c2 rev=o2" if r["c2_reversed_equals_order2"] else "c2 rev!=o2"]
+            chk = [
+                "prior " + r["checks"].get("position_bias_json", "absent"),
+                "record match" if r["checks"]["rho_both_record"] is not None else "no record rho",
+                "ci95 " + r["checks"]["spearman_ci95"],
+                "c2 id=o1" if r["c2_identity_equals_order1"] else "c2 id!=o1",
+                "c2 rev=o2" if r["c2_reversed_equals_order2"] else "c2 rev!=o2",
+            ]
             for key, flag200, flag1000 in BAND_FLAGS:
                 if not r[flag200] or not r[flag1000]:
                     where = [str(d) for d, f in ((draws, flag200), (c2_draws, flag1000)) if not r[f]]
@@ -751,11 +897,15 @@ def write_md(out: dict, path: Path, draws: int, seed: int, c2_draws: int) -> Non
             if r["n_pair_files_reversed"]:
                 chk.append(f"{r['n_pair_files_reversed']} files reversed")
             for t in r["exact_win_ties"]:
-                chk.append(f"win tie {' = '.join(short(m) for m in t['models'])}, tie-aware rho_both {f3(r['rho_both_tie_aware'])}")
-            lines.append(f"| {r['task']} | {r['n_queries']} | {f3(r['rho_both'])} | {f3(r['rho_order1'])} | {f3(r['rho_order2'])} | "
-                         f"{band(r['c1'])} | {band(r['c1_pair'])} | {band(r['c2'])} | {band(r['c2_1000'])} | {band(r['c3'])} | "
-                         f"{f3(r['bias_share'])} | {f3(r['noise_share'])} | {f3(r['both_minus_c3'])} | "
-                         f"{f3(r['c1_minus_c1_pair'])} | {'; '.join(chk)} |")
+                chk.append(
+                    f"win tie {' = '.join(short(m) for m in t['models'])}, tie-aware rho_both {f3(r['rho_both_tie_aware'])}"
+                )
+            lines.append(
+                f"| {r['task']} | {r['n_queries']} | {f3(r['rho_both'])} | {f3(r['rho_order1'])} | {f3(r['rho_order2'])} | "
+                f"{band(r['c1'])} | {band(r['c1_pair'])} | {band(r['c2'])} | {band(r['c2_1000'])} | {band(r['c3'])} | "
+                f"{f3(r['bias_share'])} | {f3(r['noise_share'])} | {f3(r['both_minus_c3'])} | "
+                f"{f3(r['c1_minus_c1_pair'])} | {'; '.join(chk)} |"
+            )
         lines += ["", arm_paragraph(arm, out["summary"][arm], len(rows), c2_draws), ""]
     lines += results_section(out, draws, c2_draws)
     path.write_text("\n".join(lines) + "\n")
@@ -765,7 +915,11 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", required=True, help="run root holding results/ and analysis_out/")
     ap.add_argument("--out-dir", default=None, help="default <root>/analysis_out/controls")
-    ap.add_argument("--prior", default=None, help="position_bias.json to check against; default <root>/analysis_out/position_bias.json")
+    ap.add_argument(
+        "--prior",
+        default=None,
+        help="position_bias.json to check against; default <root>/analysis_out/position_bias.json",
+    )
     ap.add_argument("--draws", type=int, default=200)
     ap.add_argument("--c2-draws", type=int, default=1000, help="draws for the c2_1000 block (own random stream)")
     ap.add_argument("--seed", type=int, default=0)
@@ -792,18 +946,28 @@ def main() -> None:
     for r in results:
         out[r["arm"]].append(r)
         tie = f" ties={len(r['exact_win_ties'])} tie_aware={f3(r['rho_both_tie_aware'])}" if r["exact_win_ties"] else ""
-        print(f"{r['arm']:9s} {r['task']:28s} both={f3(r['rho_both'])} o1={f3(r['rho_order1'])} o2={f3(r['rho_order2'])} "
-              f"C1={band(r['c1'])} C1pair={band(r['c1_pair'])} C2={band(r['c2'])} C2k={band(r['c2_1000'])} "
-              f"C3={band(r['c3'])} bias={f3(r['bias_share'])} noise={f3(r['noise_share'])} "
-              f"both-C3={f3(r['both_minus_c3'])} C1-C1pair={f3(r['c1_minus_c1_pair'])} "
-              f"o1_in_c2={int(r['order1_in_c2_band'])}/{int(r['order1_in_c2_1000_band'])} "
-              f"o2_in_c2={int(r['order2_in_c2_band'])}/{int(r['order2_in_c2_1000_band'])} "
-              f"ci95={r['checks']['spearman_ci95']}{tie} {r['seconds']:.0f}s", flush=True)
+        print(
+            f"{r['arm']:9s} {r['task']:28s} both={f3(r['rho_both'])} o1={f3(r['rho_order1'])} o2={f3(r['rho_order2'])} "
+            f"C1={band(r['c1'])} C1pair={band(r['c1_pair'])} C2={band(r['c2'])} C2k={band(r['c2_1000'])} "
+            f"C3={band(r['c3'])} bias={f3(r['bias_share'])} noise={f3(r['noise_share'])} "
+            f"both-C3={f3(r['both_minus_c3'])} C1-C1pair={f3(r['c1_minus_c1_pair'])} "
+            f"o1_in_c2={int(r['order1_in_c2_band'])}/{int(r['order1_in_c2_1000_band'])} "
+            f"o2_in_c2={int(r['order2_in_c2_band'])}/{int(r['order2_in_c2_1000_band'])} "
+            f"ci95={r['checks']['spearman_ci95']}{tie} {r['seconds']:.0f}s",
+            flush=True,
+        )
     out["summary"] = {arm: summarise(rows, a.draws, a.c2_draws) for arm, rows in out.items() if rows}
     out["summary"]["multiple_testing"] = multiple_testing(out["summary"])
-    out["settings"] = {"draws": a.draws, "c2_draws": a.c2_draws, "seed": a.seed, "n_records": len(results),
-                       "prior_checked": prior is not None, "ci95_bootstrap": CI95_BOOTSTRAP, "ci95_seed": CI95_SEED,
-                       "wall_seconds": time.time() - t0}
+    out["settings"] = {
+        "draws": a.draws,
+        "c2_draws": a.c2_draws,
+        "seed": a.seed,
+        "n_records": len(results),
+        "prior_checked": prior is not None,
+        "ci95_bootstrap": CI95_BOOTSTRAP,
+        "ci95_seed": CI95_SEED,
+        "wall_seconds": time.time() - t0,
+    }
     out["definitions"] = __doc__
     (out_dir / "position_bias_controls.json").write_text(json.dumps(out, indent=1))
     write_md(out, out_dir / "position_bias_controls.md", a.draws, a.seed, a.c2_draws)
