@@ -85,9 +85,9 @@ class Counting(MockLLM):
         super().__init__()
         self.calls = 0
 
-    def chat(self, messages, temperature=0.0):
+    def chat(self, messages, temperature=0.0, schema=None):
         self.calls += 1
-        return super().chat(messages, temperature)
+        return super().chat(messages, temperature, schema)
 
 
 def test_judge_battles_on_the_mock_judge():
@@ -184,7 +184,7 @@ def test_parse_failures_are_counted_not_hidden_in_abstain():
 
 
 class Unparseable(MockLLM):
-    def chat(self, messages, temperature=0.0):
+    def chat(self, messages, temperature=0.0, schema=None):
         return "not json"
 
 
