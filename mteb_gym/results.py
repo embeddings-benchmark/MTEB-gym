@@ -64,7 +64,7 @@ def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
     asks = failures = first = decisive = thought = 0
     for v in verdicts:
         asks += len(v.parsed_ok)
-        thought += sum(n > 0 for n in getattr(v, "thinking", []))
+        thought += sum(n > 0 for n in v.thinking)
         failures += sum(not ok for ok in v.parsed_ok)
         for w in v.raw:
             if w in ("A", "B"):
