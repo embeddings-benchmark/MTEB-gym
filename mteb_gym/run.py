@@ -44,8 +44,10 @@ def _model_id(client) -> str:
     """The judge or generator as its answers depend on it: the model, and the knobs it was built
     with. A temperature, an output cap, and extra_body server settings such as thinking mode."""
     name = str(getattr(client, "model", type(client).__name__))
-    knobs = tuple(getattr(client, k, None) for k in ("temperature", "max_tokens", "extra_body"))
-    return name if knobs == (None, None, None) else f"{name}+{_sha(*map(repr, knobs))}"
+    knobs = (getattr(client, "max_tokens", None), getattr(client, "extra_body", None))
+    if getattr(client, "temperature", None) is not None:  # appended, so identities without one are unchanged
+        knobs += (client.temperature,)
+    return name if knobs == (None, None) else f"{name}+{_sha(*map(repr, knobs))}"
 
 
 def resolve_description(task_description: str | None, corpus) -> tuple[str | None, str | None]:
