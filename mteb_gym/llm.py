@@ -1,8 +1,9 @@
 """LLM clients: LLM for any OpenAI-compatible /chat/completions endpoint (vLLM, Ollama,
 OpenAI, Together, OpenRouter, and the compatible endpoints of Anthropic and Gemini),
 MockLLM for tests and dry runs. A client implements
-chat(messages, temperature=0.0, schema=None) -> str; `schema` is the JSON shape the answer
-should take, which a provider can enforce and a client may ignore."""
+chat(messages, schema=None) -> str; `schema` is the JSON shape the answer should take, which a
+provider can enforce and a client may ignore. Sampling is the model's own: its authors' defaults,
+unless the client was built with a temperature."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ class MockLLM:
     def _hash(self, text: str) -> int:
         return int(hashlib.sha256(f"{self.seed}:{text}".encode()).hexdigest()[:8], 16)
 
-    def chat(self, messages: list[dict], temperature: float = 0.0, schema: dict | None = None) -> str:
+    def chat(self, messages: list[dict], schema: dict | None = None) -> str:
         prompt = " ".join(m.get("content", "") for m in messages)
         h = self._hash(prompt)
         if "rate the quality" in prompt.lower():
@@ -44,6 +45,7 @@ class LLM:
         base_url: str | None = None,
         api_key: str | None = None,
         max_tokens: int | None = None,
+        temperature: float | None = None,
         max_retries: int = 4,
         extra_body: dict | None = None,
         timeout: float = 120.0,
@@ -62,14 +64,17 @@ class LLM:
         # "EMPTY" is the conventional key for local servers, which accept anything.
         self.client = OpenAI(base_url=base_url, api_key=key or "EMPTY", timeout=timeout, max_retries=max_retries)
         self.model = model
+        self.temperature = temperature  # unset: the model's own default, e.g. its generation_config.json
         self.max_tokens = max_tokens  # no cap unless asked: a cap also counts a reasoning model's thinking
         self.extra_body = extra_body  # server knobs, e.g. {"chat_template_kwargs": {"enable_thinking": False}}
         self._rejected: set[str] = set()  # sampling parameters this model refused
         self.sent: dict = {}  # parameters actually sent on the last call, for the record
         self.served_model: str | None = None  # the model string the server reported, e.g. a dated snapshot
 
-    def chat(self, messages: list[dict], temperature: float = 0.0, schema: dict | None = None) -> str:
-        params = {"temperature": temperature}
+    def chat(self, messages: list[dict], schema: dict | None = None) -> str:
+        params = {}
+        if self.temperature is not None:
+            params["temperature"] = self.temperature
         if self.max_tokens is not None:
             params["max_completion_tokens"] = self.max_tokens
         if schema is not None:
@@ -89,9 +94,8 @@ class LLM:
                 self.served_model = getattr(resp, "model", None) or self.served_model
                 return resp.choices[0].message.content or ""
             except Exception as e:  # noqa: BLE001
-                # Some models refuse a parameter and answer 400 naming it: models that always reason take
-                # no temperature, older servers may not know max_completion_tokens. Drop it, remember, and
-                # run that model at its own defaults.
+                # Some models refuse a parameter and answer 400 naming it: a server that cannot enforce a
+                # schema, a model that takes no temperature. Drop it, remember, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
                 if getattr(e, "status_code", None) != 400 or not rejected:
                     raise

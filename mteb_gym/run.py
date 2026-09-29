@@ -42,9 +42,11 @@ def _sha(*parts) -> str:
 
 def _model_id(client) -> str:
     """The judge or generator as its answers depend on it: the model, and the knobs it was built
-    with. An output cap truncates, and extra_body carries server settings such as thinking mode."""
+    with. A temperature, an output cap, and extra_body server settings such as thinking mode."""
     name = str(getattr(client, "model", type(client).__name__))
     knobs = (getattr(client, "max_tokens", None), getattr(client, "extra_body", None))
+    if getattr(client, "temperature", None) is not None:  # appended, so identities without one are unchanged
+        knobs += (client.temperature,)
     return name if knobs == (None, None) else f"{name}+{_sha(*map(repr, knobs))}"
 
 

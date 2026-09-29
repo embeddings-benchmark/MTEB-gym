@@ -108,7 +108,7 @@ class Judge:
                 f"System B results:\n{_format(second, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        return _parse(self.client.chat(msg, temperature=0.0, schema=_VERDICT_SCHEMA))
+        return _parse(self.client.chat(msg, schema=_VERDICT_SCHEMA))
 
     def judge_pair(self, ra: Ranked, rb: Ranked, model_a: str, model_b: str) -> Verdict:
         """Both presentation orders, averaged to a fractional score for A. Identical

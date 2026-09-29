@@ -45,9 +45,9 @@ def test_query_generation():
 
     # worker count must never change the query set, including under flaky calls
     class Flaky(MockLLM):
-        def chat(self, messages, temperature=0.0, **kw):
+        def chat(self, messages, **kw):
             prompt = " ".join(m.get("content", "") for m in messages)
-            return "no json here" if self._hash(prompt) % 3 == 0 else super().chat(messages, temperature)
+            return "no json here" if self._hash(prompt) % 3 == 0 else super().chat(messages, **kw)
 
     def gen_with(workers, client):
         return QueryGenerator(client, n_queries=12, filter=False, workers=workers).generate(corpus)
@@ -79,7 +79,7 @@ def test_llm_drops_rejected_params():
                 model="m-2026-01-01", choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok"))]
             )
 
-    llm = LLM("m", api_key="x", max_tokens=512)
+    llm = LLM("m", api_key="x", max_tokens=512, temperature=0.0)
     llm.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=Completions()))
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
@@ -144,14 +144,14 @@ def test_judge():
     assert [(v.qid, v.score_a) for v in par] == [(v.qid, v.score_a) for v in seq]
 
     class Exploding:
-        def chat(self, messages, temperature=0.0, **kw):
+        def chat(self, messages, **kw):
             raise AssertionError("judge must not be called for identical result sets")
 
     v = Judge(Exploding()).judge_all(ra[:1], fake_ranked("a", queries[:1]), "m_a", "m_b")[0]
     assert v.score_a == 0.5 and v.raw == ["identical"]
 
     class Garbage:
-        def chat(self, messages, temperature=0.0, **kw):
+        def chat(self, messages, **kw):
             return "I refuse to answer in the requested format."
 
     verdicts = Judge(Garbage()).judge_all(ra[:5], rb[:5], "m_a", "m_b")
@@ -230,9 +230,9 @@ def test_verdict_cache():
     calls = {"n": 0}
 
     class Counting(MockLLM):
-        def chat(self, messages, temperature=0.0, **kw):
+        def chat(self, messages, **kw):
             calls["n"] += 1
-            return super().chat(messages, temperature, **kw)
+            return super().chat(messages, **kw)
 
     queries = [Query(f"q{i}", f"query {i}", ["D0"]) for i in range(6)]
     ra, rb = fake_ranked("a", queries), fake_ranked("b", queries)
@@ -398,9 +398,9 @@ def test_end_to_end_local_corpus():
     calls = {"n": 0}
 
     class Counting(MockLLM):
-        def chat(self, messages, temperature=0.0, **kw):
+        def chat(self, messages, **kw):
             calls["n"] += 1
-            return super().chat(messages, temperature, **kw)
+            return super().chat(messages, **kw)
 
     with tempfile.TemporaryDirectory() as tmp:
         docs = Path(tmp) / "docs"
@@ -463,9 +463,9 @@ def test_predict_then_run_reuses_the_predictions():
         calls = {"n": 0}
 
         class Counting(MockLLM):
-            def chat(self, messages, temperature=0.0, **kw):
+            def chat(self, messages, **kw):
                 calls["n"] += 1
-                return super().chat(messages, temperature, **kw)
+                return super().chat(messages, **kw)
 
         res = run(docs, models, judge=Counting(), generator=MockLLM(), **shared)
         assert len(res.record["ratings"]) == 2 and calls["n"] > 0  # judged

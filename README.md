@@ -146,7 +146,7 @@ gym.load_results("results/").agreement()  # every run under a directory
 ## How it works
 
 1. **Generate queries**  
-   Sample documents; the generator writes one query per sample at temperature 0.7.
+   Sample documents; the generator writes one query per sample.
 
 2. **Filter queries**  
    Drop short, malformed, low-quality and near-duplicate queries.
@@ -155,7 +155,7 @@ gym.load_results("results/").agreement()  # every run under a directory
    Every model retrieves through `mteb.evaluate`.
 
 4. **Judge pairwise**  
-   The judge compares two models' top-k lists per query, in both orders, at temperature 0. A split decision counts half.
+   The judge compares two models' top-k lists per query, in both orders. A split decision counts half.
 
 5. **Rank models**  
    Bradley–Terry over all pairwise outcomes; confidence intervals from resampling queries.
