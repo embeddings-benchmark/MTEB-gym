@@ -30,6 +30,11 @@ def fake_ranked(seed, queries, k=5):
 
 
 def test_extract_json():
+    from mteb_gym.judge import _parse
+
+    for said, want in [("A", "A"), ("a", "A"), ("Tie", "tie"), ("B.", "B"), ("System A", "A")]:
+        assert _parse(f'{{"reasoning": "r", "winner": "{said}"}}')[::2] == (want, True)
+    assert _parse('{"winner": "C"}')[2] is False and _parse("")[2] is False
     # a server without a reasoning parser returns the thinking inline, before the answer
     inline = (
         '<think>A looks better, maybe {"winner": "B"}? No: A covers more.</think>\n{"reasoning": "r", "winner": "A"}'
