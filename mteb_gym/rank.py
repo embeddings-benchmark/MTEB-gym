@@ -71,8 +71,8 @@ def _ratings(verdicts, names) -> np.ndarray:
 
 
 def rate(verdicts, bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRating]:
-    # A comparison where either order failed to parse is missing data, not a tie: it is left out,
-    # as MT-Bench and Arena-Hard do. Keeping the half that parsed would bring back position bias.
+    # A comparison where either order failed to parse is missing data, not a tie. Keeping only the
+    # order that parsed would bring back the position bias that judging both orders cancels.
     failed = sum(not all(v.parsed_ok) for v in verdicts)
     if failed:
         logger.warning("%d of %d comparisons had an unparseable judge answer and are left out", failed, len(verdicts))
