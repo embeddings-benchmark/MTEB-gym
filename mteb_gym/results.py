@@ -199,6 +199,6 @@ class Results:
 
 
 def load_results(root: str | Path) -> Results:
-    """All records under `root` (any depth), as written by run()."""
-    paths = sorted(Path(root).rglob("records/*.json"))
+    """All records under `root`: an output folder's records/, or a results repository's <task>/ folders."""
+    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name in ("records", p.name.split("__")[0]))
     return Results([Result.from_disk(p) for p in paths])

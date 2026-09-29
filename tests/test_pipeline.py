@@ -337,6 +337,11 @@ def test_record():
         assert again.record == rec and "demo" not in again.leaderboard and "a" in again.leaderboard
         df = load_results(tmp).to_dataframe()
         assert list(df["model"]) == [x["model"] for x in rec["ratings"]] and set(df["task"]) == {"demo"}
+        # a results repository keeps records in <task>/ folders, next to nothing else
+        repo = Path(tmp) / "repo" / "demo"
+        repo.mkdir(parents=True)
+        (repo / "demo__judge__q2-s0-abc.json").write_text(r.path.read_text())
+        assert len(load_results(Path(tmp) / "repo").results) == 1
 
 
 def test_agreement():
