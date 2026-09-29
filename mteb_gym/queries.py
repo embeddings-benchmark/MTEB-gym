@@ -37,18 +37,6 @@ _GEN_BODY = (
     'Reply with strict JSON: {"query": "..."}'
 )
 
-_QUERY_SCHEMA = {
-    "type": "object",
-    "properties": {"query": {"type": "string"}},
-    "required": ["query"],
-    "additionalProperties": False,
-}
-_SCORE_SCHEMA = {
-    "type": "object",
-    "properties": {"score": {"type": "integer"}, "reason": {"type": "string"}},
-    "required": ["score", "reason"],
-    "additionalProperties": False,
-}
 _FILTER_SYSTEM = (
     "You rate the quality of search queries for benchmarking retrieval models. "
     "A 5 is a clear, specific, genuinely answerable information need that would "
@@ -128,7 +116,7 @@ class QueryGenerator:
         # A client error propagates (the client has already retried): a dead endpoint or a bad
         # key fails on the first call, not after minutes of empty waves. An unparseable answer
         # yields None and the next wave retries with fresh documents.
-        text = (extract_json(self.client.chat(msg, schema=_QUERY_SCHEMA)).get("query") or "").strip()
+        text = (extract_json(self.client.chat(msg)).get("query") or "").strip()
         return Query(qid=f"q{idx}", text=text, seed_doc_ids=doc_ids) if text else None
 
     def generate(self, docs: dict[str, str]) -> list[Query]:
@@ -175,7 +163,7 @@ class QueryGenerator:
                 {"role": "user", "content": f"Query: {q.text}\nReply as JSON."},
             ]
             try:
-                out = extract_json(self.client.chat(msg, schema=_SCORE_SCHEMA))
+                out = extract_json(self.client.chat(msg))
                 q.quality = int(out.get("score", 3))
                 return 0 if "score" in out else 1
             except (ValueError, TypeError):  # non-numeric score

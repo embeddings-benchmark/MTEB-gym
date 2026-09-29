@@ -31,12 +31,6 @@ _TAIL = (
     '{"reasoning": "one sentence", "winner": "A"|"B"|"tie"}'
 )
 _WINNERS = ("A", "B", "tie")
-_VERDICT_SCHEMA = {  # field order is generation order: the judge reasons before it commits
-    "type": "object",
-    "properties": {"reasoning": {"type": "string"}, "winner": {"type": "string", "enum": list(_WINNERS)}},
-    "required": ["reasoning", "winner"],
-    "additionalProperties": False,
-}
 
 
 def task_prompt(prompt) -> str | None:
@@ -108,7 +102,7 @@ class Judge:
                 f"System B results:\n{_format(second, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        return _parse(self.client.chat(msg, schema=_VERDICT_SCHEMA))
+        return _parse(self.client.chat(msg))
 
     def judge_pair(self, ra: Ranked, rb: Ranked, model_a: str, model_b: str) -> Verdict:
         """Both presentation orders, averaged to a fractional score for A. Identical

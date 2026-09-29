@@ -30,6 +30,11 @@ def fake_ranked(seed, queries, k=5):
 
 
 def test_extract_json():
+    # a server without a reasoning parser returns the thinking inline, before the answer
+    inline = (
+        '<think>A looks better, maybe {"winner": "B"}? No: A covers more.</think>\n{"reasoning": "r", "winner": "A"}'
+    )
+    assert extract_json(inline)["winner"] == "A"
     assert extract_json('```json\n{"winner": "A"}\n```')["winner"] == "A"
     assert extract_json('blah {"score": 4} trailing')["score"] == 4
     assert extract_json("not json") == {}
