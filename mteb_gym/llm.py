@@ -1,9 +1,8 @@
 """LLM clients: LLM for any OpenAI-compatible /chat/completions endpoint (vLLM, Ollama,
 OpenAI, Together, OpenRouter, and the compatible endpoints of Anthropic and Gemini),
-MockLLM for tests and dry runs. A client implements
-chat(messages, schema=None) -> str; `schema` is the JSON shape the answer should take, which a
-provider can enforce and a client may ignore. Sampling is the model's own: its authors' defaults,
-unless the client was built with a temperature."""
+MockLLM for tests and dry runs. A client implements chat(messages) -> str. Answers are asked for
+as JSON in the prompt and read from the text, so a model may reason before it answers. Sampling
+is the model's own: its authors' defaults, unless the client was built with a temperature."""
 
 from __future__ import annotations
 
@@ -27,7 +26,7 @@ class MockLLM:
     def _hash(self, text: str) -> int:
         return int(hashlib.sha256(f"{self.seed}:{text}".encode()).hexdigest()[:8], 16)
 
-    def chat(self, messages: list[dict], schema: dict | None = None) -> str:
+    def chat(self, messages: list[dict]) -> str:
         prompt = " ".join(m.get("content", "") for m in messages)
         h = self._hash(prompt)
         if "rate the quality" in prompt.lower():
@@ -71,19 +70,12 @@ class LLM:
         self.sent: dict = {}  # parameters actually sent on the last call, for the record
         self.served_model: str | None = None  # the model string the server reported, e.g. a dated snapshot
 
-    def chat(self, messages: list[dict], schema: dict | None = None) -> str:
+    def chat(self, messages: list[dict]) -> str:
         params = {}
         if self.temperature is not None:
             params["temperature"] = self.temperature
         if self.max_tokens is not None:
             params["max_completion_tokens"] = self.max_tokens
-        if schema is not None:
-            # a provider that cannot enforce it answers 400 and the parameter is dropped below;
-            # the prompt asks for the same JSON either way
-            params["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": "answer", "schema": schema, "strict": True},
-            }
         while True:
             try:
                 sent = {k: v for k, v in params.items() if k not in self._rejected}
@@ -94,8 +86,8 @@ class LLM:
                 self.served_model = getattr(resp, "model", None) or self.served_model
                 return resp.choices[0].message.content or ""
             except Exception as e:  # noqa: BLE001
-                # Some models refuse a parameter and answer 400 naming it: a server that cannot enforce a
-                # schema, a model that takes no temperature. Drop it, remember, and run at its defaults.
+                # Some models refuse a parameter and answer 400 naming it, e.g. a temperature on a model
+                # that always reasons. Drop it, remember, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
                 if getattr(e, "status_code", None) != 400 or not rejected:
                     raise
