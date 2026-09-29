@@ -169,6 +169,13 @@ def test_judge():
     assert results.verdict_diagnostics(verdicts)["parse_failure_rate"] == 1.0
 
 
+def test_failed_comparisons_are_left_out():
+    """A comparison with an unparseable order counts for nothing, rather than as a tie."""
+    won = [Verdict(f"q{i}", "q", "a", "b", 1.0, parsed_ok=[True, True]) for i in range(6)]
+    failed = [Verdict(f"f{i}", "q", "a", "b", 0.5, parsed_ok=[True, False]) for i in range(6)]
+    assert rate(won + failed, bootstrap=0) == rate(won, bootstrap=0)
+
+
 def test_rank():
     def v(qid, a, b, score):
         return Verdict(qid=qid, query="q", model_a=a, model_b=b, score_a=score)
