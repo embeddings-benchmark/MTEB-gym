@@ -468,7 +468,7 @@ def test_submit_prepares_a_commit(monkeypatch):
 
         out = submit(tmp / "results", cache_folder=cache, repository=str(remote))
         assert [str(r) for r in out["records"]] == ["results/demo/demo__mock__original-queries__q1-s0-abc.json"]
-        assert out["files"] == verdicts and out["missing"] == [] and "pr_url" not in out
+        assert out["files"] == verdicts and "pr_url" not in out
         assert (
             subprocess.run(
                 ["git", "log", "-1", "--format=%s"], cwd=out["clone"], capture_output=True, text=True

@@ -1,8 +1,9 @@
 """Submit results to the results repository, and the queries and verdicts behind them to the dataset.
 
 As mteb's ResultCache.submit_results: the results repository is cloned into the cache, new records are
-committed there, and with create_pr=True the branch is pushed and a pull request opened. The queries
-and verdicts a record was computed from do not fit in git; they go to the dataset as a pull request.
+committed there, and with create_pr=True the branch is pushed to the submitter's fork and a pull
+request opened. The queries and verdicts a record was computed from do not fit in git; they go to the
+dataset as a pull request.
 """
 
 from __future__ import annotations
@@ -41,8 +42,8 @@ def submit(
     the commit is prepared locally and nothing leaves this machine.
 
     Returns:
-        The records committed, the dataset files they were computed from, any of those missing from
-        the cache, the local clone and branch, and the pull request URLs when opened.
+        The records committed, the dataset files they were computed from, the local clone and branch,
+        and the pull request URLs when opened.
     """
     cache = Path(cache_folder) if cache_folder is not None else default_cache_folder()
     clone = cache / "remote" / "gym-results"
@@ -63,7 +64,7 @@ def submit(
         new.append(target.relative_to(clone))
     if not new:
         logger.info("nothing to submit: every record is already in the results repository")
-        return {"records": [], "files": [], "missing": []}
+        return {"records": [], "files": []}
 
     files = [
         p
@@ -72,15 +73,16 @@ def submit(
         for p in group
     ]
     missing = [p for p in files if not p.exists()]
-    files = [p for p in files if p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"{len(missing)} files the records were computed from are not in {cache}: {missing[:3]}"
+        )
 
     branch = "submit-" + hashlib.sha256("".join(sorted(map(str, new))).encode()).hexdigest()[:10]
     _git("checkout", "--quiet", "-B", branch, cwd=clone)
     _git("add", "results", cwd=clone)
     _git("commit", "--quiet", "-m", f"Add {len(new)} records", cwd=clone)
-    out = {"records": new, "files": files, "missing": missing, "clone": clone, "branch": branch}
-    if missing:
-        logger.warning("%d files the records name are not in the cache", len(missing))
+    out = {"records": new, "files": files, "clone": clone, "branch": branch}
     if not create_pr:
         logger.info(
             "prepared %d records on branch %s in %s, and %d dataset files; submit(create_pr=True) opens both "
@@ -94,11 +96,34 @@ def submit(
 
     from huggingface_hub import CommitOperationAdd, HfApi
 
-    _git("push", "--quiet", "-u", "origin", branch, cwd=clone)
+    # Submitters need not have write access to the results repository, so the branch goes to their fork.
+    if "fork" not in _git("remote", cwd=clone).split():
+        subprocess.run(
+            ["gh", "repo", "fork", "--remote", "--remote-name", "fork"], cwd=clone, check=True, capture_output=True
+        )
+    _git("push", "--quiet", "--force", "fork", f"HEAD:refs/heads/{branch}", cwd=clone)
+    user = subprocess.run(
+        ["gh", "api", "user", "--jq", ".login"], check=True, capture_output=True, text=True
+    ).stdout.strip()
     title = f"Add {len(new)} records"
     body = "\n".join(f"- `{r}`" for r in new)
+    upstream = repository.removeprefix("https://github.com/").removesuffix(".git")
     out["pr_url"] = subprocess.run(
-        ["gh", "pr", "create", "--title", title, "--body", body, "--head", branch],
+        [
+            "gh",
+            "pr",
+            "create",
+            "--repo",
+            upstream,
+            "--base",
+            "main",
+            "--head",
+            f"{user}:{branch}",
+            "--title",
+            title,
+            "--body",
+            body,
+        ],
         cwd=clone,
         check=True,
         capture_output=True,
