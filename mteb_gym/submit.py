@@ -67,12 +67,15 @@ def submit(
         logger.info("nothing to submit: every record is already in the results repository")
         return {"records": [], "files": []}
 
-    files = [
-        p
-        for record in new
-        for group in cache_files(json.loads((clone / record).read_text()), cache).values()
-        for p in group
-    ]
+    # records of the same models and queries share prediction and verdict files
+    files = sorted(
+        {
+            p
+            for record in new
+            for group in cache_files(json.loads((clone / record).read_text()), cache).values()
+            for p in group
+        }
+    )
     missing = [p for p in files if not p.exists()]
     if missing:
         raise FileNotFoundError(
