@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mteb_gym import Result, agreement, load_results, results
+from mteb_gym import Result, agreement, cache_files, load_results, results
 from mteb_gym.judge import Judge, Verdict, judge_system, task_prompt
 from mteb_gym.llm import MockLLM
 from mteb_gym.queries import Query, QueryGenerator, extract_json
@@ -94,7 +94,10 @@ def test_llm_drops_rejected_params():
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
     assert calls == [["max_completion_tokens", "temperature"], ["max_completion_tokens"], [], []]  # learned once
-    assert llm.served_model == "m-2026-01-01" and llm.sent == {}  # both refused: the record shows neither
+    from mteb_gym.llm import llm_settings
+
+    assert llm.served_model == "m-2026-01-01"
+    assert llm_settings(llm)["refused"] == ["max_completion_tokens", "temperature"]  # configured, but refused
 
 
 def test_description_is_what_the_encoders_get():
@@ -259,15 +262,20 @@ def test_verdict_cache():
         key = verdict_key(judge, 5, "qs", "m_a", "r1", "m_b", "r1")
         full = judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key)
         assert len(full) == 6 and calls["n"] == 12
-        # simulate a crash mid-pair: keep two verdicts in the JSONL, drop the final file, rerun
-        final = next(vdir.glob("*.json"))
-        jsonl = final.with_suffix(".jsonl")
-        jsonl.write_text("\n".join(jsonl.read_text().splitlines()[:2]) + "\n")
-        final.unlink()
+        # one file per pair, one line per comparison
+        (jsonl,) = vdir.glob("*")
+        assert jsonl.suffix == ".jsonl" and len(jsonl.read_text().splitlines()) == 6
+        # simulate a crash mid-pair: two verdicts written, a third cut short, then a rerun
+        lines = jsonl.read_text().splitlines()
+        jsonl.write_text("\n".join(lines[:2]) + "\n" + lines[2][:20])
         calls["n"] = 0
         resumed = judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key)
         assert [v.qid for v in resumed] == [q.qid for q in queries] and calls["n"] == 8, (
             "resume judges only the 4 missing"
+        )
+        calls["n"] = 0
+        assert len(judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key)) == 6 and calls["n"] == 0, (
+            "the cut-short line is skipped and nothing written after it is lost"
         )
         # the judge's own settings are part of its identity: thinking mode changes the verdicts
         from mteb_gym.run import _model_id
@@ -286,7 +294,7 @@ def test_verdict_cache():
             fake_ranked("c", queries),
             verdict_key(judge, 5, "qs", "m_a", "r1", "m_b", "r2"),
         )
-        assert calls["n"] == 12 and len(list(vdir.glob("*.json"))) == 2
+        assert calls["n"] == 12 and len(list(vdir.glob("*.jsonl"))) == 2
         # a run over a subset of queries, then the full run: each query is judged once in total
         key3 = verdict_key(judge, 5, "qs3", "m_a", "r1", "m_b", "r1")
         calls["n"] = 0
@@ -328,15 +336,20 @@ def test_record():
     assert rec["source"] == "local" and rec["diagnostics"]["tie_rate"] == 2 / 3
     assert (
         results.record_path(Path("out"), "demo", exp)
-        == Path("out") / "records" / f"demo__judge__gen__q3-s0-{exp['config_hash']}.json"
+        == Path("out") / "demo" / f"demo__judge__gen__q3-s0-{exp['config_hash']}.json"
     )
     with tempfile.TemporaryDirectory() as tmp:
         r = Result(rec, Path(tmp) / "records" / "demo.json")
         r.to_disk()
         again = Result.from_disk(r.path)
         assert again.record == rec and "demo" not in again.leaderboard and "a" in again.leaderboard
-        df = load_results(tmp).to_dataframe()
+        df = load_results(tmp).to_dataframe()  # an older output folder's records/
         assert list(df["model"]) == [x["model"] for x in rec["ratings"]] and set(df["task"]) == {"demo"}
+        # a results folder or results repository: <task>/<task>__....json, next to nothing else
+        repo = Path(tmp) / "repo" / "demo"
+        repo.mkdir(parents=True)
+        (repo / "demo__judge__q2-s0-abc.json").write_text(r.path.read_text())
+        assert len(load_results(Path(tmp) / "repo").results) == 1
 
 
 def test_agreement():
@@ -430,11 +443,22 @@ def test_end_to_end_local_corpus():
             n_queries=4,
             filter_queries=False,
             output_folder=Path(tmp) / "out",
+            cache_folder=Path(tmp) / "cache",
             workers=1,
         )
         res = run(docs, **kw)
         rec = res.record
-        assert len(rec["ratings"]) == 2 and res.path.exists() and res.path.parent.name == "records"
+        assert len(rec["ratings"]) == 2 and res.path.exists()
+        assert res.path.parent == Path(tmp) / "out" / "docs" and res.path.name.startswith("docs__")  # <task>/<record>
+        assert set((Path(tmp) / "out").rglob("*")) == {
+            res.path.parent,
+            res.path,
+        }  # the results folder holds records only
+        # the query set keeps the settings of the generator that wrote it; the record reads them from there
+        (qfile,) = cache_files(rec, Path(tmp) / "cache")["queries"]
+        assert json.loads(qfile.read_text())["generator"]["model"] == "mock" == rec["llms"]["generator"]["model"]
+        files = cache_files(rec, Path(tmp) / "cache")
+        assert len(files["verdicts"]) == 1 and all(p.exists() for p in files["verdicts"] + files["queries"])
         assert (
             rec["config"]["n_queries"] == 4 and rec["config"]["task_description"] is None
         )  # local corpus: no task prompt
@@ -444,7 +468,7 @@ def test_end_to_end_local_corpus():
         assert all(
             r["revision"] == mteb.get_model_meta(r["model"]).revision for r in rec["ratings"]
         )  # mteb's pins carried over
-        preds = list((Path(tmp) / "out" / "predictions").rglob("*_predictions.json"))
+        preds = list((Path(tmp) / "cache" / "predictions").rglob("*_predictions.json"))
         assert len(preds) == 2 and all("@" in p.parts[-3] for p in preds)  # <model>@<revision>/<query set>/
         assert rec["config"]["model_revisions"] == {r["model"]: r["revision"] for r in rec["ratings"]}
         calls["n"] = 0
@@ -471,7 +495,7 @@ def test_predict_then_run_reuses_the_predictions():
         docs.mkdir()
         for did, text in make_corpus(12).items():
             (docs / f"{did}.txt").write_text(text)
-        shared = dict(n_queries=4, filter_queries=False, output_folder=Path(tmp) / "out", workers=1)
+        shared = dict(n_queries=4, filter_queries=False, cache_folder=Path(tmp) / "cache", workers=1)
         with pytest.raises(ValueError, match="generator"):
             predict(docs, models[0], **shared)  # a generated query set is identified by the generator
         paths = [predict(docs, m, generator=MockLLM(), **shared) for m in models]
@@ -484,9 +508,9 @@ def test_predict_then_run_reuses_the_predictions():
                 calls["n"] += 1
                 return super().chat(messages, **kw)
 
-        res = run(docs, models, judge=Counting(), generator=MockLLM(), **shared)
+        res = run(docs, models, judge=Counting(), generator=MockLLM(), output_folder=Path(tmp) / "out", **shared)
         assert len(res.record["ratings"]) == 2 and calls["n"] > 0  # judged
-        found = set((Path(tmp) / "out" / "predictions").rglob("*_predictions.json"))
+        found = set((Path(tmp) / "cache" / "predictions").rglob("*_predictions.json"))
         assert found == set(paths)  # the run wrote no new prediction files
 
 
@@ -503,6 +527,7 @@ def test_end_to_end_mteb_task():
             judge=MockLLM(),
             n_queries=8,
             output_folder=Path(tmp),
+            cache_folder=Path(tmp) / "cache",
             workers=1,
         )
         cfg = res.record["config"]

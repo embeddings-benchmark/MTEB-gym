@@ -48,12 +48,12 @@ def _short(model: str | None) -> str:
 
 
 def record_path(out: Path, task_name: str, experiment: dict[str, Any]) -> Path:
-    """out/records/<task>__<judge>__<generator or arm>__q<n>-s<seed>-<hash>.json"""
+    """out/<task>/<task>__<judge>__<generator or arm>__q<n>-s<seed>-<hash>.json, the results repository's layout"""
     second = (
         _short(experiment["generator_model"]) if experiment["arm"] == "synthetic" else f"{experiment['arm']}-queries"
     )
     name = f"{task_name}__{_short(experiment['judge_model'])}__{second}__q{experiment['n_queries']}-s{experiment['seed']}-{experiment['config_hash']}.json"
-    return Path(out) / "records" / name
+    return Path(out) / task_name / name
 
 
 def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
@@ -199,6 +199,7 @@ class Results:
 
 
 def load_results(root: str | Path) -> Results:
-    """All records under `root` (any depth), as written by run()."""
-    paths = sorted(Path(root).rglob("records/*.json"))
+    """All records under `root`: a results folder's or results repository's <task>/ folders, or an
+    older output folder's records/."""
+    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name in ("records", p.name.split("__")[0]))
     return Results([Result.from_disk(p) for p in paths])

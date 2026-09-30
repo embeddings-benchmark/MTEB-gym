@@ -102,7 +102,7 @@ class QueryGenerator:
 
     def run(self, docs: dict[str, str]) -> list[Query]:
         raw = self.generate(docs)
-        self.settings = llm_settings(self.client)  # generation's settings, before the filter reuses the client at 0
+        self.settings = llm_settings(self.client)  # stored with the query set
         self.n_generated = len(raw)
         return self.filter(raw)
 
