@@ -94,7 +94,10 @@ def test_llm_drops_rejected_params():
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
     assert llm.chat([{"role": "user", "content": "hi"}]) == "ok"
     assert calls == [["max_completion_tokens", "temperature"], ["max_completion_tokens"], [], []]  # learned once
-    assert llm.served_model == "m-2026-01-01" and llm.sent == {}  # both refused: the record shows neither
+    from mteb_gym.llm import llm_settings
+
+    assert llm.served_model == "m-2026-01-01"
+    assert llm_settings(llm)["refused"] == ["max_completion_tokens", "temperature"]  # configured, but refused
 
 
 def test_description_is_what_the_encoders_get():
