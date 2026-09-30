@@ -7,7 +7,7 @@ import argparse
 import json
 import logging
 
-from . import LLM, MockLLM, predict, run
+from . import LLM, MockLLM, predict, run, submit
 
 
 def client(model: str, base_url: str | None, extra_body: str | None = None):
@@ -69,12 +69,23 @@ def main(argv=None) -> None:
         "--pairs-per-query", type=int, default=None, help="judge only this many random model pairs per query"
     )
 
+    sub_ap = sub.add_parser("submit", help="open pull requests with new records and their queries and verdicts")
+    sub_ap.add_argument("--results-folder", default="results")
+    sub_ap.add_argument("--cache-folder", default=None)
+    sub_ap.add_argument("--create-pr", action="store_true", help="push and open the pull requests")
+
     pred_ap = sub.add_parser("predict", help="retrieve one model's results, so a roster runs one model per process")
     _corpus_and_queries(pred_ap)
     pred_ap.add_argument("--model", required=True, help="one mteb model id")
 
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    if args.command == "submit":
+        out = submit(args.results_folder, cache_folder=args.cache_folder, create_pr=args.create_pr)
+        for key in ("pr_url", "dataset_pr_url"):
+            if key in out:
+                print(out[key])
+        return
     shared = dict(
         generator=client(args.generator, args.generator_url, args.generator_extra_body) if args.generator else None,
         queries=args.queries,

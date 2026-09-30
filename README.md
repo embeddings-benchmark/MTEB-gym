@@ -137,7 +137,7 @@ Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](ht
   `run` finds the prediction files already written and only judges. The arguments that decide the query set, the corpus, generator, `queries`, `n_queries` and `seed`, must match between the two.
 - **Cost.** Two judge calls per query per model pair: 100 queries and 10 models is 9,000 calls.
 - **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory, a clone of the results repository included.
-- **Publishing.** Copy `results/` into the results repository and open a pull request. `gym.cache_files(record)` lists the queries and verdicts a record was computed from, for the dataset.
+- **Submitting.** `mteb-gym submit` commits new records to a clone of the [results repository](https://github.com/embeddings-benchmark/gym-results); `--create-pr` opens a pull request there and one on the [dataset](https://huggingface.co/datasets/mteb/gym-runs) with the queries and verdicts behind them. `gym.submit()` does the same in Python.
 
 ## Agreement with MTEB
 
