@@ -112,15 +112,31 @@ Results and caches are kept apart, as in mteb. `output_folder` holds the records
 ```text
 results/
 └── NFCorpus/
-    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json
+    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json   # task, judge, queries, n queries, seed, configuration hash
 ```
 
-Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) its queries and verdicts are published to:
+```jsonc
+{
+  "task_name": "NFCorpus", "dataset": {"path": "...", "revision": "..."},
+  "mteb_version": "...", "gym_version": "...", "gym_revision": "...", "evaluation_time": 812.4,
+  "config": {"query_set": "...", "judge_model": "...", "generator_model": "...", "judge_system": "...",
+             "n_queries": 100, "top_k": 10, "doc_chars": 2000, "seed": 0,
+             "models": ["..."], "model_revisions": {"...": "..."}, "config_hash": "..."},  // identity of the run
+  "llms": {"judge": {"model": "...", "base_url": "..."}, "generator": {}},  // what the LLMs ran with
+  "labels": "seed_documents",  // what ndcg_at_10 is scored against
+  "diagnostics": {"judge_calls": 1600, "parse_failure_rate": 0.0, "a_first_rate": 0.52, "tie_rate": 0.11},  // and more
+  "ratings": [{"model": "...", "revision": "...", "rating": 1034.2, "ci_low": 1012.8, "ci_high": 1055.1,
+               "wins": 412, "losses": 301, "ties": 87, "n": 800, "ndcg_at_10": 0.34}],
+  "agreement": {}  // added by agreement(): correlation with the official MTEB scores
+}
+```
+
+Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) it is published to:
 
 ```text
 ~/.cache/mteb_gym/
 ├── queries/NFCorpus/<query set>.json          # generated queries, their quality scores, and the generator's settings
-├── predictions/NFCorpus/<model>@<revision>/   # mteb's retrieval output per model
+├── predictions/NFCorpus/<model>@<revision>/<query set>/   # mteb's prediction file per model
 └── verdicts/NFCorpus/<pair>-<key>.jsonl       # one line per comparison
 ```
 
@@ -137,7 +153,24 @@ Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](ht
   `run` finds the prediction files already written and only judges. The arguments that decide the query set, the corpus, generator, `queries`, `n_queries` and `seed`, must match between the two.
 - **Cost.** Two judge calls per query per model pair: 100 queries and 10 models is 9,000 calls.
 - **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory, a clone of the results repository included.
-- **Publishing.** Copy `results/` into the results repository and open a pull request. `gym.cache_files(record)` lists the queries and verdicts a record was computed from, for the dataset.
+
+## Submitting results
+
+A run's record goes to the [results repository](https://github.com/embeddings-benchmark/gym-results) on GitHub. The files it was computed from go to the [dataset](https://huggingface.co/datasets/mteb/gym-runs) on Hugging Face, since they are too large for git.
+
+| What | Where | Path |
+|---|---|---|
+| the record: ratings, configuration, LLM settings | GitHub, `embeddings-benchmark/gym-results` | `results/<task>/<record>.json` |
+| the query set, each model's predictions, the verdicts | Hugging Face, `mteb/gym-runs` | `queries/…`, `predictions/…`, `verdicts/…`, as in the cache |
+
+```bash
+gh auth login && hf auth login
+mteb-gym submit              # commit new records to a local clone; nothing is uploaded
+mteb-gym submit --create-pr  # open a pull request on each: GitHub from your fork, Hugging Face directly
+```
+
+- Every record in `results/` that the repository lacks is submitted; one whose files are not all in the cache is refused.
+- `--results-folder` and `--cache-folder` point at other folders. `gym.submit()` does the same in Python.
 
 ## Agreement with MTEB
 
