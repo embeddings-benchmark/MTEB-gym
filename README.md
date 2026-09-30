@@ -112,15 +112,31 @@ Results and caches are kept apart, as in mteb. `output_folder` holds the records
 ```text
 results/
 └── NFCorpus/
-    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json
+    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json   # task, judge, queries, n queries, seed, configuration hash
 ```
 
-Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) its queries and verdicts are published to:
+```jsonc
+{
+  "task_name": "NFCorpus", "dataset": {"path": "...", "revision": "..."},
+  "mteb_version": "...", "gym_version": "...", "gym_revision": "...", "evaluation_time": 812.4,
+  "config": {"query_set": "...", "judge_model": "...", "generator_model": "...", "judge_system": "...",
+             "n_queries": 100, "top_k": 10, "doc_chars": 2000, "seed": 0,
+             "models": ["..."], "model_revisions": {"...": "..."}, "config_hash": "..."},  // identity of the run
+  "llms": {"judge": {"model": "...", "base_url": "..."}, "generator": {}},  // what the LLMs ran with
+  "labels": "seed_documents",  // what ndcg_at_10 is scored against
+  "diagnostics": {"judge_calls": 1600, "parse_failure_rate": 0.0, "a_first_rate": 0.52, "tie_rate": 0.11},  // and more
+  "ratings": [{"model": "...", "revision": "...", "rating": 1034.2, "ci_low": 1012.8, "ci_high": 1055.1,
+               "wins": 412, "losses": 301, "ties": 87, "n": 800, "ndcg_at_10": 0.34}],
+  "agreement": {}  // added by agreement(): correlation with the official MTEB scores
+}
+```
+
+Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) it is published to:
 
 ```text
 ~/.cache/mteb_gym/
 ├── queries/NFCorpus/<query set>.json          # generated queries, their quality scores, and the generator's settings
-├── predictions/NFCorpus/<model>@<revision>/   # mteb's retrieval output per model
+├── predictions/NFCorpus/<model>@<revision>/<query set>/   # mteb's prediction file per model
 └── verdicts/NFCorpus/<pair>-<key>.jsonl       # one line per comparison
 ```
 
