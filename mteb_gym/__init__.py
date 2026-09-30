@@ -2,6 +2,6 @@
 
 from .llm import LLM, MockLLM
 from .results import Result, Results, load_results
-from .run import predict, run
+from .run import cache_files, predict, run
 
-__all__ = ["run", "predict", "LLM", "MockLLM", "Result", "Results", "load_results"]
+__all__ = ["run", "predict", "cache_files", "LLM", "MockLLM", "Result", "Results", "load_results"]

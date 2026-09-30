@@ -31,7 +31,7 @@ result = gym.run(
     generator=gym.MockLLM(),
     judge=gym.MockLLM(),
     n_queries=20,
-    output_folder="results/demo",
+    output_folder="results",
 )
 print(result.leaderboard)
 ```
@@ -51,7 +51,7 @@ result = gym.run(
     generator=gym.LLM("gpt-5.4-mini"),  # writes the queries
     judge=gym.LLM("gpt-5.4"),  # compares what the models retrieve
     n_queries=100,
-    output_folder="results/nfcorpus",
+    output_folder="results",
 )
 print(result.leaderboard)
 ```
@@ -90,7 +90,7 @@ result = gym.run(
     generator=llm,
     judge=llm,
     n_queries=100,
-    output_folder="results/nfcorpus",
+    output_folder="results",
 )
 print(result.leaderboard)
 ```
@@ -103,18 +103,25 @@ SGLang and `transformers serve` expose the same endpoint. A judge and a generato
 
 - `queries="synthetic"`: `"original"` uses `n_queries` of the task's own queries, drawn with `seed`; your own go in as a `.jsonl` with `id` and `text`, a `.txt` with one per line, or a list of strings.
 - `task_description=None`: one sentence on what counts as a good result, given to the generator and the judge. By default an MTEB task's own criterion, or plain relevance if it has none. Every run logs the one it used.
-- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query, `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"`, `batch_size=32`, `workers=8` concurrent LLM calls.
+- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query, `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
 
 `help(gym.run)` documents each one.
 
-Everything is written under `output_folder`. The record holds the ratings, the configuration, the diagnostics, and each model's nDCG@10 against the seed documents or the dataset's labels, a baseline that needs no judge:
+Results and caches are kept apart, as in mteb. `output_folder` holds the records only, in the layout of the [results repository](https://github.com/embeddings-benchmark/gym-results). A record holds the ratings, the configuration, the diagnostics, and each model's nDCG@10 against the seed documents or the dataset's labels, a baseline that needs no judge:
 
 ```text
-results/nfcorpus/
-├── records/NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json
-├── queries/       # generated queries with quality scores
-├── predictions/   # mteb's retrieval output per model
-└── verdicts/      # judge verdicts per model pair
+results/
+└── NFCorpus/
+    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json
+```
+
+Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) its queries and verdicts are published to:
+
+```text
+~/.cache/mteb_gym/
+├── queries/NFCorpus/<query set>.json          # generated queries, their quality scores, and the generator's settings
+├── predictions/NFCorpus/<model>@<revision>/   # mteb's retrieval output per model
+└── verdicts/NFCorpus/<pair>-<key>.jsonl       # one line per comparison
 ```
 
 - **Reruns.** The same configuration reuses all of it; adding a model judges only the new pairs.
@@ -122,14 +129,15 @@ results/nfcorpus/
 
   ```bash
   for m in "${MODELS[@]}"; do
-      mteb-gym predict --corpus NFCorpus --model "$m" --generator gpt-5.4-mini --output-folder results/nfcorpus
+      mteb-gym predict --corpus NFCorpus --model "$m" --generator gpt-5.4-mini
   done
-  mteb-gym run --corpus NFCorpus --models "${MODELS[@]}" --generator gpt-5.4-mini --judge gpt-5.4 --output-folder results/nfcorpus
+  mteb-gym run --corpus NFCorpus --models "${MODELS[@]}" --generator gpt-5.4-mini --judge gpt-5.4
   ```
 
   `run` finds the prediction files already written and only judges. The arguments that decide the query set, the corpus, generator, `queries`, `n_queries` and `seed`, must match between the two.
 - **Cost.** Two judge calls per query per model pair: 100 queries and 10 models is 9,000 calls.
-- **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory.
+- **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory, a clone of the results repository included.
+- **Publishing.** Copy `results/` into the results repository and open a pull request. `gym.cache_files(record)` lists the queries and verdicts a record was computed from, for the dataset.
 
 ## Agreement with MTEB
 
@@ -161,7 +169,7 @@ gym.load_results("results/").agreement()  # every run under a directory
    Bradley–Terry over all pairwise outcomes; confidence intervals from resampling queries.
 
 6. **Record the run**  
-   Queries, predictions, verdicts, model revisions and configuration are written to disk and cached, so a rerun repeats only what changed.
+   The record goes to the results folder; queries, predictions and verdicts to the cache, so a rerun repeats only what changed.
 
 ## Development
 

@@ -99,9 +99,16 @@ def llm_settings(client) -> dict:
     """What an LLM client actually ran with: the model asked for, the endpoint, the model the server
     reported, and the parameters sent on its last call. A refused parameter is simply absent."""
     base_url = getattr(getattr(client, "client", None), "base_url", None)
+    sent = getattr(client, "sent", {})
+    if not sent:  # never called in this process: what it is configured to send
+        configured = {
+            "temperature": getattr(client, "temperature", None),
+            "max_completion_tokens": getattr(client, "max_tokens", None),
+        }
+        sent = {**{k: v for k, v in configured.items() if v is not None}, **(getattr(client, "extra_body", None) or {})}
     return {
         "model": getattr(client, "model", str(client)),
         "base_url": str(base_url) if base_url else None,
         "served_model": getattr(client, "served_model", None),
-        **getattr(client, "sent", {}),
+        **sent,
     }
