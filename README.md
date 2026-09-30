@@ -137,7 +137,24 @@ Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](ht
   `run` finds the prediction files already written and only judges. The arguments that decide the query set, the corpus, generator, `queries`, `n_queries` and `seed`, must match between the two.
 - **Cost.** Two judge calls per query per model pair: 100 queries and 10 models is 9,000 calls.
 - **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory, a clone of the results repository included.
-- **Submitting.** `mteb-gym submit` commits new records to a clone of the [results repository](https://github.com/embeddings-benchmark/gym-results); `--create-pr` opens a pull request there from your fork (`gh auth login`) and one on the [dataset](https://huggingface.co/datasets/mteb/gym-runs) with the queries and verdicts behind them (`hf auth login`). `gym.submit()` does the same in Python.
+
+## Submitting results
+
+A run's record goes to the [results repository](https://github.com/embeddings-benchmark/gym-results) on GitHub. The files it was computed from go to the [dataset](https://huggingface.co/datasets/mteb/gym-runs) on Hugging Face, since they are too large for git.
+
+| What | Where | Path |
+|---|---|---|
+| the record: ratings, configuration, LLM settings | GitHub, `embeddings-benchmark/gym-results` | `results/<task>/<record>.json` |
+| the query set, each model's predictions, the verdicts | Hugging Face, `mteb/gym-runs` | `queries/…`, `predictions/…`, `verdicts/…`, as in the cache |
+
+```bash
+gh auth login && hf auth login
+mteb-gym submit              # commit new records to a local clone; nothing is uploaded
+mteb-gym submit --create-pr  # open a pull request on each: GitHub from your fork, Hugging Face directly
+```
+
+- Every record in `results/` that the repository lacks is submitted; one whose files are not all in the cache is refused.
+- `--results-folder` and `--cache-folder` point at other folders. `gym.submit()` does the same in Python.
 
 ## Agreement with MTEB
 

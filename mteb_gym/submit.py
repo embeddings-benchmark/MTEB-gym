@@ -1,9 +1,9 @@
-"""Submit results to the results repository, and the queries and verdicts behind them to the dataset.
+"""Submit records to the results repository on GitHub, and the files behind them to the dataset on Hugging Face.
 
 As mteb's ResultCache.submit_results: the results repository is cloned into the cache, new records are
 committed there, and with create_pr=True the branch is pushed to the submitter's fork and a pull
-request opened. The queries and verdicts a record was computed from do not fit in git; they go to the
-dataset as a pull request.
+request opened. The query set, predictions and verdicts a record was computed from are too large
+for git; they go to the dataset as a pull request.
 """
 
 from __future__ import annotations
@@ -49,7 +49,8 @@ def submit(
     clone = cache / "remote" / "gym-results"
     if clone.exists():
         _git("fetch", "--quiet", "origin", cwd=clone)
-        _git("checkout", "--quiet", "-B", "main", "origin/main", cwd=clone)
+        _git("checkout", "--quiet", "--force", "-B", "main", "origin/main", cwd=clone)
+        _git("clean", "--quiet", "-fd", cwd=clone)  # drop records a failed call copied in
     else:
         clone.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "clone", "--quiet", repository, str(clone)], check=True)
@@ -85,12 +86,14 @@ def submit(
     out = {"records": new, "files": files, "clone": clone, "branch": branch}
     if not create_pr:
         logger.info(
-            "prepared %d records on branch %s in %s, and %d dataset files; submit(create_pr=True) opens both "
-            "pull requests",
+            "prepared, nothing uploaded: %d records committed on branch %s of %s (for %s), and %d files for %s; "
+            "create_pr=True opens both pull requests",
             len(new),
             branch,
             clone,
+            repository,
             len(files),
+            dataset,
         )
         return out
 
@@ -133,7 +136,7 @@ def submit(
         repo_id=dataset,
         repo_type="dataset",
         operations=[CommitOperationAdd(str(p.relative_to(cache)), p) for p in files],
-        commit_message=f"{title}: queries and verdicts",
+        commit_message=f"{title}: queries, predictions and verdicts",
         commit_description=out["pr_url"],
         create_pr=True,
     )

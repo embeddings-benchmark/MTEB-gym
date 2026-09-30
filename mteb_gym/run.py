@@ -131,9 +131,9 @@ def verdict_file(vdir: Path, a: str, b: str, key: str) -> Path:
 
 
 def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[str, list[Path]]:
-    """The cached files a record was computed from: its query set, if generated, and one verdict
-    file per model pair. Everything that names them is in the record, so publishing a run needs
-    nothing else."""
+    """The cached files a record was computed from: its query set, if generated, each model's
+    prediction file, and one verdict file per model pair. Everything that names them is in the
+    record, so publishing a run needs nothing else."""
     cache = Path(cache_folder) if cache_folder is not None else default_cache_folder()
     cfg, task = record["config"], record["task_name"]
     revs = cfg["model_revisions"]
@@ -158,7 +158,11 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
         for a, b in itertools.combinations(cfg["models"], 2)
     ]
     queries = [cache / "queries" / task / f"{cfg['query_set']}.json"] if cfg["arm"] == "synthetic" else []
-    return {"queries": queries, "verdicts": verdicts}
+    predictions = [
+        cache / "predictions" / task / f"{slug(m)}@{revs[m]}" / cfg["query_set"] / f"{task}_predictions.json"
+        for m in cfg["models"]
+    ]
+    return {"queries": queries, "predictions": predictions, "verdicts": verdicts}
 
 
 def pair_subset(n_pairs: int, qids: list[str], k: int | None, seed: int) -> dict[str, set[int]] | None:
