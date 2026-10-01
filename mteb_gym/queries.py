@@ -66,8 +66,9 @@ def extract_json(text: str) -> dict:
             found = obj
         i = text.find("{", end)
     # A \u escape the model wrote for half a character decodes to a lone surrogate, which UTF-8 and
-    # the dataset's parquet conversion reject; each becomes "?".
-    return json.loads(json.dumps(found, ensure_ascii=False).encode("utf-8", "replace").decode("utf-8"))
+    # the dataset's parquet conversion reject; each becomes U+FFFD.
+    text = json.dumps(found, ensure_ascii=False)
+    return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
 
 
 class QueryGenerator:
