@@ -277,11 +277,13 @@ def test_verdict_cache():
         vdir = Path(tmp)
         judge = Judge(Counting(seed=1), workers=1)
         key = verdict_key(judge, 5, "qs", "m_a", "r1", "m_b", "r1")
-        full = judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key)
+        full = judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key, "qs")
         assert len(full) == 6 and calls["n"] == 12
-        # one file per pair, one line per comparison
+        # one file per pair, one line per comparison, each naming its run
         (jsonl,) = vdir.glob("*")
         assert jsonl.suffix == ".jsonl" and len(jsonl.read_text().splitlines()) == 6
+        line = json.loads(jsonl.read_text().splitlines()[0])
+        assert (line["task"], line["query_set"]) == (vdir.name, "qs") and line["judge"]
         # simulate a crash mid-pair: two verdicts written, a third cut short, then a rerun
         lines = jsonl.read_text().splitlines()
         jsonl.write_text("\n".join(lines[:2]) + "\n" + lines[2][:20])
