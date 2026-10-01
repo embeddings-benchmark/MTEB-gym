@@ -45,6 +45,8 @@ def test_extract_json():
     assert extract_json("not json") == {}
     assert extract_json('Let me think {"winner": "B"} ... final {"winner": "A"}')["winner"] == "A"  # last object wins
     assert extract_json('{"reasoning": "set {x} wins", "winner": "B"}')["winner"] == "B"
+    # the published verdict that broke the dataset's conversion: escapes for half a character
+    assert extract_json(r'{"reasoning": "derive \u00a2\udc80\udd6a(n)"}')["reasoning"] == "derive ¢??(n)"
 
 
 def test_query_generation():
