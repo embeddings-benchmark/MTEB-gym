@@ -82,7 +82,9 @@ class LLM:
                     model=self.model, messages=messages, extra_body=self.extra_body, **sent
                 )
                 self.served_model = getattr(resp, "model", None) or self.served_model
-                return resp.choices[0].message.content or ""
+                # Broken bytes in the answer arrive as lone surrogates, which UTF-8 and the dataset's
+                # parquet conversion reject; each becomes "?".
+                return (resp.choices[0].message.content or "").encode("utf-8", "replace").decode("utf-8")
             except Exception as e:  # noqa: BLE001
                 # Some models refuse a parameter and answer 400 naming it, e.g. a temperature on a model
                 # that always reasons. Drop it, remember, and run at its defaults.
