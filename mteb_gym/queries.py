@@ -37,6 +37,9 @@ _GEN_BODY = (
     'Reply with strict JSON: {"query": "..."}'
 )
 
+_GEN_USER = "Documents:\n{documents}\n\nWrite one query as JSON."
+_GEN_DOC_CHARS = 600  # characters of each document shown to the generator
+
 _FILTER_SYSTEM = (
     "You rate the quality of search queries for benchmarking retrieval models. "
     "A 5 is a clear, specific, genuinely answerable information need that would "
@@ -44,6 +47,7 @@ _FILTER_SYSTEM = (
     "or answerable by exact keyword match. "
     'Reply with strict JSON: {"score": 1-5, "reason": "..."}'
 )
+_FILTER_USER = "Query: {query}\nReply as JSON."
 
 
 def extract_json(text: str) -> dict:
@@ -100,6 +104,12 @@ class QueryGenerator:
         self.n_generated: int | None = None  # pre-filter count, for the record
         self.settings: dict | None = None  # what the generator ran with, for the record
 
+    @property
+    def prompts(self) -> tuple:
+        """What the generator and the filter are told. Part of the query set's identity, so a changed
+        prompt writes a new query set instead of reusing the old one."""
+        return (self.system, _GEN_USER, _GEN_DOC_CHARS, _FILTER_SYSTEM, _FILTER_USER)
+
     def run(self, docs: dict[str, str]) -> list[Query]:
         raw = self.generate(docs)
         self.settings = llm_settings(self.client)  # stored with the query set
@@ -108,10 +118,10 @@ class QueryGenerator:
 
     # ---------------------------------------------------------------- generate
     def _one(self, doc_ids: list[str], docs: dict[str, str], idx: int) -> Query | None:
-        snippet = "\n\n".join(f"[{i + 1}] {docs[d][:600]}" for i, d in enumerate(doc_ids))
+        snippet = "\n\n".join(f"[{i + 1}] {docs[d][:_GEN_DOC_CHARS]}" for i, d in enumerate(doc_ids))
         msg = [
             {"role": "system", "content": self.system},
-            {"role": "user", "content": f"Documents:\n{snippet}\n\nWrite one query as JSON."},
+            {"role": "user", "content": _GEN_USER.format(documents=snippet)},
         ]
         # A client error propagates (the client has already retried): a dead endpoint or a bad
         # key fails on the first call, not after minutes of empty waves. An unparseable answer
@@ -160,7 +170,7 @@ class QueryGenerator:
             """Score in place; return 1 if the score had to be defaulted."""
             msg = [
                 {"role": "system", "content": _FILTER_SYSTEM},
-                {"role": "user", "content": f"Query: {q.text}\nReply as JSON."},
+                {"role": "user", "content": _FILTER_USER.format(query=q.text)},
             ]
             try:
                 out = extract_json(self.client.chat(msg))

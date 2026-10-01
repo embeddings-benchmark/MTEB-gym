@@ -222,7 +222,7 @@ class QuerySet(NamedTuple):
 def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: int, seed: int) -> QuerySet:
     """Generate the queries, take the dataset's own, or read the ones you supplied."""
     if queries == "synthetic":
-        qid = f"{slug(corp.id)}-{slug(_model_id(gen.client))}-{_sha(sorted(gen.params.items()))}"
+        qid = f"{slug(corp.id)}-{slug(_model_id(gen.client))}-{_sha(sorted(gen.params.items()), *gen.prompts)}"
         qs, n_generated, settings = _cached_queries(cache / "queries" / corp.name / f"{qid}.json", gen, corp.docs)
         settings = settings or llm_settings(gen.client)  # a query set cached before its settings were kept
         return QuerySet(qid, {q.qid: q.text for q in qs}, qs, "synthetic", n_generated, settings)
