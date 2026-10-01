@@ -73,7 +73,8 @@ def _format(r: Ranked, doc_chars: int) -> str:
 
 
 def _parse(raw: str) -> tuple[str, str, bool]:
-    """(winner, reasoning, parsed_ok). An unparseable answer scores as a tie but is flagged."""
+    """(winner, reasoning, parsed_ok). An unparseable answer reads as a tie and is flagged; rate()
+    leaves its comparison out."""
     out = extract_json(raw)
     # read as written, up to case and trim: "a", "Tie", "B." and "System A" all mean what they say
     said = str(out.get("winner", "")).strip().rstrip(".").lower().removeprefix("system ").strip()

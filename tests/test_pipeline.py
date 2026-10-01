@@ -14,7 +14,7 @@ from mteb_gym.llm import MockLLM
 from mteb_gym.queries import Query, QueryGenerator, extract_json
 from mteb_gym.rank import format_leaderboard, rate
 from mteb_gym.retrieval import Ranked
-from mteb_gym.run import judge_pair_cached, pair_subset, resolve_description, verdict_key
+from mteb_gym.run import judge_pair_cached, pair_subset, resolve_description, resolve_queries, verdict_key
 
 
 def make_corpus(n=40):
@@ -68,6 +68,21 @@ def test_query_generation():
         assert [(q.qid, q.text, tuple(q.seed_doc_ids)) for q in par] == [
             (q.qid, q.text, tuple(q.seed_doc_ids)) for q in seq
         ]
+
+
+def test_a_changed_prompt_is_a_new_query_set():
+    """The prompts are part of the query set's identity, so a changed prompt generates new queries
+    instead of reusing the cached ones."""
+    corp = types.SimpleNamespace(id="c", name="c", docs=make_corpus())
+    with tempfile.TemporaryDirectory() as tmp:
+
+        def qset(gen):
+            return resolve_queries(corp, Path(tmp), "synthetic", gen, 4, 0).id
+
+        gen = QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1)
+        assert qset(gen) == qset(QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1))
+        gen.system += " One passage, one query."
+        assert qset(gen) != qset(QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1))
 
 
 def test_llm_drops_rejected_params():
