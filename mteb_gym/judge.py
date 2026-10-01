@@ -57,6 +57,10 @@ class Verdict:
     raw: list[str] = field(default_factory=list)  # per-order winners, for audit
     reasoning: str = ""
     parsed_ok: list[bool] = field(default_factory=list)  # per order; empty = no judge call
+    # which run it belongs to, so a published verdict is identifiable without its file path
+    task: str = ""
+    judge: str = ""
+    query_set: str = ""
 
 
 def _cut(text: str, n: int) -> str:

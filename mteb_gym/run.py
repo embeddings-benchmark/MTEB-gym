@@ -27,7 +27,7 @@ import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -175,7 +175,7 @@ def pair_subset(n_pairs: int, qids: list[str], k: int | None, seed: int) -> dict
 
 
 def judge_pair_cached(
-    vdir: Path, judge: Judge, a: str, b: str, ra: list[Ranked], rb: list[Ranked], key: str
+    vdir: Path, judge: Judge, a: str, b: str, ra: list[Ranked], rb: list[Ranked], key: str, query_set: str = ""
 ) -> list[Verdict]:
     """Verdicts for one pair under `key`, for the queries in `ra`. Every verdict ever made for the
     pair stays in one JSONL, appended as it is made, so a crash, a rerun, or a run over a subset of
@@ -199,11 +199,13 @@ def judge_pair_cached(
                 f.write("\n")
         lock = threading.Lock()
 
+        run = dict(task=vdir.name, judge=_model_id(judge.client), query_set=query_set)
+
         def persist(v: Verdict) -> None:
             with lock, jsonl.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(asdict(v)) + "\n")
+                f.write(json.dumps({**asdict(v), **run}) + "\n")
 
-        done.update({v.qid: v for v in judge.judge_all(todo, rb, a, b, on_verdict=persist)})
+        done.update({v.qid: replace(v, **run) for v in judge.judge_all(todo, rb, a, b, on_verdict=persist)})
     order = {r.qid: i for i, r in enumerate(ra)}
     return sorted((v for v in done.values() if v.qid in order), key=lambda v: order[v.qid])
 
@@ -374,7 +376,7 @@ def run(
             ra = [r for r in ra if i in chosen[r.qid]]
             rb = [r for r in rb if i in chosen[r.qid]]
         key = verdict_key(jd, top_k, query_set, a, revisions[a], b, revisions[b])
-        return judge_pair_cached(cache / "verdicts" / corp.name, jd, a, b, ra, rb, key)
+        return judge_pair_cached(cache / "verdicts" / corp.name, jd, a, b, ra, rb, key, query_set)
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         # map keeps pair order, so the verdict list, and the bootstrap over it, is the same every run
