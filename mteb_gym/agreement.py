@@ -13,6 +13,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Two models with equal total wins fit to strengths that differ only by the MM stopping
+# tolerance in rank.py, a rating gap of about 1e-8 once the fit has converged (a fit that
+# stops at the iteration cap can leave a larger gap). Gaps below this count as ties.
+RATING_TIE_TOL = 1e-6
+
 
 def official_scores(cache, task: str, models: list[str]) -> dict[str, tuple[float, str]]:
     """Each model's official score on `task` and the revision it came from. A model can have
@@ -66,12 +71,26 @@ def fetch_truth(
     return scores, source
 
 
+def _snap_ties(ratings: np.ndarray, tol: float = RATING_TIE_TOL) -> np.ndarray:
+    """Ratings closer than `tol` to the next one in sorted order are set equal, so tied
+    strengths get tied ranks instead of an order fixed by the fit's rounding noise."""
+    order = np.argsort(ratings)
+    snapped = ratings[order].copy()
+    for i in range(1, len(snapped)):
+        if snapped[i] - snapped[i - 1] < tol:
+            snapped[i] = snapped[i - 1]
+    out = np.empty_like(ratings)
+    out[order] = snapped
+    return out
+
+
 def _tau_ap(g: np.ndarray, t: np.ndarray) -> float:
     """AP rank correlation (Yilmaz et al. 2008): Kendall's tau weighted toward the
-    top of the reference ranking t. 1 = identical order, -1 = reversed."""
+    top of the reference ranking t. 1 = identical order, -1 = reversed. A pair tied in g
+    counts half, as in tau-b."""
     g_ord = g[np.argsort(-t)]
     n = len(g_ord)
-    total = sum(float(np.sum(g_ord[:i] > g_ord[i])) / i for i in range(1, n))
+    total = sum(float(np.sum(g_ord[:i] > g_ord[i]) + 0.5 * np.sum(g_ord[:i] == g_ord[i])) / i for i in range(1, n))
     return float(2.0 * total / (n - 1) - 1.0)
 
 
@@ -84,7 +103,8 @@ def correlate(
     shared = [m for m in gym_ratings if m in ground_truth]
     if len(shared) < 3:
         return {"error": f"need >=3 shared models, have {len(shared)}", "shared": shared}
-    g = np.array([gym_ratings[m] for m in shared])
+    g = _snap_ties(np.array([gym_ratings[m] for m in shared]))
+    snapped = dict(zip(shared, g.tolist()))
     t = np.array([ground_truth[m] for m in shared])
     rho, p_rho = spearmanr(g, t)
     tau, p_tau = kendalltau(g, t)
@@ -116,6 +136,6 @@ def correlate(
         "spearman_top10": top10,
         "kendall_ap": _tau_ap(g, t),
         "spearman_ci95": ci,
-        "gym_ranking": sorted(shared, key=lambda m: -gym_ratings[m]),
+        "gym_ranking": sorted(shared, key=lambda m: -snapped[m]),
         "truth_ranking": sorted(shared, key=lambda m: -ground_truth[m]),
     }
