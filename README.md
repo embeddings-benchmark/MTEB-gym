@@ -13,7 +13,7 @@ Started in the [MTEB Gym discussion](https://github.com/embeddings-benchmark/mte
 ## Installation
 
 ```bash
-pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym-v2"
+pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym"
 ```
 
 `[colbert]` adds late-interaction models.
