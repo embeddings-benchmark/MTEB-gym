@@ -1,4 +1,4 @@
-"""Tests for leaderboard.export on hand-written records: no mteb, no network."""
+"""Tests for leaderboard.export on hand-written records in the results repository's layout: no mteb, no network."""
 
 import json
 from pathlib import Path
@@ -46,7 +46,9 @@ GOOD = {
 
 
 def write(root: Path, name: str, rec: dict) -> None:
-    p = root / "records" / f"{name}.json"
+    """A record in the results repository's layout: <task>/<task>__<rest>.json."""
+    task = rec["task_name"]
+    p = root / task / f"{task}__{name}.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(rec))
 
@@ -79,7 +81,7 @@ def test_export_shape(tmp_path):
     assert out["meta"]["judge"] == "judge-x" and out["meta"]["experiment_commit"] == "abc1234"
     assert out["meta"]["dropped"] == [] and out["meta"]["mteb_version"] == "2.20.0"
     # records written before the labels baseline carry neither key
-    assert "labels_baseline" not in sci and all("ndcg_at_10" not in m for m in sci["models"])
+    assert "labels_baseline" not in sci and "labels" not in sci and all("ndcg_at_10" not in m for m in sci["models"])
 
 
 def test_labels_baseline_is_carried_when_present(tmp_path):
@@ -101,6 +103,7 @@ def test_labels_baseline_is_carried_when_present(tmp_path):
         "n_models": 2,
     }
     assert [m["ndcg_at_10"] for m in sci["models"]] == [0.4432, 0.3123]  # in rating order
+    assert sci["labels"] == "seed_documents"  # what those numbers are scored against
     # a baseline that could not be computed is left out, not exported as a number
     rec["agreement"]["labels_baseline"] = {"error": "need >=3 shared models, have 2", "shared": []}
     write(tmp_path, "sci-syn", rec)
@@ -138,10 +141,25 @@ def test_judge_and_generator_filters(tmp_path):
     write(tmp_path, "sci-orig-z", record("SciFact", "original", judge="judge-z", reliability=GOOD))
     out = export.build_export(tmp_path, judge="judge-x")
     assert out["corpora"]["SciFact"]["config_hash"] == "h1" and out["meta"]["judge"] == "judge-x"
-    with pytest.raises(export.ExportError, match="no synthetic-arm record"):
-        export.build_export(tmp_path, judge="judge-x", generator="other-gen")
+    only = export.build_export(tmp_path, judge="judge-x", generator="other-gen")  # nothing to rank: rows only
+    assert only["corpora"] == {} and sorted(only["reliability"]) == ["SciFact"] and only["meta"]["judge"] == "judge-x"
+    with pytest.raises(export.ExportError, match="no record matches"):
+        export.build_export(tmp_path, judge="nobody")
     with pytest.raises(export.ExportError, match="no records"):
         export.build_export(tmp_path / "empty")
+
+
+def test_original_arm_records_alone_export_reliability_rows(tmp_path):
+    """A clone of the results repository that holds original-arm records only, each scored: no ranking,
+    and the row says what the labels were."""
+    for task in ("NFCorpus", "ArguAna"):
+        rec = record(task, "original", reliability=GOOD)
+        rec["labels"] = "dataset"
+        write(tmp_path, f"judge-x__original-queries__q100-s0-{task[:4]}", rec)
+    out = export.build_export(tmp_path)
+    assert out["corpora"] == {} and sorted(out["reliability"]) == ["ArguAna", "NFCorpus"]
+    assert out["reliability"]["NFCorpus"]["labels"] == "dataset" and out["meta"]["mteb_version"] == "2.20.0"
+    assert out["meta"]["dropped"] == []
 
 
 def test_cli_writes_file(tmp_path, capsys):

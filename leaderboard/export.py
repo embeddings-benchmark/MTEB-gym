@@ -3,10 +3,13 @@ Build data/leaderboard_export.json for the leaderboard app from gym records.
 
     python -m leaderboard.export --output-folder results --out leaderboard/data/leaderboard_export.json
 
-A corpus's ranking comes from its synthetic-arm record; its reliability row comes from the
-original-arm record on the same corpus after mteb_gym.reliability has scored it. The app refuses a
-ranked corpus without a reliability row, so this script refuses it first: a ranking without its
-kappa is not publishable, and "not measured" must never be shown as a ranking that looks fine.
+`--output-folder` is a run's results folder or a clone of the results repository: records sit in
+<task>/ folders, as mteb_gym.load_results reads them. A corpus's ranking comes from its synthetic-arm
+record; its reliability row comes from the original-arm record on the same corpus after
+mteb_gym.reliability has scored it. The app refuses a ranked corpus without a reliability row, so
+this script refuses it first: a ranking without its kappa is not publishable, and "not measured"
+must never be shown as a ranking that looks fine. A folder with original-arm records only exports
+their reliability rows and no ranking.
 
 Records are filtered by judge (and optionally generator); when a corpus still has more than one
 synthetic record the script stops and lists their config hashes, and --pin TASK=HASH picks one.
@@ -52,6 +55,7 @@ def _ranking(rec: dict) -> dict:
     return {
         "n_queries": rec["config"]["n_queries"],
         "config_hash": rec["config"].get("config_hash"),
+        **({"labels": rec["labels"]} if rec.get("labels") else {}),  # what each model's ndcg_at_10 is scored against
         "models": [
             {
                 "model": r["model"],
@@ -78,6 +82,7 @@ def _reliability_row(rec: dict) -> dict | None:
         "tier": r.get("tier"),
         "n_models": r.get("n_models", len(rec["ratings"])),
         "n_queries": r.get("n_queries_scored", rec["config"]["n_queries"]),
+        **({"labels": rec["labels"]} if rec.get("labels") else {}),
     }
 
 
@@ -101,8 +106,8 @@ def select_records(
     for task, h in pins.items():
         if not any(r["config"].get("config_hash") == h for r in synth.get(task, []) + orig.get(task, [])):
             raise ExportError(f"{task}: no record with config hash {h}")
-    if not synth:
-        raise ExportError("no synthetic-arm record matches the filters: nothing to rank")
+    if not synth and not orig:
+        raise ExportError("no record matches the filters: nothing to rank or to score")
 
     def pick(group: dict[str, list[dict]], arm: str) -> dict[str, dict]:
         chosen = {}
@@ -127,7 +132,8 @@ def build_export(
     allow_missing: bool = False,
 ) -> dict:
     """The app's data file. Ranked corpora without a scored original-arm record are an error unless
-    allow_missing, which drops them from the ranking (and says so in meta.dropped)."""
+    allow_missing, which drops them from the ranking (and says so in meta.dropped). A folder without
+    a synthetic-arm record exports reliability rows only."""
     results = load_results(output_folder).results
     if not results:
         raise ExportError(f"no records under {output_folder}")
@@ -141,14 +147,15 @@ def build_export(
             + ". Run mteb_gym.reliability on their original-arm records, or pass --allow-missing to drop them."
         )
     corpora = {t: _ranking(r) for t, r in synth.items() if t not in missing}
-    judges = sorted({r["config"]["judge_model"] for r in list(synth.values()) + list(orig.values())})
-    revisions = sorted({str(r.get("gym_revision")) for r in list(synth.values()) + list(orig.values())})
+    used = list(synth.values()) + list(orig.values())
+    judges = sorted({r["config"]["judge_model"] for r in used})
+    revisions = sorted({str(r.get("gym_revision")) for r in used})
     return {
         "meta": {
             "generated": dt.date.today().isoformat(),
             "judge": judge or (judges[0] if len(judges) == 1 else judges),
             "experiment_commit": revisions[0] if len(revisions) == 1 else revisions,
-            "mteb_version": next((r.get("mteb_version") for r in synth.values()), None),
+            "mteb_version": next((r.get("mteb_version") for r in used), None),
             "dropped": missing,
         },
         "corpora": corpora,
@@ -158,7 +165,11 @@ def build_export(
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    ap.add_argument("--output-folder", default="results", help="the gym's output folder (records/ inside)")
+    ap.add_argument(
+        "--output-folder",
+        default="results",
+        help="a run's results folder or a clone of the results repository (records in <task>/ folders)",
+    )
     ap.add_argument("--out", default="leaderboard/data/leaderboard_export.json")
     ap.add_argument(
         "--judge",

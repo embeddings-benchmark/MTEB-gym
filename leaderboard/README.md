@@ -27,22 +27,25 @@ reliability_all("results")  # writes record["reliability"] into every original-a
 ```
 
 The original arm judges `n_queries` of the dataset's own queries (all of them when the dataset has no
-more). `reliability_all` finds each record's verdict and prediction files from the record's config,
-under the same identity `run()` wrote them with: the judge id as stored in `config.judge_model`, the
-resolved prompt, `top_k`, `doc_chars`, the query set and the model revisions. Records written before
-`doc_chars` joined that identity are still read under their older key.
+more). `reliability_all` reads the records as `mteb_gym.load_results` does (a results folder or a
+clone of the results repository, records in `<task>/` folders) and finds each record's verdict and
+prediction files through `mteb_gym.cache_files`, in the cache `run()` wrote them to: the folder
+passed as `cache_folder`, else `$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`. A comparison where either
+presentation order failed to parse is left out and counted (`n_unparsed`), as the ranking leaves it
+out. Runs from before the results/cache split are not read.
 
 ```bash
 python -m leaderboard.export --output-folder results --out leaderboard/data/leaderboard_export.json
 ```
 
-`export.py` pairs each corpus's synthetic record with its scored original-arm record. It stops on a
-ranked corpus with no reliability row (`--allow-missing` drops such corpora and lists them in
+`export.py` reads the same folder and pairs each corpus's synthetic record with its scored
+original-arm record; a folder of original-arm records alone exports their reliability rows and no
+ranking. It stops on a ranked corpus with no reliability row (`--allow-missing` drops such corpora and lists them in
 `meta.dropped`), and on a corpus with more than one synthetic record (`--pin TASK=HASH` picks one;
 `--judge` / `--generator` filter first). Both filters compare the stored ids exactly; a judge built
 with `max_tokens` or `extra_body` is stored as `model+hash`, so pass that full id. Records that
-carry per-model `ndcg_at_10` and an `agreement.labels_baseline` (the no-judge baseline) export both;
-older records without them export as before.
+carry per-model `ndcg_at_10`, `labels` (what it is scored against) and an `agreement.labels_baseline`
+(the no-judge baseline) export them; older records without them export as before.
 
 ## Running the app locally
 
