@@ -17,13 +17,20 @@ Intervals are a query-clustered bootstrap (queries resampled with replacement, s
 is read from the interval's lower bound, not the point estimate: A >= 0.40, B >= 0.20, C below. Project
 thresholds, not Landis-Koch categories; the leaderboard warns below B.
 
-Everything comes from the run's own artifacts: the record's config identifies the verdict files and
-mteb prediction files under the output folder, and the qrels come from the corpus (or are passed in).
+Everything comes from the run's own artifacts. The record names its verdict and prediction files in
+the cache (run.cache_files: the folder passed in, else $MTEB_GYM_CACHE, else ~/.cache/mteb_gym), and
+the qrels come from the corpus or are passed in. A comparison where either presentation order failed
+to parse is left out and counted (n_unparsed), as rank.rate leaves it out of the ranking: keeping the
+order that parsed would bring back the position bias that judging both orders cancels.
+
+The layout that predates the results/cache split (verdicts/ and predictions/ next to records/, .json
+lists, a verdict key without doc_chars) is not read. Those runs cannot be reproduced under the current
+package, and the files that remain have a different identity from the one their records describe.
 """
 
 from __future__ import annotations
 
-import hashlib
+import itertools
 import json
 import logging
 import math
@@ -32,8 +39,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from .judge import Verdict
 from .results import Result, load_results
-from .retrieval import slug
+from .retrieval import hits
+from .run import cache_files
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +71,7 @@ def obj_winner(ndcg_a: float, ndcg_b: float, eps: float = OBJ_EPS) -> str:
 
 
 def judge_winner(score_a: float) -> str:
-    """From the position-averaged score: 1.0 / 0.0 are commitments, 0.5 is a tie or a split."""
+    """From the position-averaged score: above 0.5 is a commitment to A, below to B, 0.5 a tie or a split."""
     return "A" if score_a > 0.5 else "B" if score_a < 0.5 else "tie"
 
 
@@ -104,52 +113,31 @@ def assign_tier(ci_low: float | None, ci_high: float | None) -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------- the run's artifacts
-def _sha(*parts) -> str:
-    """run._sha: the first 12 hex digits of sha256 over the parts joined with '|'."""
-    return hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12]
+def load_verdicts(path: Path) -> dict[str, Verdict]:
+    """{qid: verdict} from a pair's JSONL, the last row per query. A line that does not read back as
+    a Verdict (blank, cut short by a crash, or from another schema) is skipped, as run.judge_pair_cached
+    skips it when it resumes the pair."""
+    if not path.exists():
+        raise FileNotFoundError(f"no verdicts at {path}")
+    rows: dict[str, Verdict] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            v = Verdict(**json.loads(line))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        rows[v.qid] = v
+    return rows
 
 
-def verdict_file(out: Path, record: dict, a: str, b: str) -> Path:
-    """The pair's verdict file, under the identity run() used to write it.
-
-    This mirrors run.verdict_key from the record's config, since that function takes the live Judge:
-    config.judge_model is the judge id as run() stored it (run._model_id, settings suffix included),
-    judge_system is the resolved prompt, and doc_chars joined the key when the setting was added. A
-    record without config.doc_chars was written before that and keeps the older key; one with it
-    uses the current key. The parts are hashed in run.verdict_key's order.
-    """
-    c = record["config"]
-    rev = c.get("model_revisions") or {}
-    parts = [c["judge_model"], c["judge_system"], c["top_k"]]
-    if "doc_chars" in c:
-        parts.append(c["doc_chars"])
-    key = _sha(*parts, c["query_set"], f"{a}@{rev.get(a)}", f"{b}@{rev.get(b)}")
-    return out / "verdicts" / f"{slug(a)}__{slug(b)}-{key}.json"
-
-
-def prediction_file(out: Path, record: dict, model: str) -> Path:
-    """mteb's prediction file for `model`, where run() wrote it: <model>@<revision>/<query set>/."""
-    c = record["config"]
-    rev = (c.get("model_revisions") or {}).get(model)
-    return out / "predictions" / f"{slug(model)}@{rev}" / c["query_set"] / f"{record['task_name']}_predictions.json"
-
-
-def load_verdicts(path: Path) -> dict[str, float]:
-    """{qid: score_a} from a pair's finished .json list, or its .jsonl stream if the run stopped early."""
-    if path.exists():
-        rows = json.loads(path.read_text())
-    elif path.with_suffix(".jsonl").exists():
-        rows = [json.loads(line) for line in path.with_suffix(".jsonl").read_text().splitlines() if line.strip()]
-    else:
-        raise FileNotFoundError(f"no verdicts at {path} (or .jsonl)")
-    return {v["qid"]: float(v["score_a"]) for v in rows}
-
-
-def per_query_ndcg(path: Path, qrels: Mapping[str, Mapping[str, float]], k: int) -> dict[str, float]:
-    """{qid: nDCG@k} from mteb's prediction file; queries without a positive label are left out."""
-    hits = json.loads(path.read_text())["default"]["test"]
+def per_query_ndcg(
+    path: Path, qrels: Mapping[str, Mapping[str, float]], k: int, ignore_identical_ids: bool = False
+) -> dict[str, float]:
+    """{qid: nDCG@k} from mteb's prediction file, over the list the judge was shown (a query that is its
+    own document is dropped where mteb's flag says so); queries without a positive label are left out."""
+    if not path.exists():
+        raise FileNotFoundError(f"no predictions at {path}")
     out = {}
-    for qid, scores in hits.items():
+    for qid, scores in hits(path, ignore_identical_ids).items():
         if qid not in qrels:
             continue
         n = ndcg_at_k(sorted(scores, key=scores.get, reverse=True), qrels[qid], k)
@@ -161,23 +149,27 @@ def per_query_ndcg(path: Path, qrels: Mapping[str, Mapping[str, float]], k: int)
 # ----------------------------------------------------------------------------- tally and bootstrap
 _CELLS = 6  # AA, AB, BA, BB, clear-correct, clear-wrong
 _CELL_INDEX = {"AA": 0, "AB": 1, "BA": 2, "BB": 3}
-_COUNTS = ("comparisons", "decisive", "committed", "abstain", "missing_ndcg", "clear", "clear_committed")
+_COUNTS = ("comparisons", "unparsed", "decisive", "committed", "abstain", "missing_ndcg", "clear", "clear_committed")
 
 
 def tally(
-    pairs: Mapping[tuple[str, str], Mapping[str, float]], ndcg: Mapping[str, Mapping[str, float]]
+    pairs: Mapping[tuple[str, str], Mapping[str, Verdict]], ndcg: Mapping[str, Mapping[str, float]]
 ) -> tuple[dict[str, list[int]], dict[str, int]]:
-    """Per-query 2x2 cells over decisive-and-committed comparisons, plus the counts that explain the rest."""
+    """Per-query 2x2 cells over decisive-and-committed comparisons, plus the counts that explain the rest.
+    A comparison with an unparsed order is left out before anything else is read from it."""
     per_query: dict[str, list[int]] = {}
     n = dict.fromkeys(_COUNTS, 0)
-    for (a, b), scores in pairs.items():
-        for qid, score_a in scores.items():
+    for (a, b), rows in pairs.items():
+        for qid, v in rows.items():
             n["comparisons"] += 1
+            if not all(v.parsed_ok):  # the rule rank.rate applies; an identical-retrieval row ([]) is a tie
+                n["unparsed"] += 1
+                continue
             nd_a, nd_b = ndcg.get(a, {}).get(qid), ndcg.get(b, {}).get(qid)
             if nd_a is None or nd_b is None:
                 n["missing_ndcg"] += 1
                 continue
-            obj, jw = obj_winner(nd_a, nd_b), judge_winner(score_a)
+            obj, jw = obj_winner(nd_a, nd_b), judge_winner(float(v.score_a))
             if obj == "tie":
                 continue
             n["decisive"] += 1
@@ -230,6 +222,7 @@ def readout(per_query: Mapping[str, Sequence[int]], n: Mapping[str, int], *, boo
     return {
         "n_queries_scored": len(per_query),
         "n_comparisons": n["comparisons"],
+        "n_unparsed": n["unparsed"],  # left out: the judge's answer did not parse in one of the orders
         "n_decisive": n["decisive"],
         "n_committed": n["committed"],
         "n_abstain": n["abstain"],
@@ -255,62 +248,83 @@ def readout(per_query: Mapping[str, Sequence[int]], n: Mapping[str, int], *, boo
 
 
 # ----------------------------------------------------------------------------- entry points
+def _result(result: Result | dict | str | Path) -> Result:
+    if isinstance(result, Result):
+        return result
+    return Result(result) if isinstance(result, dict) else Result.from_disk(result)
+
+
 def judge_reliability(
-    result: Result | str | Path,
-    output_folder: str | Path,
+    result: Result | dict | str | Path,
+    cache_folder: str | Path | None = None,
     *,
     qrels: Mapping[str, Mapping[str, float]] | None = None,
+    ignore_identical_ids: bool | None = None,
     bootstrap: int = 1000,
     seed: int = 0,
     write: bool = True,
 ) -> dict:
     """Score one record's verdicts against qrels; the readout is stored under record["reliability"].
 
-    Without explicit `qrels` the record must come from the original-query arm, and the labels are
-    loaded from the corpus. A record that cannot be scored gets {"error": ...} and is left untouched,
-    so "not measured" never looks like "agreed 0% of the time".
+    `result` is a Result, a record, or a record's path. Its verdict and prediction files are the ones
+    run.cache_files names under `cache_folder` ($MTEB_GYM_CACHE, else ~/.cache/mteb_gym, when None).
+    Without explicit `qrels` the record must come from the original-query arm, and the labels and
+    mteb's ignore_identical_ids flag are loaded from the corpus; with explicit qrels, pass the flag for
+    a task where a query is its own document (ArguAna), since the judge never saw that document.
+    A record that cannot be scored gets {"error": ...} and is left untouched, so "not measured" never
+    looks like "agreed 0% of the time".
     """
-    res = result if isinstance(result, Result) else Result.from_disk(result)
-    rec, out = res.record, Path(output_folder)
+    res = _result(result)
+    rec = res.record
     c = rec["config"]
     if qrels is None:
         if c.get("arm") != "original":
             return {"error": f"arm is {c.get('arm')!r}: reliability needs the original-query arm or explicit qrels"}
         from .corpus import load
 
-        qrels = load(rec["task_name"]).qrels
+        corp = load(rec["task_name"])
+        qrels = corp.qrels
         if not qrels:
             return {"error": f"{rec['task_name']} carries no qrels"}
-    models = [r["model"] for r in rec["ratings"]]
+        if ignore_identical_ids is None:
+            ignore_identical_ids = corp.ignore_identical_ids
     try:
-        ndcg = {m: per_query_ndcg(prediction_file(out, rec, m), qrels, int(c["top_k"])) for m in models}
-        pairs = {}
-        for i, a in enumerate(models):
-            for b in models[i + 1 :]:
-                path = verdict_file(out, rec, a, b)
-                if path.exists() or path.with_suffix(".jsonl").exists():
-                    pairs[(a, b)] = load_verdicts(path)
-                else:  # the run ordered the pair the other way round
-                    pairs[(b, a)] = load_verdicts(verdict_file(out, rec, b, a))
+        files = cache_files(rec, cache_folder)
+    except KeyError as e:
+        return {"error": f"config has no {e.args[0]}: the record predates the cache layout this reads"}
+    models, k = list(c["models"]), int(c["top_k"])
+    try:
+        ndcg = {
+            m: per_query_ndcg(p, qrels, k, bool(ignore_identical_ids)) for m, p in zip(models, files["predictions"])
+        }
+        pairs = {ab: load_verdicts(p) for ab, p in zip(itertools.combinations(models, 2), files["verdicts"])}
     except FileNotFoundError as e:
         return {"error": str(e)}
     per_query, n = tally(pairs, ndcg)
+    if n["unparsed"]:
+        logger.warning(
+            "%s: %d of %d comparisons had an unparsed order and are left out",
+            rec["task_name"],
+            n["unparsed"],
+            n["comparisons"],
+        )
     if not per_query:
         return {"error": "no decisive, committed comparison to score (empty verdicts or no labelled query)"}
     r = readout(per_query, n, bootstrap=bootstrap, seed=seed)
     r["n_models"] = len(models)
-    r["ndcg_k"] = int(c["top_k"])
+    r["ndcg_k"] = k
     rec["reliability"] = r
     if write and res.path:
         res.to_disk()
     return r
 
 
-def reliability_all(root: str | Path, **kwargs) -> dict[str, dict]:
-    """judge_reliability over every original-arm record under `root`: {record path: readout}. Each record's
-    artifacts are read from its own output folder, the parent of the records/ directory it sits in."""
+def reliability_all(root: str | Path, cache_folder: str | Path | None = None, **kwargs) -> dict[str, dict]:
+    """judge_reliability over every original-arm record under `root` (a results folder's or results
+    repository's <task>/ folders, as load_results reads them): {record path: readout}. Every record's
+    artifacts are read from the one cache."""
     out = {}
     for res in load_results(root).results:
         if res.record["config"].get("arm") == "original":
-            out[str(res.path)] = judge_reliability(res, res.path.parent.parent, **kwargs)
+            out[str(res.path)] = judge_reliability(res, cache_folder, **kwargs)
     return out
