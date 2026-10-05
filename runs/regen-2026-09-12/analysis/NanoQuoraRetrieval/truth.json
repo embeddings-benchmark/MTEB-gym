@@ -1,0 +1,14 @@
+{
+ "mteb/baseline-bm25s": 86.28,
+ "sentence-transformers/all-MiniLM-L6-v2": 93.68,
+ "sentence-transformers/all-mpnet-base-v2": 92.14,
+ "BAAI/bge-small-en-v1.5": 96.18,
+ "BAAI/bge-base-en-v1.5": 95.67,
+ "BAAI/bge-large-en-v1.5": 96.01,
+ "intfloat/e5-base-v2": 91.79,
+ "thenlper/gte-large": 92.73,
+ "mixedbread-ai/mxbai-embed-large-v1": 95.55,
+ "thenlper/gte-small": 93.03,
+ "Snowflake/snowflake-arctic-embed-l-v2.0": 96.86,
+ "intfloat/multilingual-e5-small": 97.28
+}

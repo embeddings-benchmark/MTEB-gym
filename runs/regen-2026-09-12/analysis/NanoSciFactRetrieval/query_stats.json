@@ -1,0 +1,70 @@
+{
+ "task_name": "NanoSciFactRetrieval",
+ "record": "results/records/NanoSciFactRetrieval__Qwen3.6-27B__gpt-oss-20b__q40-s0-97696947.json",
+ "query_set": "zeta-alpha-ai_NanoSciFact_309f1d1ae3ae2e092444a8a0c25bed59b82318bc_default_train-openai_gpt-oss-20b-be18a1957320",
+ "generator_model": "openai/gpt-oss-20b",
+ "config_hash": "97696947",
+ "docs_given": true,
+ "synthetic": {
+  "count": 40,
+  "mean_words": 14.45,
+  "median_words": 14.0,
+  "question_share": 1.0,
+  "copied_word_share": {
+   "mean_per_query": 0.6806920856920857,
+   "pooled": 0.6819338422391857,
+   "n_scored": 40,
+   "n_missing_seed_docs": 0,
+   "n_no_content": 0
+  },
+  "quality": {
+   "counts": {
+    "5": 40
+   },
+   "mean": 5.0,
+   "n_scored": 40,
+   "n_unscored": 0,
+   "note": "the quality filter writes 3 when it cannot parse the scoring model's answer (QueryGenerator._llm_quality), so a 3 in the queries file may be a defaulted score rather than a judged one; the file does not say which."
+  },
+  "filter": {
+   "n_generated": 64,
+   "n_generated_in_record": 64,
+   "n_kept": 40,
+   "n_dropped": 24,
+   "drop_rate": 0.375,
+   "n_queries_requested": 40,
+   "filter_on": true,
+   "min_score": 3,
+   "dedup": 0.8,
+   "note": "n_generated counts queries that passed the length and degeneracy heuristics during generation; the package does not record why a query was dropped after that, so the drop count folds together the quality gate (score < gen_min_score), near-duplicate removal (Jaccard >= gen_dedup) and the cut to n_queries. Heuristic rejections during generation are not counted anywhere."
+  },
+  "coverage": {
+   "n_models": 12,
+   "n_pairs_expected": 66,
+   "n_pairs_found": 66,
+   "n_qids_predicted": 40,
+   "n_qids_judged": 40,
+   "n_kept_not_predicted": 0,
+   "n_kept_not_judged": 0,
+   "n_kept_not_judged_in_some_pair": 0,
+   "n_judged_not_kept": 0,
+   "missing_files": []
+  }
+ },
+ "original": {
+  "count": 50,
+  "mean_words": 13.54,
+  "median_words": 13.0,
+  "question_share": 0.0,
+  "copied_word_share": {
+   "mean_per_query": null,
+   "pooled": null,
+   "note": "no seed documents"
+  }
+ },
+ "notes": [
+  "n_generated counts queries that passed the length and degeneracy heuristics during generation; the package does not record why a query was dropped after that, so the drop count folds together the quality gate (score < gen_min_score), near-duplicate removal (Jaccard >= gen_dedup) and the cut to n_queries. Heuristic rejections during generation are not counted anywhere.",
+  "the quality filter writes 3 when it cannot parse the scoring model's answer (QueryGenerator._llm_quality), so a 3 in the queries file may be a defaulted score rather than a judged one; the file does not say which.",
+  "copied-word share is null when --docs is not given, not 0."
+ ]
+}

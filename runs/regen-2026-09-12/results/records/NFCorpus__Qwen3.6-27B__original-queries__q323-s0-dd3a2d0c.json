@@ -1,0 +1,242 @@
+{
+  "task_name": "NFCorpus",
+  "source": "mteb",
+  "corpus_id": "mteb/nfcorpus@ec0fa4fe99da2ff19ca1214b7966684033a58814/default/test",
+  "dataset": {
+    "path": "mteb/nfcorpus",
+    "revision": "ec0fa4fe99da2ff19ca1214b7966684033a58814"
+  },
+  "mteb_version": "2.15.1",
+  "gym_version": "0.3.0",
+  "gym_revision": "71b2cf4a2d566b4cf7290690b00a3b4285c06718",
+  "evaluation_time": 13106.931667089462,
+  "config": {
+    "corpus_id": "mteb/nfcorpus@ec0fa4fe99da2ff19ca1214b7966684033a58814/default/test",
+    "query_set": "mteb_nfcorpus_ec0fa4fe99da2ff19ca1214b7966684033a58814_default_test-original",
+    "arm": "original",
+    "judge_model": "Qwen/Qwen3.6-27B",
+    "generator_model": null,
+    "task_description": "Given a question, retrieve relevant documents that best answer the question",
+    "task_description_source": "mteb:task_prompt",
+    "judge_system": "You compare two retrieval systems. The retrieval task is: Given a question, retrieve relevant documents that best answer the question. Given a query and two ranked result sets (System A and System B), decide which set better satisfies this task for the query, judging task fit, coverage of the information need, and ranking quality. Be decisive when one set is clearly better; only answer 'tie' when they are genuinely indistinguishable in usefulness. Reply with strict JSON: {\"winner\": \"A\"|\"B\"|\"tie\", \"confidence\": \"low\"|\"medium\"|\"high\", \"reasoning\": \"one sentence\"}",
+    "n_queries_generated": null,
+    "n_queries": 323,
+    "top_k": 10,
+    "seed": 0,
+    "models": [
+      "mteb/baseline-bm25s",
+      "sentence-transformers/all-MiniLM-L6-v2",
+      "sentence-transformers/all-mpnet-base-v2",
+      "BAAI/bge-small-en-v1.5",
+      "BAAI/bge-base-en-v1.5",
+      "BAAI/bge-large-en-v1.5",
+      "intfloat/e5-base-v2",
+      "thenlper/gte-large",
+      "mixedbread-ai/mxbai-embed-large-v1",
+      "thenlper/gte-small",
+      "Snowflake/snowflake-arctic-embed-l-v2.0",
+      "intfloat/multilingual-e5-small"
+    ],
+    "model_revisions": {
+      "mteb/baseline-bm25s": "0_3_0",
+      "sentence-transformers/all-MiniLM-L6-v2": "8b3219a92973c328a8e22fadcfa821b5dc75636a",
+      "sentence-transformers/all-mpnet-base-v2": "9a3225965996d404b775526de6dbfe85d3368642",
+      "BAAI/bge-small-en-v1.5": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "BAAI/bge-base-en-v1.5": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+      "BAAI/bge-large-en-v1.5": "d4aa6901d3a41ba39fb536a557fa166f842b0e09",
+      "intfloat/e5-base-v2": "1c644c92ad3ba1efdad3f1451a637716616a20e8",
+      "thenlper/gte-large": "4bef63f39fcc5e2d6b0aae83089f307af4970164",
+      "mixedbread-ai/mxbai-embed-large-v1": "990580e27d329c7408b3741ecff85876e128e203",
+      "thenlper/gte-small": "17e1f347d17fe144873b1201da91788898c639cd",
+      "Snowflake/snowflake-arctic-embed-l-v2.0": "edc2df7b6c25794b340229ca082e7c78782e6374",
+      "intfloat/multilingual-e5-small": "fd1525a9fd15316a2d503bf26ab031a61d056e98"
+    },
+    "config_hash": "dd3a2d0c"
+  },
+  "diagnostics": {
+    "judge_calls": 42636,
+    "n_comparisons": 21318,
+    "commit_rate": 0.6649310441880101,
+    "tie_rate": 0.33506895581198987,
+    "a_first_rate": 0.6057443950821366,
+    "parse_failure_rate": 0.0001641805047377803,
+    "identical_retrieval_rate": 0.0
+  },
+  "ratings": [
+    {
+      "model": "thenlper/gte-large",
+      "revision": "4bef63f39fcc5e2d6b0aae83089f307af4970164",
+      "rating": 1105.957764694728,
+      "ci_low": 1090.515609773406,
+      "ci_high": 1123.1880495189432,
+      "wins": 1716.0,
+      "losses": 596.0,
+      "ties": 1241.0,
+      "n": 3553
+    },
+    {
+      "model": "mixedbread-ai/mxbai-embed-large-v1",
+      "revision": "990580e27d329c7408b3741ecff85876e128e203",
+      "rating": 1097.649381198496,
+      "ci_low": 1080.9191736743571,
+      "ci_high": 1116.4800316027533,
+      "wins": 1706.0,
+      "losses": 654.0,
+      "ties": 1193.0,
+      "n": 3553
+    },
+    {
+      "model": "BAAI/bge-base-en-v1.5",
+      "revision": "a5beb1e3e68b9ab74eb54cfd186867f64f240e1a",
+      "rating": 1066.906513587903,
+      "ci_low": 1050.983327544628,
+      "ci_high": 1084.0304122222362,
+      "wins": 1516.0,
+      "losses": 803.0,
+      "ties": 1234.0,
+      "n": 3553
+    },
+    {
+      "model": "BAAI/bge-large-en-v1.5",
+      "revision": "d4aa6901d3a41ba39fb536a557fa166f842b0e09",
+      "rating": 1066.3271601308838,
+      "ci_low": 1049.4451120772865,
+      "ci_high": 1082.9537138141045,
+      "wins": 1509.0,
+      "losses": 797.0,
+      "ties": 1247.0,
+      "n": 3553
+    },
+    {
+      "model": "thenlper/gte-small",
+      "revision": "17e1f347d17fe144873b1201da91788898c639cd",
+      "rating": 1027.84592698989,
+      "ci_low": 1012.4215240454972,
+      "ci_high": 1043.8735091863978,
+      "wins": 1277.0,
+      "losses": 997.0,
+      "ties": 1279.0,
+      "n": 3553
+    },
+    {
+      "model": "intfloat/e5-base-v2",
+      "revision": "1c644c92ad3ba1efdad3f1451a637716616a20e8",
+      "rating": 995.5049813461059,
+      "ci_low": 979.5663500137621,
+      "ci_high": 1011.0704474143636,
+      "wins": 1129.0,
+      "losses": 1189.0,
+      "ties": 1235.0,
+      "n": 3553
+    },
+    {
+      "model": "sentence-transformers/all-mpnet-base-v2",
+      "revision": "9a3225965996d404b775526de6dbfe85d3368642",
+      "rating": 989.276448895952,
+      "ci_low": 971.2586699336667,
+      "ci_high": 1008.5585711929241,
+      "wins": 1135.0,
+      "losses": 1242.0,
+      "ties": 1176.0,
+      "n": 3553
+    },
+    {
+      "model": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "rating": 984.1670225043806,
+      "ci_low": 969.5653832719347,
+      "ci_high": 999.6375912050046,
+      "wins": 1055.0,
+      "losses": 1240.0,
+      "ties": 1258.0,
+      "n": 3553
+    },
+    {
+      "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+      "revision": "edc2df7b6c25794b340229ca082e7c78782e6374",
+      "rating": 984.1201201707596,
+      "ci_low": 965.1073265896204,
+      "ci_high": 1002.7597209841329,
+      "wins": 1089.0,
+      "losses": 1274.0,
+      "ties": 1190.0,
+      "n": 3553
+    },
+    {
+      "model": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "8b3219a92973c328a8e22fadcfa821b5dc75636a",
+      "rating": 923.2383891000311,
+      "ci_low": 904.1807577128843,
+      "ci_high": 941.1443974615253,
+      "wins": 795.0,
+      "losses": 1610.0,
+      "ties": 1148.0,
+      "n": 3553
+    },
+    {
+      "model": "intfloat/multilingual-e5-small",
+      "revision": "fd1525a9fd15316a2d503bf26ab031a61d056e98",
+      "rating": 885.7726506544859,
+      "ci_low": 866.2267623939036,
+      "ci_high": 904.1686242068338,
+      "wins": 626.0,
+      "losses": 1835.0,
+      "ties": 1092.0,
+      "n": 3553
+    },
+    {
+      "model": "mteb/baseline-bm25s",
+      "revision": "0_3_0",
+      "rating": 873.2336407263841,
+      "ci_low": 847.4326172552003,
+      "ci_high": 895.9040848361013,
+      "wins": 622.0,
+      "losses": 1938.0,
+      "ties": 993.0,
+      "n": 3553
+    }
+  ],
+  "reliability": {
+    "n_queries_scored": 262,
+    "n_comparisons": 21318,
+    "n_decisive": 13938,
+    "n_committed": 9852,
+    "n_abstain": 4086,
+    "n_missing_ndcg": 0,
+    "committed_agreement": 0.7429963459196103,
+    "s_committed": 0.48599269183922056,
+    "s_committed_ci95": [
+      0.4395683739254183,
+      0.5318654406523946
+    ],
+    "kappa_committed": 0.48599269183922056,
+    "cohen_kappa_committed": 0.48172991053063824,
+    "cohen_kappa_ci95": [
+      0.4355192723079307,
+      0.5284597167936246
+    ],
+    "clear_winner_margin": 0.1,
+    "n_clear_winner": 7109,
+    "n_clear_winner_committed": 5502,
+    "clear_winner_agreement": 0.8300617957106506,
+    "clear_winner_ci95": [
+      0.8038260922333446,
+      0.8563896482678265
+    ],
+    "cells": {
+      "AA": 3195,
+      "AB": 1395,
+      "BA": 1137,
+      "BB": 4125
+    },
+    "tier": "A",
+    "tier_label": "A",
+    "tier_basis": "ci_lower_bound",
+    "tier_of_point_estimate": "A",
+    "bootstrap": 1000,
+    "seed": 0,
+    "estimator_note": "s_committed = 2 * committed_agreement - 1: chance-corrected agreement under a uniform-marginal null (Bennett/Alpert/Goldstein S; Byrt PABAK for two categories). Not Cohen's kappa; see cohen_kappa_committed.",
+    "n_models": 12,
+    "ndcg_k": 10
+  }
+}

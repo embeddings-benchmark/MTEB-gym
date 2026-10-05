@@ -1,0 +1,1273 @@
+{
+ "meta": {
+  "generated": "2026-09-12",
+  "judge": "Qwen/Qwen3.6-27B",
+  "experiment_commit": "71b2cf4a2d566b4cf7290690b00a3b4285c06718",
+  "mteb_version": "2.15.1",
+  "dropped": []
+ },
+ "corpora": {
+  "NFCorpus": {
+   "n_queries": 100,
+   "config_hash": "75c61651",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1096.1,
+     "ci_low": 1072.6,
+     "ci_high": 1120.6
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1095.5,
+     "ci_low": 1071.0,
+     "ci_high": 1121.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1048.9,
+     "ci_low": 1025.8,
+     "ci_high": 1072.6
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1046.5,
+     "ci_low": 1018.0,
+     "ci_high": 1075.6
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1041.8,
+     "ci_low": 1016.7,
+     "ci_high": 1067.7
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1041.4,
+     "ci_low": 1019.0,
+     "ci_high": 1066.1
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1030.3,
+     "ci_low": 1002.0,
+     "ci_high": 1059.5
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1011.5,
+     "ci_low": 986.1,
+     "ci_high": 1036.0
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 990.2,
+     "ci_low": 963.1,
+     "ci_high": 1015.1
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 925.1,
+     "ci_low": 891.7,
+     "ci_high": 958.7
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 866.5,
+     "ci_low": 833.2,
+     "ci_high": 894.5
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 806.2,
+     "ci_low": 767.1,
+     "ci_high": 843.4
+    }
+   ]
+  },
+  "NanoArguAnaRetrieval": {
+   "n_queries": 40,
+   "config_hash": "9107b5db",
+   "models": [
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1073.7,
+     "ci_low": 1038.8,
+     "ci_high": 1114.4
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1071.8,
+     "ci_low": 1042.2,
+     "ci_high": 1102.5
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1070.2,
+     "ci_low": 1018.4,
+     "ci_high": 1125.8
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1051.3,
+     "ci_low": 1016.2,
+     "ci_high": 1089.5
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1042.2,
+     "ci_low": 1001.0,
+     "ci_high": 1083.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1031.5,
+     "ci_low": 989.7,
+     "ci_high": 1073.1
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1015.6,
+     "ci_low": 976.5,
+     "ci_high": 1055.0
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 1013.7,
+     "ci_low": 974.4,
+     "ci_high": 1054.1
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 979.9,
+     "ci_low": 930.2,
+     "ci_high": 1023.1
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 964.6,
+     "ci_low": 921.9,
+     "ci_high": 1005.5
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 929.1,
+     "ci_low": 885.8,
+     "ci_high": 970.4
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 756.3,
+     "ci_low": 682.6,
+     "ci_high": 815.1
+    }
+   ]
+  },
+  "NanoClimateFeverRetrieval": {
+   "n_queries": 40,
+   "config_hash": "403201c2",
+   "models": [
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1114.9,
+     "ci_low": 1067.3,
+     "ci_high": 1167.6
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1102.6,
+     "ci_low": 1061.7,
+     "ci_high": 1147.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1079.0,
+     "ci_low": 1021.2,
+     "ci_high": 1134.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1052.1,
+     "ci_low": 1007.6,
+     "ci_high": 1100.2
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1012.3,
+     "ci_low": 968.6,
+     "ci_high": 1059.1
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 999.8,
+     "ci_low": 944.2,
+     "ci_high": 1056.8
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 994.1,
+     "ci_low": 943.4,
+     "ci_high": 1045.5
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 991.8,
+     "ci_low": 928.6,
+     "ci_high": 1044.8
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 978.1,
+     "ci_low": 929.1,
+     "ci_high": 1026.0
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 975.8,
+     "ci_low": 934.4,
+     "ci_high": 1017.6
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 906.5,
+     "ci_low": 851.6,
+     "ci_high": 959.7
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 792.9,
+     "ci_low": 702.1,
+     "ci_high": 861.6
+    }
+   ]
+  },
+  "NanoDBPediaRetrieval": {
+   "n_queries": 40,
+   "config_hash": "5b66937f",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1063.0,
+     "ci_low": 1039.8,
+     "ci_high": 1089.7
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1033.3,
+     "ci_low": 1010.3,
+     "ci_high": 1056.1
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1030.0,
+     "ci_low": 1005.1,
+     "ci_high": 1060.4
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1025.6,
+     "ci_low": 1002.2,
+     "ci_high": 1049.8
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1019.0,
+     "ci_low": 995.6,
+     "ci_high": 1046.2
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1018.3,
+     "ci_low": 990.2,
+     "ci_high": 1044.7
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1016.4,
+     "ci_low": 987.6,
+     "ci_high": 1040.0
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 984.0,
+     "ci_low": 956.6,
+     "ci_high": 1010.7
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 958.3,
+     "ci_low": 916.8,
+     "ci_high": 993.1
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 956.4,
+     "ci_low": 918.7,
+     "ci_high": 994.9
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 948.3,
+     "ci_low": 912.3,
+     "ci_high": 982.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 947.5,
+     "ci_low": 909.1,
+     "ci_high": 977.8
+    }
+   ]
+  },
+  "NanoFEVERRetrieval": {
+   "n_queries": 40,
+   "config_hash": "773af7a3",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1078.2,
+     "ci_low": 1053.7,
+     "ci_high": 1108.4
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1051.8,
+     "ci_low": 1017.8,
+     "ci_high": 1083.3
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1043.2,
+     "ci_low": 1011.9,
+     "ci_high": 1074.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1027.4,
+     "ci_low": 996.8,
+     "ci_high": 1055.5
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1017.5,
+     "ci_low": 990.2,
+     "ci_high": 1043.1
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 998.1,
+     "ci_low": 975.4,
+     "ci_high": 1019.9
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 980.9,
+     "ci_low": 950.1,
+     "ci_high": 1008.8
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 972.8,
+     "ci_low": 941.8,
+     "ci_high": 1000.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 965.9,
+     "ci_low": 933.3,
+     "ci_high": 999.3
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 961.8,
+     "ci_low": 929.6,
+     "ci_high": 994.8
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 960.7,
+     "ci_low": 926.1,
+     "ci_high": 996.6
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 941.7,
+     "ci_low": 884.5,
+     "ci_high": 988.0
+    }
+   ]
+  },
+  "NanoFiQA2018Retrieval": {
+   "n_queries": 40,
+   "config_hash": "082f511f",
+   "models": [
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1102.8,
+     "ci_low": 1062.3,
+     "ci_high": 1150.2
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1048.5,
+     "ci_low": 1010.9,
+     "ci_high": 1089.7
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1040.6,
+     "ci_low": 998.0,
+     "ci_high": 1081.9
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1036.1,
+     "ci_low": 987.8,
+     "ci_high": 1084.5
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1027.1,
+     "ci_low": 988.1,
+     "ci_high": 1069.0
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1026.7,
+     "ci_low": 960.9,
+     "ci_high": 1092.2
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1022.6,
+     "ci_low": 983.4,
+     "ci_high": 1063.9
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 996.3,
+     "ci_low": 951.5,
+     "ci_high": 1040.9
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 974.3,
+     "ci_low": 927.2,
+     "ci_high": 1015.0
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 944.6,
+     "ci_low": 901.8,
+     "ci_high": 986.1
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 900.2,
+     "ci_low": 845.2,
+     "ci_high": 951.0
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 880.2,
+     "ci_low": 808.5,
+     "ci_high": 942.4
+    }
+   ]
+  },
+  "NanoHotpotQARetrieval": {
+   "n_queries": 40,
+   "config_hash": "361893e9",
+   "models": [
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1048.8,
+     "ci_low": 1029.9,
+     "ci_high": 1072.0
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1036.9,
+     "ci_low": 1016.7,
+     "ci_high": 1059.6
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1035.8,
+     "ci_low": 1014.0,
+     "ci_high": 1060.3
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1019.4,
+     "ci_low": 1000.4,
+     "ci_high": 1039.1
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1007.7,
+     "ci_low": 984.1,
+     "ci_high": 1031.8
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1005.2,
+     "ci_low": 977.4,
+     "ci_high": 1031.1
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1002.3,
+     "ci_low": 974.8,
+     "ci_high": 1027.5
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 996.4,
+     "ci_low": 972.0,
+     "ci_high": 1019.7
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 996.1,
+     "ci_low": 971.4,
+     "ci_high": 1019.6
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 980.4,
+     "ci_low": 946.1,
+     "ci_high": 1014.5
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 945.8,
+     "ci_low": 904.7,
+     "ci_high": 982.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 925.1,
+     "ci_low": 886.5,
+     "ci_high": 959.4
+    }
+   ]
+  },
+  "NanoMSMARCORetrieval": {
+   "n_queries": 40,
+   "config_hash": "dd09c1c6",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1068.2,
+     "ci_low": 1039.9,
+     "ci_high": 1098.9
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1051.9,
+     "ci_low": 1018.6,
+     "ci_high": 1085.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1051.1,
+     "ci_low": 1019.8,
+     "ci_high": 1084.3
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1041.0,
+     "ci_low": 1002.9,
+     "ci_high": 1078.6
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1023.1,
+     "ci_low": 1000.7,
+     "ci_high": 1048.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1012.4,
+     "ci_low": 982.7,
+     "ci_high": 1043.4
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1007.2,
+     "ci_low": 966.3,
+     "ci_high": 1044.5
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 996.1,
+     "ci_low": 962.3,
+     "ci_high": 1029.4
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 980.9,
+     "ci_low": 940.9,
+     "ci_high": 1018.4
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 977.2,
+     "ci_low": 939.8,
+     "ci_high": 1014.6
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 959.6,
+     "ci_low": 920.5,
+     "ci_high": 1000.2
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 831.3,
+     "ci_low": 763.8,
+     "ci_high": 885.7
+    }
+   ]
+  },
+  "NanoNFCorpusRetrieval": {
+   "n_queries": 40,
+   "config_hash": "db356f9b",
+   "models": [
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1091.6,
+     "ci_low": 1045.4,
+     "ci_high": 1140.0
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1060.7,
+     "ci_low": 1025.9,
+     "ci_high": 1098.9
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1055.3,
+     "ci_low": 1013.4,
+     "ci_high": 1101.0
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1051.1,
+     "ci_low": 1016.6,
+     "ci_high": 1089.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1047.7,
+     "ci_low": 1019.3,
+     "ci_high": 1077.0
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1037.0,
+     "ci_low": 998.7,
+     "ci_high": 1077.4
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1021.4,
+     "ci_low": 984.5,
+     "ci_high": 1058.2
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1020.3,
+     "ci_low": 981.2,
+     "ci_high": 1057.9
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 967.0,
+     "ci_low": 922.1,
+     "ci_high": 1010.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 944.3,
+     "ci_low": 897.3,
+     "ci_high": 987.9
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 892.4,
+     "ci_low": 844.6,
+     "ci_high": 935.8
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 811.2,
+     "ci_low": 737.9,
+     "ci_high": 870.5
+    }
+   ]
+  },
+  "NanoNQRetrieval": {
+   "n_queries": 40,
+   "config_hash": "1efbb46a",
+   "models": [
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1048.9,
+     "ci_low": 1023.2,
+     "ci_high": 1077.5
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1035.2,
+     "ci_low": 1017.5,
+     "ci_high": 1052.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1022.1,
+     "ci_low": 1000.9,
+     "ci_high": 1044.8
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1020.2,
+     "ci_low": 992.9,
+     "ci_high": 1047.2
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1013.7,
+     "ci_low": 987.7,
+     "ci_high": 1038.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1009.3,
+     "ci_low": 982.6,
+     "ci_high": 1035.8
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1009.3,
+     "ci_low": 987.0,
+     "ci_high": 1031.1
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1008.9,
+     "ci_low": 977.0,
+     "ci_high": 1035.8
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 993.6,
+     "ci_low": 957.3,
+     "ci_high": 1030.8
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 972.8,
+     "ci_low": 935.0,
+     "ci_high": 1006.9
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 962.9,
+     "ci_low": 932.0,
+     "ci_high": 990.4
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 903.1,
+     "ci_low": 847.0,
+     "ci_high": 950.8
+    }
+   ]
+  },
+  "NanoQuoraRetrieval": {
+   "n_queries": 40,
+   "config_hash": "da7780cd",
+   "models": [
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1071.5,
+     "ci_low": 1040.0,
+     "ci_high": 1107.5
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1070.8,
+     "ci_low": 1039.2,
+     "ci_high": 1107.0
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1060.7,
+     "ci_low": 1027.3,
+     "ci_high": 1096.8
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1053.8,
+     "ci_low": 1025.2,
+     "ci_high": 1088.5
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1053.8,
+     "ci_low": 1016.4,
+     "ci_high": 1096.8
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1029.3,
+     "ci_low": 1001.7,
+     "ci_high": 1059.4
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1008.8,
+     "ci_low": 984.6,
+     "ci_high": 1033.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1002.0,
+     "ci_low": 975.0,
+     "ci_high": 1029.7
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 994.0,
+     "ci_low": 960.1,
+     "ci_high": 1028.2
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 991.0,
+     "ci_low": 952.9,
+     "ci_high": 1028.8
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 931.3,
+     "ci_low": 880.7,
+     "ci_high": 972.7
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 733.1,
+     "ci_low": 644.2,
+     "ci_high": 799.9
+    }
+   ]
+  },
+  "NanoSCIDOCSRetrieval": {
+   "n_queries": 40,
+   "config_hash": "6f3d2175",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1149.8,
+     "ci_low": 1105.1,
+     "ci_high": 1201.8
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1118.3,
+     "ci_low": 1077.8,
+     "ci_high": 1167.6
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1063.2,
+     "ci_low": 1023.3,
+     "ci_high": 1105.2
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 1059.7,
+     "ci_low": 1015.1,
+     "ci_high": 1102.7
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1034.0,
+     "ci_low": 987.1,
+     "ci_high": 1080.1
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1018.7,
+     "ci_low": 969.9,
+     "ci_high": 1075.3
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 970.4,
+     "ci_low": 925.1,
+     "ci_high": 1015.7
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 966.5,
+     "ci_low": 916.7,
+     "ci_high": 1010.4
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 963.8,
+     "ci_low": 916.2,
+     "ci_high": 1008.1
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 920.7,
+     "ci_low": 872.2,
+     "ci_high": 967.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 913.0,
+     "ci_low": 855.8,
+     "ci_high": 964.6
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 822.0,
+     "ci_low": 756.5,
+     "ci_high": 884.1
+    }
+   ]
+  },
+  "NanoSciFactRetrieval": {
+   "n_queries": 40,
+   "config_hash": "97696947",
+   "models": [
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1070.2,
+     "ci_low": 1040.4,
+     "ci_high": 1105.1
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1060.6,
+     "ci_low": 1025.2,
+     "ci_high": 1100.2
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1054.2,
+     "ci_low": 1014.3,
+     "ci_high": 1098.9
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1047.1,
+     "ci_low": 1014.2,
+     "ci_high": 1082.2
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1028.9,
+     "ci_low": 1002.8,
+     "ci_high": 1056.2
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1024.8,
+     "ci_low": 996.6,
+     "ci_high": 1055.3
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 971.3,
+     "ci_low": 936.7,
+     "ci_high": 1001.7
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 968.7,
+     "ci_low": 932.3,
+     "ci_high": 1005.5
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 968.0,
+     "ci_low": 923.3,
+     "ci_high": 1010.1
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 954.6,
+     "ci_low": 915.2,
+     "ci_high": 987.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 950.1,
+     "ci_low": 910.8,
+     "ci_high": 988.4
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 901.6,
+     "ci_low": 844.7,
+     "ci_high": 951.3
+    }
+   ]
+  },
+  "NanoTouche2020Retrieval": {
+   "n_queries": 40,
+   "config_hash": "d1167948",
+   "models": [
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1055.8,
+     "ci_low": 1008.9,
+     "ci_high": 1102.8
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1049.1,
+     "ci_low": 998.2,
+     "ci_high": 1096.6
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1028.5,
+     "ci_low": 986.2,
+     "ci_high": 1072.3
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1027.4,
+     "ci_low": 973.7,
+     "ci_high": 1084.1
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 1011.0,
+     "ci_low": 961.2,
+     "ci_high": 1061.7
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1006.2,
+     "ci_low": 959.3,
+     "ci_high": 1052.4
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1001.5,
+     "ci_low": 946.2,
+     "ci_high": 1055.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 984.7,
+     "ci_low": 940.6,
+     "ci_high": 1025.7
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 984.4,
+     "ci_low": 932.3,
+     "ci_high": 1042.6
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 967.5,
+     "ci_low": 923.3,
+     "ci_high": 1009.6
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 955.8,
+     "ci_low": 912.6,
+     "ci_high": 1001.0
+    },
+    {
+     "model": "mteb/baseline-bm25s",
+     "rating": 928.1,
+     "ci_low": 870.5,
+     "ci_high": 985.8
+    }
+   ]
+  }
+ },
+ "reliability": {
+  "NFCorpus": {
+   "committed": 0.743,
+   "kappa": 0.486,
+   "kappa_ci95": [
+    0.4396,
+    0.5319
+   ],
+   "clear": 0.8301,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 262
+  },
+  "NanoArguAnaRetrieval": {
+   "committed": 0.6767,
+   "kappa": 0.3534,
+   "kappa_ci95": [
+    0.1813,
+    0.498
+   ],
+   "clear": 0.7191,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 45
+  },
+  "NanoClimateFeverRetrieval": {
+   "committed": 0.5897,
+   "kappa": 0.1794,
+   "kappa_ci95": [
+    0.0539,
+    0.3064
+   ],
+   "clear": 0.6153,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 49
+  },
+  "NanoDBPediaRetrieval": {
+   "committed": 0.7731,
+   "kappa": 0.5462,
+   "kappa_ci95": [
+    0.45,
+    0.6291
+   ],
+   "clear": 0.8573,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 50
+  },
+  "NanoFEVERRetrieval": {
+   "committed": 0.8918,
+   "kappa": 0.7836,
+   "kappa_ci95": [
+    0.6369,
+    0.9021
+   ],
+   "clear": 0.8992,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 32
+  },
+  "NanoFiQA2018Retrieval": {
+   "committed": 0.7352,
+   "kappa": 0.4704,
+   "kappa_ci95": [
+    0.3585,
+    0.6006
+   ],
+   "clear": 0.7767,
+   "tier": "B",
+   "n_models": 12,
+   "n_queries": 45
+  },
+  "NanoHotpotQARetrieval": {
+   "committed": 0.9518,
+   "kappa": 0.9037,
+   "kappa_ci95": [
+    0.8609,
+    0.9461
+   ],
+   "clear": 0.9714,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 41
+  },
+  "NanoMSMARCORetrieval": {
+   "committed": 0.6178,
+   "kappa": 0.2356,
+   "kappa_ci95": [
+    0.0636,
+    0.4014
+   ],
+   "clear": 0.6266,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 41
+  },
+  "NanoNFCorpusRetrieval": {
+   "committed": 0.7267,
+   "kappa": 0.4533,
+   "kappa_ci95": [
+    0.3423,
+    0.5674
+   ],
+   "clear": 0.792,
+   "tier": "B",
+   "n_models": 12,
+   "n_queries": 43
+  },
+  "NanoNQRetrieval": {
+   "committed": 0.7906,
+   "kappa": 0.5812,
+   "kappa_ci95": [
+    0.4197,
+    0.7197
+   ],
+   "clear": 0.8102,
+   "tier": "A",
+   "n_models": 12,
+   "n_queries": 41
+  },
+  "NanoQuoraRetrieval": {
+   "committed": 0.658,
+   "kappa": 0.3159,
+   "kappa_ci95": [
+    0.1028,
+    0.5256
+   ],
+   "clear": 0.728,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 20
+  },
+  "NanoSCIDOCSRetrieval": {
+   "committed": 0.6416,
+   "kappa": 0.2832,
+   "kappa_ci95": [
+    0.1566,
+    0.4029
+   ],
+   "clear": 0.7249,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 46
+  },
+  "NanoSciFactRetrieval": {
+   "committed": 0.7179,
+   "kappa": 0.4358,
+   "kappa_ci95": [
+    0.2485,
+    0.6161
+   ],
+   "clear": 0.73,
+   "tier": "B",
+   "n_models": 12,
+   "n_queries": 31
+  },
+  "NanoTouche2020Retrieval": {
+   "committed": 0.5053,
+   "kappa": 0.0106,
+   "kappa_ci95": [
+    -0.0907,
+    0.1144
+   ],
+   "clear": 0.4814,
+   "tier": "C",
+   "n_models": 12,
+   "n_queries": 49
+  }
+ }
+}
