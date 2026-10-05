@@ -74,8 +74,7 @@ RELIABILITY_NOTE = (
     "behind the rankings."
 )
 
-_first = sorted(DATA["corpora"])[0]
-_b0, _d0 = corpus_table(_first)
+_ranked = sorted(DATA["corpora"])  # empty for an export of original-arm records only
 _commit = DATA["meta"]["experiment_commit"]
 
 with gr.Blocks(title="MTEB-Gym leaderboard") as demo:
@@ -84,11 +83,15 @@ with gr.Blocks(title="MTEB-Gym leaderboard") as demo:
         f"Judge `{DATA['meta']['judge']}` · frozen inputs at commit `{_commit}` · Bradley–Terry over "
         "both-order pairwise verdicts on frozen synthetic queries. Companion to the MTEB-Gym paper."
     )
-    with gr.Tab("Rankings"):
-        task = gr.Dropdown(sorted(DATA["corpora"]), value=_first, label="Corpus")
-        banner = gr.Markdown(_b0)
-        table = gr.Dataframe(value=_d0)
-        task.change(corpus_table, inputs=task, outputs=[banner, table])
+    if _ranked:
+        _b0, _d0 = corpus_table(_ranked[0])
+        with gr.Tab("Rankings"):
+            task = gr.Dropdown(_ranked, value=_ranked[0], label="Corpus")
+            banner = gr.Markdown(_b0)
+            table = gr.Dataframe(value=_d0)
+            task.change(corpus_table, inputs=task, outputs=[banner, table])
+    else:
+        gr.Markdown("No corpus is ranked in this data file; the Reliability tab lists the scored corpora.")
     with gr.Tab("Reliability"):
         gr.Markdown(RELIABILITY_NOTE)
         gr.Dataframe(value=reliability_table())

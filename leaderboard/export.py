@@ -133,7 +133,7 @@ def build_export(
 ) -> dict:
     """The app's data file. Ranked corpora without a scored original-arm record are an error unless
     allow_missing, which drops them from the ranking (and says so in meta.dropped). A folder without
-    a synthetic-arm record exports reliability rows only."""
+    a synthetic-arm record exports reliability rows only; an export with neither is an error."""
     results = load_results(output_folder).results
     if not results:
         raise ExportError(f"no records under {output_folder}")
@@ -147,6 +147,11 @@ def build_export(
             + ". Run mteb_gym.reliability on their original-arm records, or pass --allow-missing to drop them."
         )
     corpora = {t: _ranking(r) for t, r in synth.items() if t not in missing}
+    if not corpora and not reliability:
+        raise ExportError(
+            "nothing to export: no ranked corpus and no scored original-arm record. "
+            "Run mteb_gym.reliability on the original-arm records first."
+        )
     used = list(synth.values()) + list(orig.values())
     judges = sorted({r["config"]["judge_model"] for r in used})
     revisions = sorted({str(r.get("gym_revision")) for r in used})

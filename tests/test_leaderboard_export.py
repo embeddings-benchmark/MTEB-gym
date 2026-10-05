@@ -1,6 +1,11 @@
-"""Tests for leaderboard.export on hand-written records in the results repository's layout: no mteb, no network."""
+"""Tests for leaderboard.export, and for the app on what it exports, on hand-written records in the
+results repository's layout: no mteb, no network."""
 
+import importlib.util
 import json
+import shutil
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -162,6 +167,16 @@ def test_original_arm_records_alone_export_reliability_rows(tmp_path):
     assert out["meta"]["dropped"] == []
 
 
+def test_an_export_with_nothing_in_it_is_refused(tmp_path):
+    for task in ("NFCorpus", "ArguAna"):  # original-arm records that were never scored
+        write(tmp_path, f"judge-x__original-queries__q100-s0-{task[:4]}", record(task, "original"))
+    with pytest.raises(export.ExportError, match="nothing to export"):
+        export.build_export(tmp_path)
+    write(tmp_path, "sci-syn", record("SciFact", "synthetic"))  # a ranking with no row, dropped: still nothing
+    with pytest.raises(export.ExportError, match="nothing to export"):
+        export.build_export(tmp_path, allow_missing=True)
+
+
 def test_cli_writes_file(tmp_path, capsys):
     write(tmp_path, "sci-syn", record("SciFact", "synthetic"))
     write(tmp_path, "sci-orig", record("SciFact", "original", reliability=GOOD))
@@ -169,3 +184,59 @@ def test_cli_writes_file(tmp_path, capsys):
     export.main(["--output-folder", str(tmp_path), "--out", str(out)])
     assert json.loads(out.read_text())["corpora"]["SciFact"]["models"][0]["model"] == "m/a"
     assert "1 ranked corpora, 1 reliability rows" in capsys.readouterr().out
+
+
+APP = Path(__file__).resolve().parents[1] / "leaderboard" / "app.py"
+
+
+def load_app(tmp_path: Path, monkeypatch, data: dict) -> list[tuple[str, tuple, dict]]:
+    """Import a copy of app.py next to `data`, with gradio stubbed: the widgets it built, in order."""
+    pytest.importorskip("pandas")
+    made = []
+
+    class Widget:
+        def __init__(self, *args, **kwargs):
+            made.append((type(self).__name__, args, kwargs))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def change(self, *args, **kwargs):
+            pass
+
+    gr = types.ModuleType("gradio")
+    for name in ("Blocks", "Tab", "Markdown", "Dropdown", "Dataframe"):
+        setattr(gr, name, type(name, (Widget,), {}))
+    monkeypatch.setitem(sys.modules, "gradio", gr)
+    monkeypatch.setitem(sys.modules, "spaces", None)  # a local run: no ZeroGPU package
+    app_dir = tmp_path / "app"
+    (app_dir / "data").mkdir(parents=True)
+    (app_dir / "data" / "leaderboard_export.json").write_text(json.dumps(data))
+    shutil.copy(APP, app_dir / "app.py")
+    spec = importlib.util.spec_from_file_location("leaderboard_app_under_test", app_dir / "app.py")
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))
+    return made
+
+
+def test_app_loads_an_export_of_reliability_rows_only(tmp_path, monkeypatch):
+    for task in ("NFCorpus", "ArguAna"):
+        write(tmp_path, f"judge-x__original-queries__q100-s0-{task[:4]}", record(task, "original", reliability=GOOD))
+    made = load_app(tmp_path, monkeypatch, export.build_export(tmp_path))
+    assert [args[0] for name, args, _ in made if name == "Tab"] == ["Reliability"]
+    assert not any(name == "Dropdown" for name, _, _ in made)
+    (frame,) = [kw["value"] for name, _, kw in made if name == "Dataframe"]
+    assert sorted(frame["corpus"]) == ["ArguAna", "NFCorpus"]
+
+
+def test_app_ranks_the_exported_corpora(tmp_path, monkeypatch):
+    write(tmp_path, "sci-syn", record("SciFact", "synthetic"))
+    write(tmp_path, "sci-orig", record("SciFact", "original", reliability=GOOD))
+    made = load_app(tmp_path, monkeypatch, export.build_export(tmp_path))
+    assert [args[0] for name, args, _ in made if name == "Tab"] == ["Rankings", "Reliability"]
+    (dropdown,) = [kw for name, _, kw in made if name == "Dropdown"]
+    assert dropdown["value"] == "SciFact"
+    ranking = next(kw["value"] for name, _, kw in made if name == "Dataframe")
+    assert list(ranking["model"]) == ["m/a", "m/b"]
