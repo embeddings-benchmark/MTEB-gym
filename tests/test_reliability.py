@@ -1,7 +1,10 @@
 """Tests for mteb_gym.reliability on a hand-written results-repo record and cache: no mteb, no network."""
 
 import json
+import logging
 import math
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -55,7 +58,8 @@ def write_run(root: Path, verdicts: dict[tuple[str, str], dict[str, float]], arm
     }
     record = {
         "task_name": TASK,
-        "source": "mteb",
+        "source": "local",  # a toy corpus has no mteb task behind it, so no ignore_identical_ids to look up
+        "corpus_id": "toy@rev1/default/test",
         "config": config,
         "labels": "dataset" if arm == "original" else None,
         "diagnostics": {},
@@ -276,3 +280,59 @@ def test_reliability_all_scores_only_original_arm(tmp_path):
     assert len(outs) == 1 and next(iter(outs)).endswith("original-queries__q9-s0-abcd1234.json")
     assert next(iter(outs.values()))["s_committed"] == 1.0
     assert "reliability" not in json.loads(synth.read_text())
+
+
+def test_explicit_qrels_take_the_mteb_task_flag(tmp_path, monkeypatch):
+    """With explicit qrels and no flag, a record from an mteb task gets the task's ignore_identical_ids,
+    as it would with the qrels loaded from the corpus; a task mteb does not know is an error, not False."""
+    right = {q: 1.0 for q in QRELS}
+    path = write_run(tmp_path, {("m/a", "m/b"): right, ("m/a", "m/c"): right, ("m/b", "m/c"): right})
+    p = tmp_path / "cache" / "predictions" / TASK / f"{slug('m/b')}@rev1" / QUERY_SET / f"{TASK}_predictions.json"
+    # m/b now ranks the query itself first, then the label: with the query dropped it ties m/a
+    p.write_text(
+        json.dumps({"default": {"test": {f"q{i}": {f"q{i}": 3.0, f"d{i}": 2.0, "x1": 1.0} for i in range(9)}}})
+    )
+    flags = {TASK: True}
+    fake = types.SimpleNamespace(
+        get_tasks=lambda tasks: [types.SimpleNamespace(ignore_identical_ids=flags[t]) for t in tasks]
+    )
+    monkeypatch.setitem(sys.modules, "mteb", fake)
+    cache = tmp_path / "cache"
+    local = json.loads(path.read_text())
+    assert rel.judge_reliability(local, cache, qrels=QRELS, bootstrap=20, write=False)["n_decisive"] == 24
+    rec = {**json.loads(path.read_text()), "source": "mteb"}
+    assert rel.judge_reliability(rec, cache, qrels=QRELS, bootstrap=20, write=False)["n_decisive"] == 16
+    explicit = rel.judge_reliability(rec, cache, qrels=QRELS, ignore_identical_ids=False, bootstrap=20, write=False)
+    assert explicit["n_decisive"] == 24
+    del flags[TASK]
+    assert "pass ignore_identical_ids" in rel.judge_reliability(rec, cache, qrels=QRELS, write=False)["error"]
+
+
+def test_corpus_must_be_the_one_the_record_names(tmp_path, monkeypatch):
+    """Qrels loaded from the corpus are only the run's labels if the corpus is the one the record ran on."""
+    from mteb_gym import corpus
+
+    right = {q: 1.0 for q in QRELS}
+    path = write_run(tmp_path, {("m/a", "m/b"): right, ("m/a", "m/c"): right, ("m/b", "m/c"): right})
+    loaded = {"id": "toy@rev1/default/test"}
+    monkeypatch.setattr(corpus, "load", lambda name: corpus.Corpus(name, loaded["id"], {}, None, qrels=QRELS))
+    assert rel.judge_reliability(path, tmp_path / "cache", bootstrap=20, write=False)["s_committed"] == 1.0
+    loaded["id"] = "toy@rev2/default/test"
+    out = rel.judge_reliability(path, tmp_path / "cache", bootstrap=20, write=False)
+    assert "toy@rev1/default/test" in out["error"] and "toy@rev2/default/test" in out["error"]
+    assert "reliability" not in json.loads(path.read_text())
+
+
+def test_rows_beyond_the_record_are_flagged(tmp_path, caplog):
+    """The verdict key leaves out pairs_per_query: a run of the same query set that judged fewer pairs
+    per query shares the files, and the rows it did not judge are there too."""
+    right = {q: 1.0 for q in QRELS}
+    path = write_run(tmp_path, {("m/a", "m/b"): right, ("m/a", "m/c"): right, ("m/b", "m/c"): right})
+    rec = json.loads(path.read_text())
+    with caplog.at_level(logging.WARNING, logger="mteb_gym.reliability"):
+        rel.judge_reliability(rec, tmp_path / "cache", qrels=QRELS, bootstrap=20, write=False)
+    assert "every row is scored" not in caplog.text
+    rec["config"]["pairs_per_query"] = 1
+    with caplog.at_level(logging.WARNING, logger="mteb_gym.reliability"):
+        out = rel.judge_reliability(rec, tmp_path / "cache", qrels=QRELS, bootstrap=20, write=False)
+    assert "hold 24 comparisons where the record made 9" in caplog.text and out["n_comparisons"] == 24

@@ -19,9 +19,10 @@ thresholds, not Landis-Koch categories; the leaderboard warns below B.
 
 Everything comes from the run's own artifacts. The record names its verdict and prediction files in
 the cache (run.cache_files: the folder passed in, else $MTEB_GYM_CACHE, else ~/.cache/mteb_gym), and
-the qrels come from the corpus or are passed in. A comparison where either presentation order failed
-to parse is left out and counted (n_unparsed), as rank.rate leaves it out of the ranking: keeping the
-order that parsed would bring back the position bias that judging both orders cancels.
+the qrels come from the corpus, which must be the one the record names (corpus_id carries the
+dataset revision), or are passed in. A comparison where either presentation order failed to parse is
+left out and counted (n_unparsed), as rank.rate leaves it out of the ranking: keeping the order that
+parsed would bring back the position bias that judging both orders cancels.
 
 The layout that predates the results/cache split (verdicts/ and predictions/ next to records/, .json
 lists, a verdict key without doc_chars) is not read. Those runs cannot be reproduced under the current
@@ -248,10 +249,44 @@ def readout(per_query: Mapping[str, Sequence[int]], n: Mapping[str, int], *, boo
 
 
 # ----------------------------------------------------------------------------- entry points
+def _task_flag(rec: Mapping[str, Any]) -> bool:
+    """mteb's ignore_identical_ids for the record's task; False for a local corpus, which has no such flag."""
+    if rec.get("source") != "mteb":
+        return False
+    import mteb
+
+    try:
+        return bool(mteb.get_tasks(tasks=[rec["task_name"]])[0].ignore_identical_ids)
+    except (KeyError, ValueError, IndexError) as e:
+        raise LookupError(
+            f"{rec['task_name']} is not an mteb task here ({e!r}): pass ignore_identical_ids with explicit qrels"
+        ) from e
+
+
 def _result(result: Result | dict | str | Path) -> Result:
     if isinstance(result, Result):
         return result
     return Result(result) if isinstance(result, dict) else Result.from_disk(result)
+
+
+def _warn_on_extra_rows(rec: Mapping[str, Any], pairs: Mapping[tuple[str, str], Mapping[str, Verdict]]) -> None:
+    """The verdict key leaves out pairs_per_query, so runs of one query set that judged different pairs
+    per query share a pair's file. Rows beyond what this record judged cannot be told apart; say so."""
+    c = rec["config"]
+    n_queries, n_pairs = int(c["n_queries"]), len(pairs)
+    expected = n_queries * min(c.get("pairs_per_query") or n_pairs, n_pairs)
+    total = sum(len(rows) for rows in pairs.values())
+    over = sum(len(rows) > n_queries for rows in pairs.values())
+    if total > expected or over:
+        logger.warning(
+            "%s: the verdict files hold %d comparisons where the record made %d (%d pair files with more rows "
+            "than its %d queries); every row is scored",
+            rec["task_name"],
+            total,
+            expected,
+            over,
+            n_queries,
+        )
 
 
 def judge_reliability(
@@ -269,10 +304,13 @@ def judge_reliability(
     `result` is a Result, a record, or a record's path. Its verdict and prediction files are the ones
     run.cache_files names under `cache_folder` ($MTEB_GYM_CACHE, else ~/.cache/mteb_gym, when None).
     Without explicit `qrels` the record must come from the original-query arm, and the labels and
-    mteb's ignore_identical_ids flag are loaded from the corpus; with explicit qrels, pass the flag for
-    a task where a query is its own document (ArguAna), since the judge never saw that document.
-    A record that cannot be scored gets {"error": ...} and is left untouched, so "not measured" never
-    looks like "agreed 0% of the time".
+    mteb's ignore_identical_ids flag are loaded from the corpus, which must be the one the record's
+    corpus_id names. With explicit qrels the flag defaults to the mteb task's own when the record names
+    an mteb task (ArguAna drops a query that is its own document, which the judge never saw) and to
+    False for a local corpus. Rows in the verdict files beyond the comparisons the record made (another
+    run of the same query set with a different pairs_per_query shares the files) are scored too, with a
+    warning. A record that cannot be scored gets {"error": ...} and is left untouched, so "not
+    measured" never looks like "agreed 0% of the time".
     """
     res = _result(result)
     rec = res.record
@@ -283,11 +321,21 @@ def judge_reliability(
         from .corpus import load
 
         corp = load(rec["task_name"])
+        if corp.id != rec.get("corpus_id"):
+            return {
+                "error": f"the record was run on {rec.get('corpus_id')} but {rec['task_name']} loads {corp.id} "
+                "here: its qrels need not be the ones the run used"
+            }
         qrels = corp.qrels
         if not qrels:
             return {"error": f"{rec['task_name']} carries no qrels"}
         if ignore_identical_ids is None:
             ignore_identical_ids = corp.ignore_identical_ids
+    elif ignore_identical_ids is None:
+        try:
+            ignore_identical_ids = _task_flag(rec)
+        except LookupError as e:
+            return {"error": str(e)}
     try:
         files = cache_files(rec, cache_folder)
     except KeyError as e:
@@ -300,6 +348,7 @@ def judge_reliability(
         pairs = {ab: load_verdicts(p) for ab, p in zip(itertools.combinations(models, 2), files["verdicts"])}
     except FileNotFoundError as e:
         return {"error": str(e)}
+    _warn_on_extra_rows(rec, pairs)
     per_query, n = tally(pairs, ndcg)
     if n["unparsed"]:
         logger.warning(
