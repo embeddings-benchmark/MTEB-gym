@@ -20,10 +20,12 @@ equal Bradley-Terry strengths and are ordered by the fit's iteration residue, as
 so rho on a near-tied record is only defined up to that order (the mock fixture is such a case).
 
 Truth is ordinal: the record's agreement.truth_ranking (the official order, no scores, so mteb is never
-needed), or --truth, a JSON {model: score} that is used instead when given. Verdict files are located
-through mteb_gym.reliability.verdict_file, from the record's config as run() wrote it.
+needed), or --truth, a JSON {model: score} that is used instead when given. The verdicts are read from
+the files mteb_gym.run.cache_files names from the record's config, under the cache folder (--cache-folder,
+else $MTEB_GYM_CACHE, else ~/.cache/mteb_gym). A comparison where either order failed to parse is left out
+of every refit, as rank.rate leaves it out of the leaderboard ranking.
 
-    python -m analysis.scaling --output-folder results --record results/records/<record>.json --out scaling.json
+    python -m analysis.scaling --record results/<task>/<record>.json --out scaling.json
 """
 
 from __future__ import annotations
@@ -42,7 +44,8 @@ from scipy.stats import spearmanr
 
 from mteb_gym.judge import Verdict
 from mteb_gym.rank import rate
-from mteb_gym.reliability import load_verdicts, verdict_file
+from mteb_gym.reliability import load_verdicts
+from mteb_gym.run import cache_files
 
 logger = logging.getLogger(__name__)
 
@@ -72,15 +75,11 @@ def load_truth(record: dict, truth: Mapping[str, float] | None = None) -> dict[s
     return {m: float(truth[m]) for m in models}
 
 
-def load_pairs(out: Path, record: dict) -> Pairs:
-    """Every judged pair's verdicts, located through reliability.verdict_file in either model order."""
-    pairs: Pairs = {}
-    for a, b in itertools.combinations(record["config"]["models"], 2):
-        path = verdict_file(out, record, a, b)
-        if not (path.exists() or path.with_suffix(".jsonl").exists()):  # the run ordered the pair the other way
-            a, b, path = b, a, verdict_file(out, record, b, a)
-        pairs[(a, b)] = [Verdict(qid, qid, a, b, s) for qid, s in load_verdicts(path).items()]
-    return pairs
+def load_pairs(record: dict, cache_folder: str | Path | None = None) -> Pairs:
+    """Every judged pair's verdicts, from the one file per pair that run.cache_files names under `cache_folder`."""
+    pairs = itertools.combinations(record["config"]["models"], 2)
+    files = cache_files(record, cache_folder)["verdicts"]
+    return {pair: list(load_verdicts(path).values()) for pair, path in zip(pairs, files)}
 
 
 def qids_of(pairs: Pairs) -> list[str]:
@@ -169,8 +168,8 @@ def grid_point(
 
 
 def scaling(
-    output_folder: str | Path,
     record: dict | str | Path,
+    cache_folder: str | Path | None = None,
     *,
     truth: Mapping[str, float] | None = None,
     draws: int = DRAWS,
@@ -179,8 +178,8 @@ def scaling(
     pair_fractions: Sequence[float] = PAIR_FRACTIONS,
     min_models: int = MIN_MODELS,
 ) -> dict[str, Any]:
-    """The three curves and the full-data reference for one record; see the module docstring."""
-    out = Path(output_folder)
+    """The three curves and the full-data reference for one record (a record or its path), from the
+    verdicts under `cache_folder` ($MTEB_GYM_CACHE, else ~/.cache/mteb_gym, when None)."""
     rec = record if isinstance(record, dict) else json.loads(Path(record).read_text())
     models = list(rec["config"]["models"])
     if len(models) < 3:
@@ -192,7 +191,7 @@ def scaling(
     if not pair_fractions or any(not 0.0 < f <= 1.0 for f in pair_fractions):
         raise ValueError(f"pair fractions must lie in (0, 1], got {list(pair_fractions)}")
     scores = load_truth(rec, truth)
-    pairs = load_pairs(out, rec)
+    pairs = load_pairs(rec, cache_folder)
     qids = qids_of(pairs)
     every = [v for vs in pairs.values() for v in vs]
     full_rho = refit_rho(every, models, scores)
@@ -259,8 +258,12 @@ def format_table(result: Mapping[str, Any]) -> str:
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    ap.add_argument("--output-folder", required=True, help="the gym's output folder (verdicts/ inside)")
-    ap.add_argument("--record", required=True, help="one synthetic-arm record .json from that folder")
+    ap.add_argument("--record", required=True, help="one synthetic-arm record .json from a results folder")
+    ap.add_argument(
+        "--cache-folder",
+        default=None,
+        help="queries, predictions and verdicts (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
+    )
     ap.add_argument("--out", required=True, help="where to write the JSON (grid, table, full-data reference)")
     ap.add_argument("--truth", default=None, help="JSON {model: score} to use instead of agreement.truth_ranking")
     ap.add_argument("--draws", type=int, default=DRAWS, help="random subsamples per grid point")
@@ -271,8 +274,8 @@ def main(argv=None) -> None:
     args = ap.parse_args(argv)
     truth = json.loads(Path(args.truth).read_text()) if args.truth else None
     result = scaling(
-        args.output_folder,
         args.record,
+        args.cache_folder,
         truth=truth,
         draws=args.draws,
         seed=args.seed,

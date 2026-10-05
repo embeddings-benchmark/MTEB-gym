@@ -1,7 +1,7 @@
 """
 Descriptive statistics of a run's synthetic queries, next to the corpus's own queries.
 
-    python -m analysis.query_stats --output-folder results --record results/records/<synthetic record>.json \
+    python -m analysis.query_stats --record results/<task>/<synthetic record>.json \
         --original-queries original.json --docs docs.json --out query_stats.json
 
 The ranking is only as good as the queries it was judged on, and the generator's prompt asks for
@@ -25,9 +25,10 @@ length and degeneracy heuristics during generation; the drops after it are the q
 near-duplicate removal and the cut to n_queries taken together, and the output says so instead of
 splitting them into categories that were never recorded.
 
-The queries file is out/queries/<query_set>.json as run() wrote it. The record's prediction and
-verdict files are located through mteb_gym.reliability.prediction_file and verdict_file, from the
-record's config, to check that the queries the run retrieved and judged on are the ones in that file.
+The queries, prediction and verdict files are the ones mteb_gym.run.cache_files names from the record's
+config, under the cache folder (--cache-folder, else $MTEB_GYM_CACHE, else ~/.cache/mteb_gym). The
+queries file is <cache>/queries/<task>/<query set>.json as run() wrote it; the prediction and verdict
+files are read to check that the queries the run retrieved and judged on are the ones in that file.
 
 Word counts split on whitespace. Copied-word share tokenises to lowercase [a-z0-9]+ runs, drops
 STOPWORDS, and counts a query word once however many times it occurs.
@@ -45,6 +46,7 @@ from typing import Any
 
 from mteb_gym import reliability as rel
 from mteb_gym.results import Result
+from mteb_gym.run import cache_files
 
 QUESTION_STARTS = frozenset(
     "what which who whom whose when where why how is are do does did can could should would will".split()
@@ -195,12 +197,13 @@ def filter_accounting(n_generated: int | None, n_kept: int, config: Mapping[str,
 
 
 # ----------------------------------------------------------------------------- the run's artifacts
-def queries_file(out: Path, record: Mapping[str, Any]) -> Path:
-    return out / "queries" / f"{record['config']['query_set']}.json"
+def queries_file(record: dict, cache_folder: str | Path | None = None) -> Path:
+    """<cache>/queries/<task>/<query set>.json, as run.cache_files names it for a synthetic-arm record."""
+    return cache_files(record, cache_folder)["queries"][0]
 
 
-def load_queries(out: Path, record: Mapping[str, Any]) -> tuple[list[dict], int | None]:
-    data = json.loads(queries_file(out, record).read_text())
+def load_queries(record: dict, cache_folder: str | Path | None = None) -> tuple[list[dict], int | None]:
+    data = json.loads(queries_file(record, cache_folder).read_text())
     for q in data["queries"]:
         _check_template(q["text"], f"query {q.get('qid')}")
     return data["queries"], data.get("n_generated")
@@ -227,17 +230,18 @@ def load_texts(path: str | Path, what: str) -> dict[str, str]:
     return texts
 
 
-def judged_coverage(out: Path, record: Mapping[str, Any], kept_qids: set[str]) -> dict[str, Any]:
+def judged_coverage(record: dict, kept_qids: set[str], cache_folder: str | Path | None = None) -> dict[str, Any]:
     """Which of the kept qids the run's prediction and verdict files actually cover; missing files are listed.
 
-    Pairs are taken in the order run() judged them (config["models"], itertools.combinations); a pair stored
-    the other way round is still found. n_kept_not_judged is over the union of all pairs' verdicts, so
-    n_kept_not_judged_in_some_pair is the one that catches a pair that stopped early."""
-    models = list(record["config"].get("models") or [r["model"] for r in record["ratings"]])
+    The files are the ones run.cache_files names: one prediction file per model and one verdict file per
+    pair in the order run() judged them (config["models"], itertools.combinations). n_kept_not_judged is
+    over the union of all pairs' verdicts, so n_kept_not_judged_in_some_pair is the one that catches a
+    pair that stopped early."""
+    models = list(record["config"]["models"])
+    files = cache_files(record, cache_folder)
     predicted: set[str] = set()
     missing: list[str] = []
-    for m in models:
-        path = rel.prediction_file(out, record, m)
+    for path in files["predictions"]:
         if not path.exists():
             missing.append(str(path))
             continue
@@ -245,19 +249,15 @@ def judged_coverage(out: Path, record: Mapping[str, Any], kept_qids: set[str]) -
     judged: set[str] = set()
     unjudged_in_some_pair: set[str] = set()
     pairs_found = 0
-    for i, a in enumerate(models):
-        for b in models[i + 1 :]:
-            path = rel.verdict_file(out, record, a, b)
-            if not (path.exists() or path.with_suffix(".jsonl").exists()):
-                path = rel.verdict_file(out, record, b, a)
-            try:
-                qids = set(rel.load_verdicts(path))
-            except FileNotFoundError:
-                missing.append(str(rel.verdict_file(out, record, a, b)))
-                continue
-            pairs_found += 1
-            judged |= qids
-            unjudged_in_some_pair |= kept_qids - qids
+    for path in files["verdicts"]:
+        try:
+            qids = set(rel.load_verdicts(path))
+        except FileNotFoundError:
+            missing.append(str(path))
+            continue
+        pairs_found += 1
+        judged |= qids
+        unjudged_in_some_pair |= kept_qids - qids
     return {
         "n_models": len(models),
         "n_pairs_expected": len(models) * (len(models) - 1) // 2,
@@ -274,26 +274,27 @@ def judged_coverage(out: Path, record: Mapping[str, Any], kept_qids: set[str]) -
 
 # ----------------------------------------------------------------------------- entry points
 def query_stats(
-    output_folder: str | Path,
     record: str | Path,
+    cache_folder: str | Path | None = None,
     *,
     original_queries: Mapping[str, str] | None = None,
     docs: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """The readout for one synthetic-arm record; `original_queries` and `docs` are optional {id: text}."""
-    out = Path(output_folder)
+    """The readout for one synthetic-arm record (its path), from the run's files under `cache_folder`
+    ($MTEB_GYM_CACHE, else ~/.cache/mteb_gym, when None); `original_queries` and `docs` are optional
+    {id: text}."""
     rec = Result.from_disk(record).record
     c = rec["config"]
     if c.get("arm") != "synthetic":
         raise ValueError(f"arm is {c.get('arm')!r}: query statistics need the synthetic-arm record")
-    queries, n_generated = load_queries(out, rec)
+    queries, n_generated = load_queries(rec, cache_folder)
     texts = {q["qid"]: q["text"] for q in queries}
     synthetic = {
         **describe(texts),
         "copied_word_share": copied_word_share(queries, docs),
         "quality": quality_distribution(queries),
         "filter": filter_accounting(n_generated, len(queries), c),
-        "coverage": judged_coverage(out, rec, set(texts)),
+        "coverage": judged_coverage(rec, set(texts), cache_folder),
     }
     original = None
     if original_queries is not None:
@@ -359,8 +360,12 @@ def dump_original_queries(task_name: str, path: str | Path) -> Path:
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
-    ap.add_argument("--output-folder", default="results", help="the gym's output folder (queries/ inside)")
-    ap.add_argument("--record", required=True, help="a synthetic-arm record under <output-folder>/records/")
+    ap.add_argument("--record", required=True, help="a synthetic-arm record .json from a results folder")
+    ap.add_argument(
+        "--cache-folder",
+        default=None,
+        help="queries, predictions and verdicts (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
+    )
     ap.add_argument("--original-queries", default=None, help="JSON {qid: text} of the corpus's own queries")
     ap.add_argument("--docs", default=None, help="JSON {docid: text} of the corpus, for the copied-word share")
     ap.add_argument("--out", default="query_stats.json", help="JSON readout; the markdown table goes next to it")
@@ -372,7 +377,7 @@ def main(argv=None) -> None:
         print(f"wrote {dump_original_queries(args.dump_original, args.original_queries)}")
     original = load_texts(args.original_queries, "original queries") if args.original_queries else None
     docs = load_texts(args.docs, "docs") if args.docs else None
-    stats = query_stats(args.output_folder, args.record, original_queries=original, docs=docs)
+    stats = query_stats(args.record, args.cache_folder, original_queries=original, docs=docs)
     table = markdown_table(stats)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

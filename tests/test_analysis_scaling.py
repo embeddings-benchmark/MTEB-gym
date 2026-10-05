@@ -1,4 +1,4 @@
-"""Tests for analysis.scaling: a hand-built run with a known answer, and the mock fixtures end to end."""
+"""Tests for analysis.scaling: a hand-built record and cache with a known answer, and the mock fixtures end to end."""
 
 import json
 import os
@@ -9,20 +9,27 @@ import numpy as np
 import pytest
 
 from analysis import scaling as sc
-from mteb_gym import reliability as rel
+from mteb_gym.run import cache_files
 
 MODELS = ["m/a", "m/b", "m/c", "m/d"]  # a always beats b beats c beats d
 N_QUERIES = 12
 
 
+def row(a: str, b: str, q: int, score_a: float, parsed_ok=(True, True)) -> str:
+    v = {"qid": f"q{q}", "query": f"q{q}", "model_a": a, "model_b": b, "score_a": score_a, "raw": ["A", "A"]}
+    return json.dumps(v | {"parsed_ok": list(parsed_ok)}) + "\n"
+
+
 def write_run(root: Path) -> Path:
-    """Transitive, noiseless verdicts: the stronger model wins every query of every pair."""
+    """A record at root/results/<task>/ and its verdicts in root/cache, in the files run.cache_files names.
+    Transitive, noiseless verdicts: the stronger model wins every query of every pair."""
     config = {
         "arm": "synthetic",
         "query_set": "corpus-mock-abc",
         "judge_model": "judge-x",
         "judge_system": "You compare two retrieval systems.",
         "top_k": 10,
+        "doc_chars": 300,
         "models": MODELS,
         "model_revisions": {m: "rev1" for m in MODELS},
         "n_queries": N_QUERIES,
@@ -35,19 +42,11 @@ def write_run(root: Path) -> Path:
         "ratings": [{"model": m, "rating": 1000.0, "ci_low": 990.0, "ci_high": 1010.0} for m in MODELS],
         "agreement": {"truth_ranking": list(MODELS)},
     }
-    for i, a in enumerate(MODELS):
-        for b in MODELS[i + 1 :]:
-            a_first = (i + MODELS.index(b)) % 2 == 0  # some pairs are stored in the other order
-            p = rel.verdict_file(root, record, a, b) if a_first else rel.verdict_file(root, record, b, a)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            rows = [
-                {"qid": f"q{q}", "query": f"q{q}", "model_a": a, "model_b": b, "score_a": 1.0}
-                if a_first
-                else {"qid": f"q{q}", "query": f"q{q}", "model_a": b, "model_b": a, "score_a": 0.0}
-                for q in range(N_QUERIES)
-            ]
-            p.write_text(json.dumps(rows))
-    path = root / "records" / "ToyRetrieval__judge-x__mock__q12-s0-abcd1234.json"
+    pairs = [(a, b) for i, a in enumerate(MODELS) for b in MODELS[i + 1 :]]
+    for (a, b), p in zip(pairs, cache_files(record, root / "cache")["verdicts"]):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("".join(row(a, b, q, 1.0) for q in range(N_QUERIES)))
+    path = root / "results" / "ToyRetrieval" / "ToyRetrieval__judge-x__mock__q12-s0-abcd1234.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(record))
     return path
@@ -82,7 +81,7 @@ def test_summarize_counts_degenerate_draws():
 
 def test_transitive_verdicts_agree_at_every_size(tmp_path):
     record = write_run(tmp_path)
-    r = sc.scaling(tmp_path, record, draws=30, seed=1)
+    r = sc.scaling(record, tmp_path / "cache", draws=30, seed=1)
     assert r["n_models"] == 4 and r["n_pairs"] == 6 and r["n_queries"] == N_QUERIES
     assert r["full"]["rho"] == 1.0 and r["full"]["gym_ranking"] == MODELS and r["full"]["truth_ranking"] == MODELS
     assert r["truth_source"] == "agreement.truth_ranking (ordinal)"
@@ -99,7 +98,7 @@ def test_transitive_verdicts_agree_at_every_size(tmp_path):
 def test_reversed_truth_gives_minus_one(tmp_path):
     record = write_run(tmp_path)
     reversed_truth = {m: float(i) for i, m in enumerate(MODELS)}  # d is best, a is worst
-    r = sc.scaling(tmp_path, record, truth=reversed_truth, draws=20, seed=0)
+    r = sc.scaling(record, tmp_path / "cache", truth=reversed_truth, draws=20, seed=0)
     assert r["truth_source"] == "truth file" and r["full"]["rho"] == -1.0
     assert r["full"]["truth_ranking"] == MODELS[::-1]
     for p in r["grid"]["queries"] + r["grid"]["models"] + [r["grid"]["pairs"][-1]]:
@@ -108,7 +107,7 @@ def test_reversed_truth_gives_minus_one(tmp_path):
 
 def test_subsample_draws_are_seeded_and_sized(tmp_path):
     record = json.loads(write_run(tmp_path).read_text())
-    pairs = sc.load_pairs(tmp_path, record)
+    pairs = sc.load_pairs(record, tmp_path / "cache")
     assert sorted(len(v) for v in pairs.values()) == [N_QUERIES] * 6
     qids = sc.qids_of(pairs)
     a, chosen_a = sc.subsample(pairs, MODELS, qids, 5, 0.5, 3, np.random.default_rng(3))
@@ -130,62 +129,72 @@ def test_tied_ratings_are_dropped_without_a_warning():
 
 def test_missing_verdict_file_is_an_error(tmp_path):
     record = json.loads(write_run(tmp_path).read_text())
-    victim = rel.verdict_file(tmp_path, record, "m/a", "m/b")
-    if not victim.exists():
-        victim = rel.verdict_file(tmp_path, record, "m/b", "m/a")
-    victim.unlink()
+    cache_files(record, tmp_path / "cache")["verdicts"][0].unlink()
     with pytest.raises(FileNotFoundError, match="no verdicts"):
-        sc.load_pairs(tmp_path, record)
+        sc.load_pairs(record, tmp_path / "cache")
 
 
-def test_partial_jsonl_stream_is_read(tmp_path):
+def test_partial_verdict_file_is_read(tmp_path):
     record = json.loads(write_run(tmp_path).read_text())
-    for a, b in [("m/a", "m/b"), ("m/b", "m/a")]:
-        p = rel.verdict_file(tmp_path, record, a, b)
-        if p.exists():
-            rows = json.loads(p.read_text())[:7]  # the run stopped after 7 queries on this pair
-            p.with_suffix(".jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
-            p.unlink()
-    pairs = sc.load_pairs(tmp_path, record)
+    p = cache_files(record, tmp_path / "cache")["verdicts"][0]  # (m/a, m/b)
+    lines = p.read_text().splitlines(keepends=True)
+    p.write_text("".join(lines[:7]) + lines[7][:20])  # the run stopped after 7 queries, mid-line
+    pairs = sc.load_pairs(record, tmp_path / "cache")
+    assert len(pairs[("m/a", "m/b")]) == 7
     assert sorted(len(v) for v in pairs.values()) == [7] + [N_QUERIES] * 5
     assert sc.qids_of(pairs) == sorted(f"q{q}" for q in range(N_QUERIES))
 
 
+def test_unparsed_comparisons_are_left_out(tmp_path):
+    """(m/c, m/d): c wins the 5 comparisons that parsed, d the 7 with an unparsed order. Counted, the 7
+    would put d above c; left out, as rank.rate leaves them out, the full ranking is still a > b > c > d."""
+    record = write_run(tmp_path)
+    p = cache_files(json.loads(record.read_text()), tmp_path / "cache")["verdicts"][-1]
+    rows = [row("m/c", "m/d", q, 1.0) for q in range(5)]
+    rows += [row("m/c", "m/d", q, 0.0, parsed_ok=(True, False)) for q in range(5, N_QUERIES)]
+    p.write_text("".join(rows))
+    r = sc.scaling(record, tmp_path / "cache", draws=5, seed=0)
+    assert r["full"]["rho"] == 1.0 and r["full"]["gym_ranking"] == MODELS
+
+
 def test_scaling_rejects_bad_inputs(tmp_path):
-    record = json.loads(write_run(tmp_path).read_text())
+    record, cache = json.loads(write_run(tmp_path).read_text()), tmp_path / "cache"
     with pytest.raises(ValueError, match="at least 3 models"):
-        sc.scaling(tmp_path, record | {"config": record["config"] | {"models": MODELS[:2]}}, draws=1)
+        sc.scaling(record | {"config": record["config"] | {"models": MODELS[:2]}}, cache, draws=1)
     with pytest.raises(ValueError, match="min_models"):
-        sc.scaling(tmp_path, record, draws=1, min_models=2)
+        sc.scaling(record, cache, draws=1, min_models=2)
     with pytest.raises(ValueError, match="query counts"):
-        sc.scaling(tmp_path, record, draws=1, query_grid=[0, 5])
+        sc.scaling(record, cache, draws=1, query_grid=[0, 5])
     with pytest.raises(ValueError, match="pair fractions"):
-        sc.scaling(tmp_path, record, draws=1, pair_fractions=[0.5, 1.5])
+        sc.scaling(record, cache, draws=1, pair_fractions=[0.5, 1.5])
     with pytest.raises(ValueError, match="pair fractions"):
-        sc.scaling(tmp_path, record, draws=1, pair_fractions=[0.0])
+        sc.scaling(record, cache, draws=1, pair_fractions=[0.0])
 
 
-def test_main_writes_json_and_prints_the_table(tmp_path, capsys):
+def test_main_writes_json_and_prints_the_table(tmp_path, capsys, monkeypatch):
     record = write_run(tmp_path)
     out = tmp_path / "scaling.json"
-    sc.main(["--output-folder", str(tmp_path), "--record", str(record), "--out", str(out), "--draws", "5"])
+    sc.main(["--record", str(record), "--cache-folder", str(tmp_path / "cache"), "--out", str(out), "--draws", "5"])
     data = json.loads(out.read_text())
     assert data["full"]["rho"] == 1.0 and set(data["grid"]) == {"queries", "pairs", "models"}
     printed = capsys.readouterr().out
     assert "| axis | queries | pairs | models |" in printed and str(out) in printed
+    monkeypatch.setenv("MTEB_GYM_CACHE", str(tmp_path / "cache"))  # the default cache folder
+    sc.main(["--record", str(record), "--out", str(out), "--draws", "5"])
+    assert json.loads(out.read_text())["full"] == data["full"]
 
 
 @pytest.mark.skipif(not os.environ.get("ANALYSIS_FIXTURES"), reason="ANALYSIS_FIXTURES not set")
 def test_mock_fixtures_end_to_end(tmp_path):
-    root = Path(os.environ["ANALYSIS_FIXTURES"])
+    root = Path(os.environ["ANALYSIS_FIXTURES"])  # a mock run: results/<task>/<record>.json and cache/
     records = [
-        p for p in (root / "records").glob("*.json") if json.loads(p.read_text())["config"]["arm"] == "synthetic"
+        p for p in (root / "results").glob("*/*.json") if json.loads(p.read_text())["config"]["arm"] == "synthetic"
     ]
     assert len(records) == 1, records
     record = json.loads(records[0].read_text())
     models = record["config"]["models"]
     truth = {m: float(i) for i, m in enumerate(models)}  # the fixture's agreement block is an offline error
-    r = sc.scaling(root, records[0], truth=truth, draws=10, seed=0)
+    r = sc.scaling(records[0], root / "cache", truth=truth, draws=10, seed=0)
     assert r["n_models"] == len(models) and r["n_pairs"] == len(models) * (len(models) - 1) // 2
     assert r["n_queries"] == record["config"]["n_queries"]
     assert -1.0 <= r["full"]["rho"] <= 1.0

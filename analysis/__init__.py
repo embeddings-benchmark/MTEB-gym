@@ -1,4 +1,4 @@
-"""Offline analyses over a gym output folder; each module is a script with importable functions.
+"""Offline analyses over a run's records and its cache; each module is a script with importable functions.
 
 scaling      ranking agreement as queries, pairs and models are subsampled from a record
 query_stats  descriptive statistics of a run's synthetic queries next to the corpus's own

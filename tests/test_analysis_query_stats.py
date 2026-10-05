@@ -1,5 +1,5 @@
-"""Tests for analysis.query_stats: hand-built strings and a toy run folder (no mteb, no network), plus the
-mock run under $ANALYSIS_FIXTURES end to end when that variable is set."""
+"""Tests for analysis.query_stats: hand-built strings and a toy record and cache (no mteb, no network), plus
+the mock run under $ANALYSIS_FIXTURES (results/<task>/<record>.json and cache/) end to end when that is set."""
 
 import json
 import os
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from analysis import query_stats as qs
-from mteb_gym import reliability as rel
+from mteb_gym.run import cache_files
 
 FIXTURES = os.environ.get("ANALYSIS_FIXTURES")
 MODELS = ["m/a", "m/b"]
@@ -106,20 +106,18 @@ def test_load_texts_rows_and_refusals(tmp_path):
     assert qs.load_texts(p, "docs") == {"o1": "What is ${topic}?"}  # only queries are checked for templates
 
 
-# ----------------------------------------------------------------------------- a toy run folder
+# ----------------------------------------------------------------------------- a toy record and cache
 def write_verdicts(path: Path, a: str, b: str, qids: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    rows = [{"qid": q, "query": q, "model_a": a, "model_b": b, "score_a": 1.0} for q in qids]
-    if path.suffix == ".jsonl":
-        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    else:
-        path.write_text(json.dumps(rows))
+    rows = [{"qid": q, "query": q, "model_a": a, "model_b": b, "score_a": 1.0, "parsed_ok": [True, True]} for q in qids]
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
 def write_run(
     root: Path, queries: list[dict], n_generated: int | None, arm: str = "synthetic", models: list[str] = MODELS
 ) -> Path:
-    """A record plus its queries, prediction and verdict files; the first pair is stored the other way round."""
+    """A record at root/results/<task>/ and its queries, prediction and verdict files in root/cache, at the
+    paths run.cache_files names."""
     config = {
         "arm": arm,
         "query_set": "corpus-gen-abc",
@@ -127,6 +125,7 @@ def write_run(
         "generator_model": "gen-y",
         "judge_system": "You compare two retrieval systems.",
         "top_k": 10,
+        "doc_chars": 300,
         "n_queries": 3,
         "n_queries_generated": n_generated,
         "gen_filter": True,
@@ -143,19 +142,18 @@ def write_run(
         "diagnostics": {},
         "ratings": [{"model": m, "rating": 1000.0, "ci_low": 990.0, "ci_high": 1010.0} for m in models],
     }
-    qf = qs.queries_file(root, record)
-    qf.parent.mkdir(parents=True)
-    qf.write_text(json.dumps({"n_generated": n_generated, "queries": queries}))
+    files = cache_files(record, root / "cache")
+    for qf in files["queries"]:  # none for the original arm
+        qf.parent.mkdir(parents=True)
+        qf.write_text(json.dumps({"n_generated": n_generated, "queries": queries}))
     qids = [q["qid"] for q in queries]
-    for m in models:
-        p = rel.prediction_file(root, record, m)
+    for p in files["predictions"]:
         p.parent.mkdir(parents=True)
         p.write_text(json.dumps({"default": {"test": {q: {"d1": 1.0} for q in qids}}}))
-    for i, a in enumerate(models):
-        for b in models[i + 1 :]:
-            first, second = (b, a) if (a, b) == (models[0], models[1]) else (a, b)  # first pair reversed
-            write_verdicts(rel.verdict_file(root, record, first, second), first, second, qids)
-    path = root / "records" / "ToyRetrieval__judge-x__gen-y__q3-s0-abcd1234.json"
+    pairs = [(a, b) for i, a in enumerate(models) for b in models[i + 1 :]]
+    for (a, b), p in zip(pairs, files["verdicts"]):
+        write_verdicts(p, a, b, qids)
+    path = root / "results" / "ToyRetrieval" / "ToyRetrieval__judge-x__gen-y__q3-s0-abcd1234.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(record))
     return path
@@ -181,7 +179,7 @@ TOY_DOCS = {
 
 def test_toy_run_known_answers(tmp_path):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5)
-    s = qs.query_stats(tmp_path, path, docs=TOY_DOCS)["synthetic"]
+    s = qs.query_stats(path, tmp_path / "cache", docs=TOY_DOCS)["synthetic"]
     # 8 + 7 + 4 words; q0 and q2 are questions
     assert s["count"] == 3 and s["median_words"] == 7
     assert s["mean_words"] == pytest.approx(19 / 3) and s["question_share"] == pytest.approx(2 / 3)
@@ -200,36 +198,31 @@ def test_coverage_partial_pair_missing_files_and_jsonl(tmp_path):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5, models=models)
     record = json.loads(path.read_text())
     qids = [q["qid"] for q in TOY_QUERIES]
-    # (a, c): the run stopped early, only the .jsonl stream exists and it lacks q2
-    ac = rel.verdict_file(tmp_path, record, "m/a", "m/c")
-    ac.unlink()
-    write_verdicts(ac.with_suffix(".jsonl"), "m/a", "m/c", qids[:2])
-    # (b, c): never judged; m/c: never predicted
-    rel.verdict_file(tmp_path, record, "m/b", "m/c").unlink()
-    rel.prediction_file(tmp_path, record, "m/c").unlink()
-    cov = qs.query_stats(tmp_path, path)["synthetic"]["coverage"]
+    files = cache_files(record, tmp_path / "cache")
+    _, ac, bc = files["verdicts"]  # (a, b), (a, c), (b, c)
+    write_verdicts(ac, "m/a", "m/c", qids[:2])  # (a, c): the run stopped early, before q2
+    bc.unlink()  # (b, c): never judged
+    files["predictions"][2].unlink()  # m/c: never predicted
+    cov = qs.query_stats(path, tmp_path / "cache")["synthetic"]["coverage"]
     assert (cov["n_models"], cov["n_pairs_expected"], cov["n_pairs_found"]) == (3, 3, 2)
     assert (cov["n_qids_predicted"], cov["n_kept_not_predicted"]) == (3, 0)  # the other two models cover them
     assert (cov["n_qids_judged"], cov["n_kept_not_judged"]) == (3, 0)  # the union hides the gap
     assert cov["n_kept_not_judged_in_some_pair"] == 1  # this does not
-    assert cov["missing_files"] == [
-        str(rel.prediction_file(tmp_path, record, "m/c")),
-        str(rel.verdict_file(tmp_path, record, "m/b", "m/c")),
-    ]
+    assert cov["missing_files"] == [str(files["predictions"][2]), str(bc)]
 
 
 def test_stale_queries_file_is_refused(tmp_path):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5)
-    qf = qs.queries_file(tmp_path, json.loads(path.read_text()))
+    qf = qs.queries_file(json.loads(path.read_text()), tmp_path / "cache")
     qf.write_text(json.dumps({"n_generated": 9, "queries": TOY_QUERIES}))
     with pytest.raises(ValueError, match="rewritten after the run"):
-        qs.query_stats(tmp_path, path)
+        qs.query_stats(path, tmp_path / "cache")
 
 
 def test_toy_run_without_docs_and_with_original(tmp_path):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5)
     original = {"o1": "Is p53 a tumor suppressor?", "o2": "cadherin function"}
-    stats = qs.query_stats(tmp_path, path, original_queries=original)
+    stats = qs.query_stats(path, tmp_path / "cache", original_queries=original)
     assert stats["docs_given"] is False
     assert stats["synthetic"]["copied_word_share"]["mean_per_query"] is None  # null, not 0
     assert stats["original"]["count"] == 2 and stats["original"]["question_share"] == 0.5
@@ -242,44 +235,50 @@ def test_toy_run_without_docs_and_with_original(tmp_path):
 def test_toy_run_refuses_other_arms_and_templates(tmp_path):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5, arm="original")
     with pytest.raises(ValueError, match="synthetic-arm"):
-        qs.query_stats(tmp_path, path)
+        qs.query_stats(path, tmp_path / "cache")
     bad = [dict(TOY_QUERIES[0], text="What is ${topic}?")]
     path = write_run(tmp_path / "bad", bad, n_generated=1)
     with pytest.raises(ValueError, match="template-looking"):
-        qs.query_stats(tmp_path / "bad", path)
+        qs.query_stats(path, tmp_path / "bad" / "cache")
 
 
-def test_main_writes_json_and_markdown(tmp_path, capsys):
+def test_main_writes_json_and_markdown(tmp_path, capsys, monkeypatch):
     path = write_run(tmp_path, TOY_QUERIES, n_generated=5)
     docs = tmp_path / "docs.json"
     docs.write_text(json.dumps(TOY_DOCS))
     out = tmp_path / "stats" / "query_stats.json"
-    qs.main(["--output-folder", str(tmp_path), "--record", str(path), "--docs", str(docs), "--out", str(out)])
+    qs.main(["--record", str(path), "--cache-folder", str(tmp_path / "cache"), "--docs", str(docs), "--out", str(out)])
     stats = json.loads(out.read_text())
     assert stats["synthetic"]["copied_word_share"]["pooled"] == pytest.approx(8 / 11)
     assert out.with_suffix(".md").read_text().startswith("| metric | synthetic (gen-y) | original |")
     assert "not given" in capsys.readouterr().out
+    monkeypatch.setenv("MTEB_GYM_CACHE", str(tmp_path / "cache"))  # the default cache folder
+    qs.main(["--record", str(path), "--docs", str(docs), "--out", str(out)])
+    assert json.loads(out.read_text())["synthetic"] == stats["synthetic"]
 
 
 # ----------------------------------------------------------------------------- the mock run
 def _fixture_record() -> tuple[Path, Path]:
+    """(the cache folder, the synthetic-arm record) of the mock run under $ANALYSIS_FIXTURES."""
     root = Path(FIXTURES)
-    for p in sorted(root.glob("records/*.json")):
+    for p in sorted(root.glob("results/*/*.json")):
         if json.loads(p.read_text())["config"].get("arm") == "synthetic":
-            return root, p
-    raise AssertionError(f"no synthetic-arm record under {root}")
+            return root / "cache", p
+    raise AssertionError(f"no synthetic-arm record under {root / 'results'}")
 
 
 @pytest.mark.skipif(not FIXTURES, reason="ANALYSIS_FIXTURES not set")
 def test_fixture_without_docs():
-    root, record = _fixture_record()
-    stats = qs.query_stats(root, record)
+    cache, record = _fixture_record()
+    config = json.loads(record.read_text())["config"]
+    kept, generated = config["n_queries"], config["n_queries_generated"]  # the mock generator's counts
+    stats = qs.query_stats(record, cache)
     s = stats["synthetic"]
     assert stats["task_name"] == "NanoSciFactRetrieval"
-    assert s["count"] == 10 and s["filter"]["n_generated"] == 16
-    assert (s["filter"]["n_dropped"], s["filter"]["drop_rate"]) == (6, 0.375)
+    assert s["count"] == kept and s["filter"]["n_generated"] == generated > kept
+    assert (s["filter"]["n_dropped"], s["filter"]["drop_rate"]) == (generated - kept, (generated - kept) / generated)
     assert s["copied_word_share"]["mean_per_query"] is None
-    assert s["quality"]["n_unscored"] == 0 and sum(s["quality"]["counts"].values()) == 10
+    assert s["quality"]["n_unscored"] == 0 and sum(s["quality"]["counts"].values()) == kept
     cov = s["coverage"]
     assert (cov["n_models"], cov["n_pairs_expected"], cov["n_pairs_found"]) == (3, 3, 3)
     assert cov["missing_files"] == []
@@ -289,23 +288,23 @@ def test_fixture_without_docs():
 
 @pytest.mark.skipif(not FIXTURES, reason="ANALYSIS_FIXTURES not set")
 def test_fixture_with_docs(tmp_path):
-    root, record = _fixture_record()
-    queries = json.loads(qs.queries_file(root, json.loads(record.read_text())).read_text())["queries"]
+    cache, record = _fixture_record()
+    queries = json.loads(qs.queries_file(json.loads(record.read_text()), cache).read_text())["queries"]
     docs: dict[str, str] = {}
     for q in queries:  # every seed document carries its query's text, so every content word is copied
         for d in q["seed_doc_ids"]:
             docs[d] = docs.get(d, "") + " " + q["text"]
-    stats = qs.query_stats(root, record, docs=docs)
+    stats = qs.query_stats(record, cache, docs=docs)
     share = stats["synthetic"]["copied_word_share"]
-    assert share["n_scored"] == 10 and share["n_missing_seed_docs"] == 0
+    assert share["n_scored"] == len(queries) and share["n_missing_seed_docs"] == 0
     assert share["mean_per_query"] == 1.0 and share["pooled"] == 1.0
     gone = queries[0]["seed_doc_ids"][0]
     affected = sum(gone in q["seed_doc_ids"] for q in queries)
-    partial = qs.query_stats(root, record, docs={d: t for d, t in docs.items() if d != gone})["synthetic"]
+    partial = qs.query_stats(record, cache, docs={d: t for d, t in docs.items() if d != gone})["synthetic"]
     assert partial["copied_word_share"]["n_missing_seed_docs"] == affected >= 1
-    assert partial["copied_word_share"]["n_scored"] == 10 - affected
+    assert partial["copied_word_share"]["n_scored"] == len(queries) - affected
     out = tmp_path / "q.json"
     docs_path = tmp_path / "docs.json"
     docs_path.write_text(json.dumps(docs))
-    qs.main(["--output-folder", str(root), "--record", str(record), "--docs", str(docs_path), "--out", str(out)])
+    qs.main(["--record", str(record), "--cache-folder", str(cache), "--docs", str(docs_path), "--out", str(out)])
     assert json.loads(out.read_text())["docs_given"] is True

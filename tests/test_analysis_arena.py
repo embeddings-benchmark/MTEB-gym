@@ -1,5 +1,6 @@
 """Tests for analysis.arena: hand-built arena rows through the mock judge, a kappa case worked by hand, then
-battles built from the mock fixtures under ANALYSIS_FIXTURES when that variable is set. No mteb, no network."""
+battles built from the mock run under ANALYSIS_FIXTURES (results/<task>/<record>.json and cache/) when that
+variable is set. No mteb, no network."""
 
 import itertools
 import json
@@ -11,6 +12,8 @@ import pytest
 from analysis import arena
 from mteb_gym import reliability as rel
 from mteb_gym.llm import MockLLM
+from mteb_gym.retrieval import slug
+from mteb_gym.run import cache_files
 
 FIXTURES = os.environ.get("ANALYSIS_FIXTURES")
 
@@ -209,26 +212,23 @@ def test_main_dry_run(tmp_path, capsys):
         arena.main(["--battles", str(battles), "--judge-model", "mock", "--out", str(out), "--limit", "0"])
 
 
-def fixture_battles(out: Path, record: dict) -> tuple[list[dict], list[dict]]:
+def fixture_battles(cache: Path, record: dict) -> tuple[list[dict], list[dict]]:
     """Battles from a record's own pairwise verdicts: the query and the top-k document ids of each side (no corpus
     text offline, so the id stands in for the text), voted the way the record's judge scored the pair. The second
     list re-uses the record's scores as verdicts, so kappa() against these votes must come out at 1."""
     c = record["config"]
+    files = cache_files(record, cache)
+    hits = {m: json.loads(p.read_text())["default"]["test"] for m, p in zip(c["models"], files["predictions"])}
     battles, verdicts = [], []
-    for a, b in itertools.combinations(c["models"], 2):
-        path = rel.verdict_file(out, record, a, b)
-        if not path.exists():  # the run ordered the pair the other way round
-            a, b = b, a
-            path = rel.verdict_file(out, record, a, b)
-        hits = {m: json.loads(rel.prediction_file(out, record, m).read_text())["default"]["test"] for m in (a, b)}
-        for v in json.loads(path.read_text()):
-            docs = {m: sorted(hits[m][v["qid"]], key=hits[m][v["qid"]].get, reverse=True)[: c["top_k"]] for m in (a, b)}
-            bid = f"{v['qid']}__{rel.slug(a)}__{rel.slug(b)}"
-            vote = rel.judge_winner(float(v["score_a"]))
+    for (a, b), path in zip(itertools.combinations(c["models"], 2), files["verdicts"]):
+        for v in rel.load_verdicts(path).values():
+            docs = {m: sorted(hits[m][v.qid], key=hits[m][v.qid].get, reverse=True)[: c["top_k"]] for m in (a, b)}
+            bid = f"{v.qid}__{slug(a)}__{slug(b)}"
+            vote = rel.judge_winner(v.score_a)
             battles.append(
                 {
                     "battle_id": bid,
-                    "query": v["query"],
+                    "query": v.query,
                     "model_a": a,
                     "model_b": b,
                     "docs_a": [f"doc {d}" for d in docs[a]],
@@ -236,16 +236,16 @@ def fixture_battles(out: Path, record: dict) -> tuple[list[dict], list[dict]]:
                     "vote": vote,
                 }
             )
-            verdicts.append({"battle_id": bid, "model_a": a, "model_b": b, "vote": vote, "score_a": v["score_a"]})
+            verdicts.append({"battle_id": bid, "model_a": a, "model_b": b, "vote": vote, "score_a": v.score_a})
     return battles, verdicts
 
 
 @pytest.mark.skipif(not FIXTURES, reason="ANALYSIS_FIXTURES not set")
 def test_fixture_record_as_battles():
-    out = Path(FIXTURES)
-    records = [json.loads(p.read_text()) for p in sorted((out / "records").glob("*.json"))]
+    root = Path(FIXTURES)
+    records = [json.loads(p.read_text()) for p in sorted((root / "results").glob("*/*.json"))]
     record = next(r for r in records if r["config"]["arm"] == "original")
-    battles, own = fixture_battles(out, record)
+    battles, own = fixture_battles(root / "cache", record)
     n_pairs = len(record["config"]["models"]) * (len(record["config"]["models"]) - 1) // 2
     assert len(battles) == n_pairs * record["config"]["n_queries"]
     assert all(len(b["docs_a"]) <= record["config"]["top_k"] and b["docs_a"] for b in battles)
