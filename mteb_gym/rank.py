@@ -1,5 +1,6 @@
 """
-Rating from pairwise verdicts. Fractional scores (judge.py) fold into a win
+Ratings. Pointwise (rate_pointwise): nDCG@k over graded pools, x100, with the ideal ranking taken from the pool's
+best grades. Pairwise (rate): from pairwise verdicts. Fractional scores (judge.py) fold into a win
 matrix W (W[i][j] = fractional wins of i over j), fit with Bradley-Terry via the
 MM algorithm (Hunter 2004) and reported on an Elo-style scale, as Chatbot Arena
 and the MTEB Arena do. Confidence intervals bootstrap over queries.
@@ -131,6 +132,59 @@ def rate(verdicts, bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRatin
             int(games[i]),
         )
         for i in range(len(names))
+    ]
+    return sorted(out, key=lambda m: m.rating, reverse=True)
+
+
+def ndcg_per_query(doc_ids: list[str], grades: dict[str, float], pool_grades: list[float], k: int) -> float:
+    """nDCG@k with linear gain (as trec_eval) and the ideal ranking from the k best grades in the query's pool."""
+    ideal = sorted(pool_grades, reverse=True)[:k]
+    idcg = sum(g / np.log2(i + 2) for i, g in enumerate(ideal))
+    dcg = sum(grades.get(d, 0.0) / np.log2(i + 2) for i, d in enumerate(doc_ids[:k]))
+    return float(dcg / idcg) if idcg > 0 else 0.0
+
+
+def rate_pointwise(
+    grades: dict[tuple[str, str], float],
+    ranked: dict[str, list],
+    k: int = 10,
+    bootstrap: int = BOOTSTRAP,
+    seed: int = 0,
+) -> list[ModelRating]:
+    """`grades` maps (qid, doc_id) to a 0-5 grade, `ranked` each model to its Ranked lists. A model's rating is its
+    mean nDCG@k x 100; the CI bootstraps over queries. wins/losses/ties count queries on which the model's nDCG is
+    above, below or equal to the mean of the other models."""
+    names = sorted(ranked)
+    qids = sorted({r.qid for lists in ranked.values() for r in lists})
+    by_q = {q: {} for q in qids}
+    for (q, d), g in grades.items():
+        if q in by_q:
+            by_q[q][d] = g
+    table = np.zeros((len(qids), len(names)))  # nDCG per query and model
+    for j, m in enumerate(names):
+        lists = {r.qid: r for r in ranked[m]}
+        for i, q in enumerate(qids):
+            r = lists.get(q)
+            table[i, j] = ndcg_per_query(r.doc_ids, by_q[q], list(by_q[q].values()), k) if r else 0.0
+    point = 100 * table.mean(axis=0)
+    lo = hi = point
+    if bootstrap and len(qids) > 1:
+        rng = np.random.default_rng(seed)
+        boot = np.vstack([100 * table[rng.integers(0, len(qids), len(qids))].mean(axis=0) for _ in range(bootstrap)])
+        lo, hi = np.percentile(boot, 2.5, axis=0), np.percentile(boot, 97.5, axis=0)
+    others = (table.sum(axis=1, keepdims=True) - table) / max(1, len(names) - 1)
+    out = [
+        ModelRating(
+            names[j],
+            float(point[j]),
+            float(lo[j]),
+            float(hi[j]),
+            float((table[:, j] > others[:, j]).sum()),
+            float((table[:, j] < others[:, j]).sum()),
+            float((table[:, j] == others[:, j]).sum()),
+            len(qids),
+        )
+        for j in range(len(names))
     ]
     return sorted(out, key=lambda m: m.rating, reverse=True)
 

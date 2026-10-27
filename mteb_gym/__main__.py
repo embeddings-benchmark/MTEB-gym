@@ -1,4 +1,6 @@
-"""mteb-gym run --corpus NFCorpus --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 --judge gpt-4.1
+"""mteb-gym run --corpus NFCorpus --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 --judge autotrust/JEV-27B \
+    --judge-url http://localhost:8000 --judge-decision --generator gpt-4.1-mini
+mteb-gym run --corpus NFCorpus --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 --judge gpt-4.1
 mteb-gym predict --corpus NFCorpus --model BAAI/bge-base-en-v1.5 --generator gpt-4.1-mini"""
 
 from __future__ import annotations
@@ -7,7 +9,7 @@ import argparse
 import json
 import logging
 
-from . import LLM, MockLLM, predict, run, submit
+from . import LLM, DecisionModel, MockLLM, predict, run, submit
 
 
 def client(model: str, base_url: str | None, extra_body: str | None = None):
@@ -55,6 +57,18 @@ def main(argv=None) -> None:
         "--judge", required=True, help="judge model id on an OpenAI-compatible endpoint ('mock' for a dry run)"
     )
     run_ap.add_argument("--judge-url", default=None, help="base url for the judge endpoint")
+    run_ap.add_argument(
+        "--judge-decision",
+        action="store_true",
+        help="the judge is a decision model with a /v1/decide endpoint (e.g. autotrust/JEV-27B); it grades each document",
+    )
+    run_ap.add_argument(
+        "--judging",
+        default="auto",
+        choices=["auto", "pointwise", "pairwise"],
+        help="pointwise: grade every pooled document, rank by nDCG; pairwise: compare lists (default: pointwise for a "
+        "decision model, pairwise for an LLM)",
+    )
     run_ap.add_argument(
         "--judge-extra-body",
         default=None,
@@ -107,10 +121,17 @@ def main(argv=None) -> None:
         print(f"predictions -> {predict(args.corpus, args.model, **shared)}")
         return
 
+    if args.judge_decision:
+        if not args.judge_url:
+            ap.error("--judge-decision needs --judge-url")
+        judge = DecisionModel(args.judge, base_url=args.judge_url)
+    else:
+        judge = client(args.judge, args.judge_url, args.judge_extra_body)
     result = run(
         args.corpus,
         args.models,
-        client(args.judge, args.judge_url, args.judge_extra_body),
+        judge,
+        judging=args.judging,
         top_k=args.top_k,
         doc_chars=args.doc_chars,
         pairs_per_query=args.pairs_per_query,
@@ -118,7 +139,7 @@ def main(argv=None) -> None:
         **shared,
     )
     print(result.leaderboard)
-    bias = result.record["diagnostics"]["a_first_rate"]
+    bias = result.record["diagnostics"].get("a_first_rate")
     if bias is not None:
         print(f"\nposition bias (a_first_rate): {bias:.2f}  (0.50 = unbiased)")
     print(f"record -> {result.path}")
