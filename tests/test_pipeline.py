@@ -326,6 +326,73 @@ def test_verdict_cache():
     assert pair_subset(10, ["q0"], None, 0) is None and pair_subset(3, ["q0"], 5, 0) is None
 
 
+class Deciding:
+    """A decision-only client: decide() and no chat(), as DecisionModel; grades by word overlap with the query."""
+
+    model = "mock-decider"
+
+    def __init__(self):
+        self.calls = 0
+
+    def decide(self, kind, state, question, options=None):
+        self.calls += 1
+        query = state.split("Query: ", 1)[1].split("\n", 1)[0].lower().split()
+        doc = state.split("Document: ", 1)[1].lower()
+        g = min(5, sum(w in doc for w in query))
+        return {str(i): 1.0 if i == g else 0.0 for i in range(6)}
+
+
+def test_rate_pointwise():
+    from mteb_gym.rank import ndcg_per_query, rate_pointwise
+
+    assert ndcg_per_query(["d1", "d2"], {"d1": 5, "d2": 0}, [5, 0], k=2) == 1.0
+    assert ndcg_per_query(["d2", "d1"], {"d1": 5, "d2": 0}, [5, 0], k=2) < 1.0
+    qids = [f"q{i}" for i in range(20)]
+    good = [Ranked(q, q, ["rel", "x"], ["", ""]) for q in qids]
+    bad = [Ranked(q, q, ["x", "rel"], ["", ""]) for q in qids]
+    grades = {(q, "rel"): 5.0 for q in qids} | {(q, "x"): 0.0 for q in qids}
+    top, second = rate_pointwise(grades, {"good": good, "bad": bad}, k=2)
+    assert top.name == "good" and top.rating == 100.0 and second.rating < 100.0
+    assert top.ci_low <= top.rating <= top.ci_high and top.n == 20 and top.wins == 20
+
+
+def test_pointwise_judge_and_grade_cache():
+    from mteb_gym.judge import PointwiseJudge, is_decision_model
+    from mteb_gym.run import grades_key, judge_pool_cached
+
+    decider = Deciding()
+    assert is_decision_model(decider) and not is_decision_model(MockLLM())
+    queries = [Query(f"q{i}", f"statins heart {i}", []) for i in range(3)]
+    docs = {
+        f"D{s}{j}": f"statins and heart disease, part {j}" if s == "a" else f"gardening tip {j}"
+        for s in "ab"
+        for j in range(4)
+    }
+    ranked = {"a": fake_ranked("a", queries, k=4), "b": fake_ranked("b", queries, k=4)}
+    with tempfile.TemporaryDirectory() as tmp:
+        judge = PointwiseJudge(decider, workers=2)
+        key = grades_key(judge, "qs")
+        grades = judge_pool_cached(Path(tmp), judge, ranked, docs, key, "qs")
+        assert len(grades) == 24 and decider.calls == 24  # pool: 2 models x 4 docs x 3 queries, each graded once
+        assert all(g.parsed_ok and g.probabilities for g in grades)
+        assert min(g.grade for g in grades if g.doc_id.startswith("Da")) > max(
+            g.grade for g in grades if g.doc_id.startswith("Db")
+        )
+        (jsonl,) = Path(tmp).glob("*.jsonl")
+        assert json.loads(jsonl.read_text().splitlines()[0])["query_set"] == "qs"
+        # a rerun grades nothing; an added model grades only the documents it brings
+        decider.calls = 0
+        judge_pool_cached(Path(tmp), judge, ranked, docs, key, "qs")
+        assert decider.calls == 0
+        ranked["c"] = [Ranked(r.qid, r.query, ["Da0", "Dnew"], ["", ""]) for r in ranked["a"]]
+        docs["Dnew"] = "statins"
+        assert len(judge_pool_cached(Path(tmp), judge, ranked, docs, key, "qs")) == 27 and decider.calls == 3
+        # a chat LLM grades with a JSON answer
+        chat = PointwiseJudge(MockLLM(), workers=1)
+        assert not chat.decision and chat.system != judge.system
+        assert grades_key(chat, "qs") != key
+
+
 def test_record():
     assert results.config_hash({"a": 1, "b": [2, 3]}) == results.config_hash({"b": [2, 3], "a": 1})
     verdicts = [
@@ -563,6 +630,40 @@ def test_end_to_end_local_corpus():
         assert own.record["labels"] is None and all(r["ndcg_at_10"] is None for r in own.record["ratings"])
         df = load_results(Path(tmp) / "out").to_dataframe()
         assert len(df) == 4 and set(df["arm"]) == {"synthetic", "own"}
+
+
+def test_end_to_end_pointwise_decision_judge():
+    pytest.importorskip("mteb")
+    pytest.importorskip("bm25s")
+    pytest.importorskip("sentence_transformers")
+    from mteb_gym import run
+
+    with tempfile.TemporaryDirectory() as tmp:
+        docs = Path(tmp) / "docs"
+        docs.mkdir()
+        for did, text in make_corpus(12).items():
+            (docs / f"{did}.txt").write_text(text)
+        decider = Deciding()
+        kw = dict(
+            models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+            judge=decider,
+            queries=["statins and heart disease", "fiber and the gut", "vitamin D for asthma"],
+            output_folder=Path(tmp) / "out",
+            cache_folder=Path(tmp) / "cache",
+            workers=1,
+        )
+        with pytest.raises(ValueError, match="cannot write queries"):
+            run(docs, **{**kw, "queries": "synthetic"})
+        rec = run(docs, **kw).record
+        assert rec["config"]["judging"] == "pointwise" and rec["config"]["pairs_per_query"] is None
+        assert len(rec["ratings"]) == 2 and all(0 <= r["rating"] <= 100 for r in rec["ratings"])
+        assert rec["diagnostics"]["n_grades"] == decider.calls > 0
+        files = cache_files(rec, Path(tmp) / "cache")
+        assert len(files["verdicts"]) == 1 and files["verdicts"][0].exists()  # the grades file
+        decider.calls = 0
+        assert run(docs, **kw).record == rec and decider.calls == 0  # cached
+        with pytest.raises(ValueError, match="judges pointwise"):
+            run(docs, judging="pairwise", **kw)
 
 
 def test_predict_then_run_reuses_the_predictions():

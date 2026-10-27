@@ -1,11 +1,11 @@
 # MTEB Gym
 
-Label-free, LLM-judged evaluation of embedding models.
+Label-free evaluation of embedding models.
 
-Give it a corpus, either an MTEB task or your own documents. It generates queries for the corpus, or takes yours. Every model retrieves for the same queries, an LLM judge compares the retrieved lists pairwise, and Bradley–Terry turns the comparisons into a ranking. No relevance labels are needed.
+Give it a corpus, either an MTEB task or your own documents. It generates queries for the corpus, or takes yours. Every model retrieves for the same queries, a judge grades each retrieved document once, and every model is ranked by nDCG over those grades. No relevance labels are needed.
 
 ```text
-corpus → queries → retrieval → pairwise LLM judging → ranking
+corpus → queries → retrieval → judging → ranking
 ```
 
 Started in the [MTEB Gym discussion](https://github.com/embeddings-benchmark/mteb/discussions/3068).
@@ -20,27 +20,18 @@ pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym"
 
 ## Quickstart
 
-The mock LLM needs no API key or GPU. It answers deterministically, so this checks the install and does not rank models. The first run downloads a small dataset and MiniLM; allow a few minutes.
+The recommended judge is a decision model, [JEV-27B](https://huggingface.co/AutoTrust/jev-27b) (open weights, Apache-2.0). It answers "how relevant is this document to this query?" with a calibrated grade from 0 to 5 in one forward pass, without generating text. On one H100 it grades a task's few thousand retrieved documents in about five minutes. Over 12 MTEB tasks its rankings agree with the human labels about as well as a 27B LLM comparing the models' lists pairwise (Spearman 0.81 vs 0.83 on the tasks' own queries, 0.80 vs 0.78 on generated ones), at about 1/50 of the compute.
 
-```python
-import mteb_gym as gym
-
-result = gym.run(
-    corpus="NanoNFCorpusRetrieval",
-    models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
-    generator=gym.MockLLM(),
-    judge=gym.MockLLM(),
-    n_queries=20,
-    output_folder="results",
-)
-print(result.leaderboard)
-```
-
-With `OPENAI_API_KEY` set, `gym.LLM(model)` uses OpenAI. Any other OpenAI-compatible provider, such as OpenRouter, Together, Anthropic or Gemini, works with its URL in `OPENAI_BASE_URL` and its key.
+Serve it with vLLM:
 
 ```bash
-export OPENAI_API_KEY=<your_api_key>
+hf download autotrust/JEV-27B --local-dir JEV-27B
+python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8000 \
+    --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-27B/adapter_vllm \
+    --logprobs-mode processed_logprobs --max-model-len 32768
 ```
+
+A decision model cannot write queries, so the generator is an LLM:
 
 ```python
 import mteb_gym as gym
@@ -49,7 +40,7 @@ result = gym.run(
     corpus="NFCorpus",
     models=["mteb/baseline-bm25s", "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2"],
     generator=gym.LLM("gpt-5.4-mini"),  # writes the queries
-    judge=gym.LLM("gpt-5.4"),  # compares what the models retrieve
+    judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8000"),  # grades what the models retrieve
     n_queries=100,
     output_folder="results",
 )
@@ -59,51 +50,59 @@ print(result.leaderboard)
 Or from the command line:
 
 ```bash
-mteb-gym --corpus NFCorpus \
+mteb-gym run --corpus NFCorpus \
     --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 intfloat/e5-base-v2 \
-    --generator gpt-5.4-mini --judge gpt-5.4
+    --generator gpt-5.4-mini --judge autotrust/JEV-27B --judge-url http://localhost:8000 --judge-decision
 ```
 
-## Open models
+Any server with the same `/v1/decide` endpoint works as `gym.DecisionModel`.
 
-`gym.LLM` talks to any OpenAI-compatible server. To use an open model, serve it:
+## LLM judges
 
-```bash
-vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000
-```
-
-Then point the client at it. Like the openai SDK, it reads these two variables, or takes them as the `base_url` and `api_key` arguments. A local server accepts any key.
-
-```bash
-export OPENAI_BASE_URL=http://localhost:8000/v1
-export OPENAI_API_KEY=EMPTY
-```
+An LLM judge compares two models' lists pairwise instead, and Bradley–Terry turns the comparisons into a ranking. With `OPENAI_API_KEY` set, `gym.LLM(model)` uses OpenAI. Any other OpenAI-compatible provider, such as OpenRouter, Together, Anthropic or Gemini, works with its URL in `OPENAI_BASE_URL` and its key.
 
 ```python
-import mteb_gym as gym
-
-llm = gym.LLM("Qwen/Qwen3-4B-Instruct-2507")
-
 result = gym.run(
     corpus="NFCorpus",
     models=["mteb/baseline-bm25s", "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2"],
-    generator=llm,
-    judge=llm,
+    generator=gym.LLM("gpt-5.4-mini"),
+    judge=gym.LLM("gpt-5.4"),  # compares the models' lists pairwise
     n_queries=100,
     output_folder="results",
 )
-print(result.leaderboard)
+```
+
+`gym.LLM` talks to any OpenAI-compatible server, so open models work too:
+
+```bash
+vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000
+export OPENAI_BASE_URL=http://localhost:8000/v1
+export OPENAI_API_KEY=EMPTY  # a local server accepts any key
 ```
 
 SGLang and `transformers serve` expose the same endpoint. A judge and a generator from different model families are preferred.
 
+To check the install without an API key or GPU, use the mock LLM. It answers deterministically, so it does not rank models. The first run downloads a small dataset and MiniLM; allow a few minutes.
+
+```python
+result = gym.run(
+    corpus="NanoNFCorpusRetrieval",
+    models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+    generator=gym.MockLLM(),
+    judge=gym.MockLLM(),
+    n_queries=20,
+    output_folder="results",
+)
+```
+
 ## Usage
 
-`gym.run` takes the corpus, the models and the two LLMs, as in the Quickstart. The other options, with their defaults:
+`gym.run` takes the corpus, the models, the judge and the generator, as in the Quickstart. The other options, with their defaults:
 
 - `queries="synthetic"`: `"original"` uses `n_queries` of the task's own queries, drawn with `seed`; your own go in as a `.jsonl` with `id` and `text`, a `.txt` with one per line, or a list of strings.
 - `task_description=None`: one sentence on what counts as a good result, given to the generator and the judge. By default an MTEB task's own criterion, or plain relevance if it has none. Every run logs the one it used.
-- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query, `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
+- `judging="auto"`: `"pointwise"` grades every retrieved document once and ranks by nDCG@`top_k`; `"pairwise"` compares the models' lists. Auto is pointwise for a decision model and pairwise for an LLM.
+- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query (pairwise), `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
 
 `help(gym.run)` documents each one.
 
@@ -137,7 +136,8 @@ Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](ht
 ~/.cache/mteb_gym/
 ├── queries/NFCorpus/<query set>.json          # generated queries, their quality scores, and the generator's settings
 ├── predictions/NFCorpus/<model>@<revision>/<query set>/   # mteb's prediction file per model
-└── verdicts/NFCorpus/<pair>-<key>.jsonl       # one line per comparison
+├── grades/NFCorpus/<judge>-<key>.jsonl        # pointwise: one line per graded (query, document)
+└── verdicts/NFCorpus/<pair>-<key>.jsonl       # pairwise: one line per comparison
 ```
 
 - **Reruns.** The same configuration reuses all of it; adding a model judges only the new pairs.
@@ -161,7 +161,7 @@ A run's record goes to the [results repository](https://github.com/embeddings-be
 | What | Where | Path |
 |---|---|---|
 | the record: ratings, configuration, LLM settings | GitHub, `embeddings-benchmark/gym-results` | `results/<task>/<record>.json` |
-| the query set, each model's predictions, the verdicts | Hugging Face, `mteb/gym-runs` | `queries/…`, `predictions/…`, `verdicts/…`, as in the cache |
+| the query set, each model's predictions, the grades or verdicts | Hugging Face, `mteb/gym-runs` | `queries/…`, `predictions/…`, `grades/…` or `verdicts/…`, as in the cache |
 
 ```bash
 gh auth login && hf auth login
@@ -195,14 +195,14 @@ gym.load_results("results/").agreement()  # every run under a directory
 3. **Retrieve**  
    Every model retrieves through `mteb.evaluate`.
 
-4. **Judge pairwise**  
-   The judge compares two models' top-k lists per query, in both orders. A split decision counts half.
+4. **Judge**  
+   Pointwise (a decision model): every document in a query's pool, the union of the models' top-k, is graded 0–5 once. A new model only adds the documents it brings. Pairwise (an LLM): the judge compares two models' top-k lists per query, in both orders; a split decision counts half.
 
 5. **Rank models**  
-   Bradley–Terry over all pairwise outcomes; confidence intervals from resampling queries.
+   Pointwise: each model's nDCG@k over the grades, ×100. Pairwise: Bradley–Terry over all pairwise outcomes. Either way, confidence intervals come from resampling queries.
 
 6. **Record the run**  
-   The record goes to the results folder; queries, predictions and verdicts to the cache, so a rerun repeats only what changed.
+   The record goes to the results folder; queries, predictions and grades or verdicts to the cache, so a rerun repeats only what changed.
 
 ## Development
 

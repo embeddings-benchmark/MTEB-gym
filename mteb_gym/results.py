@@ -90,6 +90,7 @@ def build_record(
     llms: dict | None = None,
     ndcg: dict[str, float] | None = None,
     labels: str | None = None,
+    diagnostics: dict | None = None,
 ) -> dict:
     dataset = getattr(corpus.metadata, "dataset", None) or {}
     return {
@@ -104,7 +105,7 @@ def build_record(
         "config": experiment,
         "llms": llms,  # what the judge and generator actually ran with; informational, not identity
         "labels": labels,  # what ndcg_at_10 below is scored against: "seed_documents", "dataset", or None
-        "diagnostics": verdict_diagnostics(verdicts),
+        "diagnostics": diagnostics if diagnostics is not None else verdict_diagnostics(verdicts),
         "ratings": [
             {
                 "model": m.name,
