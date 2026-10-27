@@ -38,7 +38,9 @@ _GEN_BODY = (
 )
 
 _GEN_USER = "Documents:\n{documents}\n\nWrite one query as JSON."
-_GEN_DOC_CHARS = 600  # characters of each document shown to the generator
+# characters of each document shown to the generator: the whole document in practice. A short preview makes every
+# query answerable from the part a 512-token model also reads, which hides what long-context models do better
+_GEN_DOC_CHARS = 16000
 
 _FILTER_SYSTEM = (
     "You rate the quality of search queries for benchmarking retrieval models. "
