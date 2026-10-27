@@ -20,9 +20,7 @@ pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym"
 
 ## Quickstart
 
-The recommended judge is a decision model: a model that answers a fixed question with fixed answers and a calibrated probability for each, in one forward pass and without generating text. Here the question is "how relevant is this document to this query?" and the answers are grades 0 to 5. Every retrieved document is graded once and each model is ranked by nDCG over the grades, as TREC-style pooled evaluation does with human assessors.
-
-It was validated with [JEV-27B](https://huggingface.co/AutoTrust/jev-27b) (open weights, Apache-2.0). On one H100 it grades a task's few thousand retrieved documents in about five minutes. Over 12 MTEB tasks its rankings agree with the human labels about as well as a 27B LLM comparing the models' lists pairwise (Spearman 0.81 vs 0.83 on the tasks' own queries, 0.80 vs 0.78 on generated ones), at about 1/50 of the compute. Other decision models (JEV-9B, Clef, pplx-decider, Strands Decider) are untested.
+The judge is a decision model: it answers "how relevant is this document to this query?" with a grade from 0 to 5 in one forward pass, without generating text. Every retrieved document is graded once, and each model is ranked by nDCG over the grades. The example uses [JEV-27B](https://huggingface.co/AutoTrust/jev-27b), which grades a task's retrieved documents in a few minutes on one GPU.
 
 Serve it with vLLM:
 
