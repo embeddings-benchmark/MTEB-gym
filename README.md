@@ -20,7 +20,9 @@ pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym"
 
 ## Quickstart
 
-The recommended judge is a decision model, [JEV-27B](https://huggingface.co/AutoTrust/jev-27b) (open weights, Apache-2.0). It answers "how relevant is this document to this query?" with a calibrated grade from 0 to 5 in one forward pass, without generating text. On one H100 it grades a task's few thousand retrieved documents in about five minutes. Over 12 MTEB tasks its rankings agree with the human labels about as well as a 27B LLM comparing the models' lists pairwise (Spearman 0.81 vs 0.83 on the tasks' own queries, 0.80 vs 0.78 on generated ones), at about 1/50 of the compute.
+The recommended judge is a decision model: a model that answers a fixed question with fixed answers and a calibrated probability for each, in one forward pass and without generating text. Here the question is "how relevant is this document to this query?" and the answers are grades 0 to 5. Every retrieved document is graded once and each model is ranked by nDCG over the grades, as TREC-style pooled evaluation does with human assessors.
+
+It was validated with [JEV-27B](https://huggingface.co/AutoTrust/jev-27b) (open weights, Apache-2.0). On one H100 it grades a task's few thousand retrieved documents in about five minutes. Over 12 MTEB tasks its rankings agree with the human labels about as well as a 27B LLM comparing the models' lists pairwise (Spearman 0.81 vs 0.83 on the tasks' own queries, 0.80 vs 0.78 on generated ones), at about 1/50 of the compute. Other decision models (JEV-9B, Clef, pplx-decider, Strands Decider) are untested.
 
 Serve it with vLLM:
 
@@ -55,7 +57,7 @@ mteb-gym run --corpus NFCorpus \
     --generator gpt-5.4-mini --judge autotrust/JEV-27B --judge-url http://localhost:8000 --judge-decision
 ```
 
-Any server with the same `/v1/decide` endpoint works as `gym.DecisionModel`.
+`gym.DecisionModel` talks to a server with JEV-27B's `/v1/decide` endpoint. Any other decision model works as the judge through an object with one method, `decide(kind, state, question, options=None)`, that returns a probability for each option; for `kind="score"` the options are the grades `"0"` to `"5"`.
 
 ## LLM judges
 
