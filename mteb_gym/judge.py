@@ -33,6 +33,12 @@ _TAIL = (
 )
 
 
+def timed_out(e: Exception) -> bool:
+    """A judge call that ran out of time, e.g. a reasoning model generating without end. One such call should cost one
+    comparison or grade, not the run."""
+    return isinstance(e, TimeoutError) or type(e).__name__ in ("APITimeoutError", "ReadTimeout", "TimeoutException")
+
+
 def task_prompt(prompt) -> str | None:
     """The query prompt from mteb TaskMetadata.prompt, which is a string or a dict of them."""
     return (prompt if isinstance(prompt, str) else (prompt or {}).get("query") or "").strip() or None
@@ -108,7 +114,13 @@ class Judge:
                 f"System B results:\n{_format(second, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        return _parse(self.client.chat(msg))
+        try:
+            return _parse(self.client.chat(msg))
+        except Exception as e:  # noqa: BLE001
+            if not timed_out(e):
+                raise
+            logger.warning("judge call timed out after its retries; the comparison is left out")
+            return "tie", "", False
 
     def judge_pair(self, ra: Ranked, rb: Ranked, model_a: str, model_b: str) -> Verdict:
         """Both presentation orders, averaged to a fractional score for A. Identical
@@ -262,7 +274,13 @@ class PointwiseJudge:
                 "content": f"Query: {query}\n\nDocument:\n{_cut(document, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        out = extract_json(self.client.chat(msg))
+        try:
+            out = extract_json(self.client.chat(msg))
+        except Exception as e:  # noqa: BLE001
+            if not timed_out(e):
+                raise
+            logger.warning("judge call timed out after its retries; the grade is left out")
+            return Grade(qid, doc_id, 0.0, parsed_ok=False)
         try:
             g = float(out["grade"])
             ok = 0 <= g <= 5

@@ -189,6 +189,29 @@ def test_judge():
     assert results.verdict_diagnostics(verdicts)["parse_failure_rate"] == 1.0
 
 
+def test_a_timed_out_judge_call_is_left_out():
+    class APITimeoutError(Exception):  # what the openai SDK raises once its retries are spent
+        pass
+
+    class Slow(MockLLM):
+        def chat(self, messages, **kw):
+            raise APITimeoutError("Request timed out.")
+
+    queries = [Query("q0", "query", ["D0"])]
+    v = Judge(Slow(), workers=1).judge_pair(fake_ranked("a", queries)[0], fake_ranked("b", queries)[0], "a", "b")
+    assert v.parsed_ok == [False, False]
+    from mteb_gym.judge import PointwiseJudge
+
+    assert not PointwiseJudge(Slow(), workers=1).grade("q0", "query", "D0", "text").parsed_ok
+
+    class Broken(MockLLM):
+        def chat(self, messages, **kw):
+            raise ValueError("bad key")
+
+    with pytest.raises(ValueError):
+        Judge(Broken(), workers=1).judge_pair(fake_ranked("a", queries)[0], fake_ranked("b", queries)[0], "a", "b")
+
+
 def test_failed_comparisons_are_left_out():
     """A comparison with an unparseable order counts for nothing, rather than as a tie."""
     won = [Verdict(f"q{i}", "q", "a", "b", 1.0, parsed_ok=[True, True]) for i in range(6)]
