@@ -1,0 +1,2208 @@
+{
+ "meta": {
+  "generated": "2026-08-06",
+  "experiment_commit": "b5327e9",
+  "judge": "qwen3.6-27b"
+ },
+ "corpora": {
+  "AILACasedocs": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1147.1,
+     "ci_low": 1108.1,
+     "ci_high": 1189.4
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1117.9,
+     "ci_low": 1072.0,
+     "ci_high": 1162.6
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1102.9,
+     "ci_low": 1054.6,
+     "ci_high": 1149.7
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1093.8,
+     "ci_low": 1040.9,
+     "ci_high": 1149.5
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1091.5,
+     "ci_low": 1047.3,
+     "ci_high": 1136.3
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1068.4,
+     "ci_low": 1017.5,
+     "ci_high": 1118.0
+    },
+    {
+     "model": "bm25",
+     "rating": 1068.2,
+     "ci_low": 1015.9,
+     "ci_high": 1120.9
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1051.8,
+     "ci_low": 1008.8,
+     "ci_high": 1096.0
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1048.8,
+     "ci_low": 1002.1,
+     "ci_high": 1096.6
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1045.7,
+     "ci_low": 1000.5,
+     "ci_high": 1090.4
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1017.5,
+     "ci_low": 970.6,
+     "ci_high": 1061.7
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1014.6,
+     "ci_low": 978.1,
+     "ci_high": 1055.2
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 996.0,
+     "ci_low": 948.9,
+     "ci_high": 1036.0
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 988.6,
+     "ci_low": 944.0,
+     "ci_high": 1028.8
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 981.5,
+     "ci_low": 937.0,
+     "ci_high": 1027.3
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 976.6,
+     "ci_low": 931.9,
+     "ci_high": 1017.8
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 975.5,
+     "ci_low": 923.5,
+     "ci_high": 1027.2
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 968.1,
+     "ci_low": 919.6,
+     "ci_high": 1020.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 956.7,
+     "ci_low": 916.1,
+     "ci_high": 1002.1
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 952.6,
+     "ci_low": 913.7,
+     "ci_high": 988.5
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 872.4,
+     "ci_low": 825.0,
+     "ci_high": 917.5
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 769.4,
+     "ci_low": 704.6,
+     "ci_high": 823.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 694.5,
+     "ci_low": 625.3,
+     "ci_high": 747.9
+    }
+   ]
+  },
+  "BrightBiologyRetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1119.4,
+     "ci_low": 1077.8,
+     "ci_high": 1166.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1110.1,
+     "ci_low": 1067.2,
+     "ci_high": 1156.7
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1084.9,
+     "ci_low": 1046.2,
+     "ci_high": 1127.5
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1075.0,
+     "ci_low": 1025.2,
+     "ci_high": 1127.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 1059.6,
+     "ci_low": 1026.8,
+     "ci_high": 1093.3
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1050.5,
+     "ci_low": 1013.1,
+     "ci_high": 1086.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1048.6,
+     "ci_low": 1004.1,
+     "ci_high": 1093.7
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1045.4,
+     "ci_low": 1009.4,
+     "ci_high": 1081.7
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1043.8,
+     "ci_low": 1006.2,
+     "ci_high": 1083.3
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1021.9,
+     "ci_low": 989.8,
+     "ci_high": 1053.4
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1019.1,
+     "ci_low": 965.9,
+     "ci_high": 1071.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1008.8,
+     "ci_low": 964.7,
+     "ci_high": 1048.8
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1001.1,
+     "ci_low": 962.1,
+     "ci_high": 1046.0
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1000.2,
+     "ci_low": 960.2,
+     "ci_high": 1039.0
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 973.3,
+     "ci_low": 929.3,
+     "ci_high": 1015.3
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 963.6,
+     "ci_low": 925.2,
+     "ci_high": 1004.5
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 962.4,
+     "ci_low": 925.3,
+     "ci_high": 999.3
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 961.1,
+     "ci_low": 915.5,
+     "ci_high": 1005.1
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 960.9,
+     "ci_low": 916.3,
+     "ci_high": 1005.1
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 957.7,
+     "ci_low": 904.0,
+     "ci_high": 1011.0
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 875.8,
+     "ci_low": 823.2,
+     "ci_high": 925.9
+    },
+    {
+     "model": "bm25",
+     "rating": 859.8,
+     "ci_low": 800.7,
+     "ci_high": 915.8
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 797.1,
+     "ci_low": 718.0,
+     "ci_high": 865.5
+    }
+   ]
+  },
+  "BrightLeetcodeRetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1151.2,
+     "ci_low": 1108.6,
+     "ci_high": 1199.0
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1140.6,
+     "ci_low": 1096.2,
+     "ci_high": 1189.1
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1130.3,
+     "ci_low": 1085.4,
+     "ci_high": 1179.7
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1126.0,
+     "ci_low": 1077.3,
+     "ci_high": 1179.7
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1084.6,
+     "ci_low": 1027.5,
+     "ci_high": 1146.9
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1084.3,
+     "ci_low": 1043.3,
+     "ci_high": 1129.5
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1083.1,
+     "ci_low": 1051.1,
+     "ci_high": 1116.7
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1076.3,
+     "ci_low": 1033.8,
+     "ci_high": 1118.4
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1072.4,
+     "ci_low": 1029.2,
+     "ci_high": 1117.6
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1072.2,
+     "ci_low": 1031.9,
+     "ci_high": 1116.3
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1059.5,
+     "ci_low": 1006.8,
+     "ci_high": 1113.9
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1025.0,
+     "ci_low": 981.2,
+     "ci_high": 1070.4
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 990.4,
+     "ci_low": 941.7,
+     "ci_high": 1037.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 987.4,
+     "ci_low": 944.1,
+     "ci_high": 1029.5
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 963.8,
+     "ci_low": 920.4,
+     "ci_high": 1006.3
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 961.8,
+     "ci_low": 917.6,
+     "ci_high": 1007.7
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 919.0,
+     "ci_low": 870.7,
+     "ci_high": 960.6
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 915.2,
+     "ci_low": 868.3,
+     "ci_high": 954.3
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 909.9,
+     "ci_low": 862.0,
+     "ci_high": 959.9
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 908.6,
+     "ci_low": 860.5,
+     "ci_high": 957.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 882.7,
+     "ci_low": 826.4,
+     "ci_high": 933.5
+    },
+    {
+     "model": "bm25",
+     "rating": 744.9,
+     "ci_low": 667.1,
+     "ci_high": 810.6
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 710.8,
+     "ci_low": 607.5,
+     "ci_high": 796.4
+    }
+   ]
+  },
+  "BrightSustainableLivingRetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1182.8,
+     "ci_low": 1138.7,
+     "ci_high": 1233.0
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1164.4,
+     "ci_low": 1122.7,
+     "ci_high": 1212.2
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1150.2,
+     "ci_low": 1106.9,
+     "ci_high": 1199.3
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1119.5,
+     "ci_low": 1078.8,
+     "ci_high": 1164.8
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1093.5,
+     "ci_low": 1053.0,
+     "ci_high": 1135.9
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1089.7,
+     "ci_low": 1047.4,
+     "ci_high": 1135.1
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1089.4,
+     "ci_low": 1045.8,
+     "ci_high": 1135.2
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1064.4,
+     "ci_low": 1017.3,
+     "ci_high": 1111.2
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1022.8,
+     "ci_low": 979.6,
+     "ci_high": 1064.2
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 1019.9,
+     "ci_low": 979.8,
+     "ci_high": 1063.6
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1008.7,
+     "ci_low": 968.0,
+     "ci_high": 1051.2
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 995.3,
+     "ci_low": 953.2,
+     "ci_high": 1045.3
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 969.9,
+     "ci_low": 920.3,
+     "ci_high": 1022.2
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 955.2,
+     "ci_low": 911.4,
+     "ci_high": 996.6
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 939.6,
+     "ci_low": 902.3,
+     "ci_high": 975.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 936.7,
+     "ci_low": 877.2,
+     "ci_high": 994.7
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 936.7,
+     "ci_low": 888.1,
+     "ci_high": 983.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 931.7,
+     "ci_low": 884.6,
+     "ci_high": 973.7
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 924.6,
+     "ci_low": 867.0,
+     "ci_high": 977.3
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 915.4,
+     "ci_low": 869.9,
+     "ci_high": 959.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 882.7,
+     "ci_low": 821.0,
+     "ci_high": 935.1
+    },
+    {
+     "model": "bm25",
+     "rating": 814.9,
+     "ci_low": 737.0,
+     "ci_high": 880.9
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 791.9,
+     "ci_low": 704.5,
+     "ci_high": 863.8
+    }
+   ]
+  },
+  "BrightTheoremQATheoremsRetrieval": {
+   "n_queries": 36,
+   "models": [
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1191.2,
+     "ci_low": 1144.9,
+     "ci_high": 1241.5
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1160.4,
+     "ci_low": 1112.8,
+     "ci_high": 1216.8
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1117.6,
+     "ci_low": 1069.3,
+     "ci_high": 1173.4
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1113.7,
+     "ci_low": 1056.4,
+     "ci_high": 1177.6
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1069.4,
+     "ci_low": 1025.8,
+     "ci_high": 1117.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1057.4,
+     "ci_low": 1002.4,
+     "ci_high": 1116.7
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1054.6,
+     "ci_low": 1008.0,
+     "ci_high": 1108.2
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1053.7,
+     "ci_low": 1000.8,
+     "ci_high": 1114.3
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1048.9,
+     "ci_low": 1000.8,
+     "ci_high": 1097.0
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1032.4,
+     "ci_low": 969.1,
+     "ci_high": 1092.4
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1019.9,
+     "ci_low": 967.7,
+     "ci_high": 1081.0
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1015.3,
+     "ci_low": 968.3,
+     "ci_high": 1065.9
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1010.5,
+     "ci_low": 968.2,
+     "ci_high": 1052.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 1004.8,
+     "ci_low": 956.0,
+     "ci_high": 1048.0
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 1001.9,
+     "ci_low": 960.4,
+     "ci_high": 1044.6
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1000.9,
+     "ci_low": 951.4,
+     "ci_high": 1053.5
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 990.6,
+     "ci_low": 941.6,
+     "ci_high": 1036.5
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 962.7,
+     "ci_low": 904.7,
+     "ci_high": 1019.6
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 944.7,
+     "ci_low": 886.8,
+     "ci_high": 1004.2
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 903.5,
+     "ci_low": 830.5,
+     "ci_high": 976.1
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 896.5,
+     "ci_low": 845.5,
+     "ci_high": 943.1
+    },
+    {
+     "model": "bm25",
+     "rating": 803.1,
+     "ci_low": 709.2,
+     "ci_high": 878.8
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 546.5,
+     "ci_low": 409.6,
+     "ci_high": 638.8
+    }
+   ]
+  },
+  "ClimateFEVER": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1068.3,
+     "ci_low": 1045.8,
+     "ci_high": 1092.9
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1059.5,
+     "ci_low": 1033.1,
+     "ci_high": 1086.1
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1059.4,
+     "ci_low": 1041.6,
+     "ci_high": 1082.6
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1059.2,
+     "ci_low": 1037.2,
+     "ci_high": 1084.4
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1052.3,
+     "ci_low": 1031.1,
+     "ci_high": 1076.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1037.1,
+     "ci_low": 1012.9,
+     "ci_high": 1062.2
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1035.5,
+     "ci_low": 1015.4,
+     "ci_high": 1056.3
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1029.6,
+     "ci_low": 1009.1,
+     "ci_high": 1052.3
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 1028.8,
+     "ci_low": 1005.1,
+     "ci_high": 1055.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1023.1,
+     "ci_low": 1002.6,
+     "ci_high": 1044.2
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1019.2,
+     "ci_low": 989.7,
+     "ci_high": 1044.1
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1009.8,
+     "ci_low": 982.1,
+     "ci_high": 1037.2
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1007.0,
+     "ci_low": 982.9,
+     "ci_high": 1031.6
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1004.2,
+     "ci_low": 982.1,
+     "ci_high": 1026.1
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1004.1,
+     "ci_low": 984.7,
+     "ci_high": 1022.2
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 990.0,
+     "ci_low": 964.7,
+     "ci_high": 1012.9
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 983.5,
+     "ci_low": 950.4,
+     "ci_high": 1014.5
+    },
+    {
+     "model": "bm25",
+     "rating": 980.7,
+     "ci_low": 947.6,
+     "ci_high": 1013.6
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 955.5,
+     "ci_low": 927.2,
+     "ci_high": 979.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 941.1,
+     "ci_low": 899.3,
+     "ci_high": 977.4
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 935.2,
+     "ci_low": 896.8,
+     "ci_high": 969.5
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 913.9,
+     "ci_low": 871.1,
+     "ci_high": 950.0
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 803.1,
+     "ci_low": 731.4,
+     "ci_high": 856.8
+    }
+   ]
+  },
+  "DBPedia": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1096.2,
+     "ci_low": 1067.4,
+     "ci_high": 1127.5
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1080.2,
+     "ci_low": 1052.4,
+     "ci_high": 1108.9
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1078.1,
+     "ci_low": 1050.8,
+     "ci_high": 1107.3
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1076.9,
+     "ci_low": 1051.9,
+     "ci_high": 1104.5
+    },
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1067.7,
+     "ci_low": 1039.9,
+     "ci_high": 1097.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1063.9,
+     "ci_low": 1040.9,
+     "ci_high": 1090.2
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1043.3,
+     "ci_low": 1016.9,
+     "ci_high": 1068.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1041.4,
+     "ci_low": 1014.1,
+     "ci_high": 1071.2
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1034.3,
+     "ci_low": 994.2,
+     "ci_high": 1073.1
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1030.9,
+     "ci_low": 1014.1,
+     "ci_high": 1048.3
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1025.3,
+     "ci_low": 1002.7,
+     "ci_high": 1049.2
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1019.4,
+     "ci_low": 990.8,
+     "ci_high": 1048.4
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1006.7,
+     "ci_low": 982.4,
+     "ci_high": 1034.4
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 988.9,
+     "ci_low": 962.3,
+     "ci_high": 1015.6
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 980.9,
+     "ci_low": 947.7,
+     "ci_high": 1009.9
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 978.9,
+     "ci_low": 955.7,
+     "ci_high": 1003.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 975.9,
+     "ci_low": 942.0,
+     "ci_high": 1010.2
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 965.4,
+     "ci_low": 926.4,
+     "ci_high": 1003.3
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 962.6,
+     "ci_low": 933.9,
+     "ci_high": 990.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 962.2,
+     "ci_low": 934.0,
+     "ci_high": 987.6
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 945.3,
+     "ci_low": 911.2,
+     "ci_high": 976.3
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 929.8,
+     "ci_low": 897.4,
+     "ci_high": 962.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 911.1,
+     "ci_low": 872.7,
+     "ci_high": 943.0
+    },
+    {
+     "model": "bm25",
+     "rating": 894.8,
+     "ci_low": 850.9,
+     "ci_high": 934.2
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 840.1,
+     "ci_low": 786.9,
+     "ci_high": 888.1
+    }
+   ]
+  },
+  "FinQARetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1072.5,
+     "ci_low": 1040.3,
+     "ci_high": 1108.4
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1067.6,
+     "ci_low": 1037.2,
+     "ci_high": 1099.7
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1067.5,
+     "ci_low": 1033.5,
+     "ci_high": 1104.3
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1063.7,
+     "ci_low": 1035.0,
+     "ci_high": 1098.5
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1057.1,
+     "ci_low": 1028.4,
+     "ci_high": 1091.0
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1056.2,
+     "ci_low": 1017.2,
+     "ci_high": 1099.3
+    },
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1051.5,
+     "ci_low": 1018.1,
+     "ci_high": 1086.3
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1042.8,
+     "ci_low": 1003.7,
+     "ci_high": 1082.8
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1036.0,
+     "ci_low": 1008.0,
+     "ci_high": 1065.4
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1031.1,
+     "ci_low": 994.4,
+     "ci_high": 1066.2
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1020.6,
+     "ci_low": 988.7,
+     "ci_high": 1049.8
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1017.6,
+     "ci_low": 981.6,
+     "ci_high": 1053.9
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1014.2,
+     "ci_low": 982.2,
+     "ci_high": 1047.6
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1003.7,
+     "ci_low": 964.9,
+     "ci_high": 1042.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 999.7,
+     "ci_low": 967.6,
+     "ci_high": 1033.2
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 995.5,
+     "ci_low": 965.2,
+     "ci_high": 1024.2
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 981.6,
+     "ci_low": 941.3,
+     "ci_high": 1021.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 981.1,
+     "ci_low": 952.2,
+     "ci_high": 1009.9
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 979.8,
+     "ci_low": 948.8,
+     "ci_high": 1012.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 977.1,
+     "ci_low": 938.1,
+     "ci_high": 1017.7
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 964.3,
+     "ci_low": 913.5,
+     "ci_high": 1007.1
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 962.3,
+     "ci_low": 923.4,
+     "ci_high": 1002.1
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 942.8,
+     "ci_low": 903.1,
+     "ci_high": 983.2
+    },
+    {
+     "model": "bm25",
+     "rating": 928.6,
+     "ci_low": 884.5,
+     "ci_high": 969.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 685.0,
+     "ci_low": 589.7,
+     "ci_high": 754.5
+    }
+   ]
+  },
+  "FiQA2018": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1236.8,
+     "ci_low": 1177.2,
+     "ci_high": 1303.3
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1169.0,
+     "ci_low": 1125.0,
+     "ci_high": 1215.4
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1155.7,
+     "ci_low": 1109.9,
+     "ci_high": 1208.4
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1139.5,
+     "ci_low": 1098.7,
+     "ci_high": 1180.6
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1139.1,
+     "ci_low": 1086.5,
+     "ci_high": 1203.5
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1130.9,
+     "ci_low": 1078.5,
+     "ci_high": 1185.0
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1066.6,
+     "ci_low": 1026.6,
+     "ci_high": 1106.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1051.8,
+     "ci_low": 1004.0,
+     "ci_high": 1100.7
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1040.6,
+     "ci_low": 992.7,
+     "ci_high": 1090.1
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1040.3,
+     "ci_low": 995.6,
+     "ci_high": 1086.3
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1034.9,
+     "ci_low": 992.2,
+     "ci_high": 1081.5
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1022.2,
+     "ci_low": 978.2,
+     "ci_high": 1067.6
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 1018.9,
+     "ci_low": 976.1,
+     "ci_high": 1059.7
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1014.1,
+     "ci_low": 973.5,
+     "ci_high": 1054.0
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1007.7,
+     "ci_low": 950.1,
+     "ci_high": 1066.7
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 998.0,
+     "ci_low": 952.1,
+     "ci_high": 1044.0
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 982.2,
+     "ci_low": 939.0,
+     "ci_high": 1032.0
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 970.4,
+     "ci_low": 925.2,
+     "ci_high": 1011.2
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 968.9,
+     "ci_low": 920.3,
+     "ci_high": 1017.7
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 963.2,
+     "ci_low": 917.0,
+     "ci_high": 1011.4
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 910.9,
+     "ci_low": 854.6,
+     "ci_high": 963.3
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 904.1,
+     "ci_low": 848.6,
+     "ci_high": 958.2
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 818.1,
+     "ci_low": 763.2,
+     "ci_high": 865.1
+    },
+    {
+     "model": "bm25",
+     "rating": 702.3,
+     "ci_low": 634.0,
+     "ci_high": 758.9
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 513.9,
+     "ci_low": 382.2,
+     "ci_high": 599.7
+    }
+   ]
+  },
+  "HumanEvalRetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1162.3,
+     "ci_low": 1127.4,
+     "ci_high": 1205.2
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1160.1,
+     "ci_low": 1128.1,
+     "ci_high": 1195.0
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1151.0,
+     "ci_low": 1111.6,
+     "ci_high": 1192.0
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1127.9,
+     "ci_low": 1087.7,
+     "ci_high": 1176.7
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1122.5,
+     "ci_low": 1086.1,
+     "ci_high": 1164.4
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1104.0,
+     "ci_low": 1070.1,
+     "ci_high": 1138.1
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1095.0,
+     "ci_low": 1059.3,
+     "ci_high": 1132.2
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1093.9,
+     "ci_low": 1053.9,
+     "ci_high": 1136.1
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1033.8,
+     "ci_low": 999.6,
+     "ci_high": 1069.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 1026.9,
+     "ci_low": 981.3,
+     "ci_high": 1072.4
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1016.5,
+     "ci_low": 985.7,
+     "ci_high": 1050.2
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 988.4,
+     "ci_low": 953.2,
+     "ci_high": 1022.8
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 984.5,
+     "ci_low": 950.1,
+     "ci_high": 1019.7
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 955.7,
+     "ci_low": 918.5,
+     "ci_high": 986.8
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 951.3,
+     "ci_low": 910.1,
+     "ci_high": 986.5
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 944.4,
+     "ci_low": 907.9,
+     "ci_high": 976.5
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 925.7,
+     "ci_low": 884.9,
+     "ci_high": 965.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 924.4,
+     "ci_low": 880.3,
+     "ci_high": 961.5
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 924.1,
+     "ci_low": 880.3,
+     "ci_high": 964.0
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 923.5,
+     "ci_low": 884.5,
+     "ci_high": 958.0
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 921.1,
+     "ci_low": 886.3,
+     "ci_high": 956.4
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 911.9,
+     "ci_low": 876.2,
+     "ci_high": 948.5
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 899.1,
+     "ci_low": 857.7,
+     "ci_high": 937.4
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 871.2,
+     "ci_low": 831.6,
+     "ci_high": 906.1
+    },
+    {
+     "model": "bm25",
+     "rating": 780.9,
+     "ci_low": 720.1,
+     "ci_high": 830.8
+    }
+   ]
+  },
+  "NFCorpus": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1165.3,
+     "ci_low": 1130.8,
+     "ci_high": 1207.1
+    },
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1159.0,
+     "ci_low": 1106.1,
+     "ci_high": 1215.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1128.0,
+     "ci_low": 1090.2,
+     "ci_high": 1174.1
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1124.0,
+     "ci_low": 1089.6,
+     "ci_high": 1164.7
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1105.5,
+     "ci_low": 1065.4,
+     "ci_high": 1150.3
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1096.7,
+     "ci_low": 1058.6,
+     "ci_high": 1138.9
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1085.6,
+     "ci_low": 1049.7,
+     "ci_high": 1119.7
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1050.1,
+     "ci_low": 1010.3,
+     "ci_high": 1089.9
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1047.0,
+     "ci_low": 996.4,
+     "ci_high": 1097.8
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1046.4,
+     "ci_low": 1001.3,
+     "ci_high": 1094.4
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1031.9,
+     "ci_low": 990.7,
+     "ci_high": 1071.7
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1031.9,
+     "ci_low": 987.7,
+     "ci_high": 1075.3
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 1012.5,
+     "ci_low": 966.9,
+     "ci_high": 1060.0
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1012.3,
+     "ci_low": 970.2,
+     "ci_high": 1058.5
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1008.0,
+     "ci_low": 967.6,
+     "ci_high": 1046.4
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1004.5,
+     "ci_low": 964.6,
+     "ci_high": 1045.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 991.8,
+     "ci_low": 952.7,
+     "ci_high": 1030.1
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 982.4,
+     "ci_low": 942.5,
+     "ci_high": 1022.1
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 981.2,
+     "ci_low": 940.0,
+     "ci_high": 1017.4
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 980.7,
+     "ci_low": 946.3,
+     "ci_high": 1020.6
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 905.9,
+     "ci_low": 863.4,
+     "ci_high": 948.7
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 870.8,
+     "ci_low": 820.9,
+     "ci_high": 921.2
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 827.1,
+     "ci_low": 766.2,
+     "ci_high": 885.2
+    },
+    {
+     "model": "bm25",
+     "rating": 731.6,
+     "ci_low": 659.1,
+     "ci_high": 790.8
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 619.9,
+     "ci_low": 507.7,
+     "ci_high": 703.8
+    }
+   ]
+  },
+  "NQ": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1093.2,
+     "ci_low": 1064.6,
+     "ci_high": 1124.4
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1091.7,
+     "ci_low": 1068.4,
+     "ci_high": 1115.7
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1087.2,
+     "ci_low": 1065.7,
+     "ci_high": 1114.0
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1066.3,
+     "ci_low": 1043.1,
+     "ci_high": 1094.0
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1062.4,
+     "ci_low": 1037.0,
+     "ci_high": 1088.9
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1059.4,
+     "ci_low": 1038.4,
+     "ci_high": 1082.2
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 1040.8,
+     "ci_low": 1017.4,
+     "ci_high": 1066.7
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1032.7,
+     "ci_low": 1010.5,
+     "ci_high": 1054.7
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1023.0,
+     "ci_low": 996.3,
+     "ci_high": 1048.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1017.2,
+     "ci_low": 994.2,
+     "ci_high": 1040.3
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1012.9,
+     "ci_low": 985.4,
+     "ci_high": 1038.9
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 1011.7,
+     "ci_low": 987.3,
+     "ci_high": 1034.5
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1010.5,
+     "ci_low": 989.4,
+     "ci_high": 1030.5
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1009.4,
+     "ci_low": 990.2,
+     "ci_high": 1029.2
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 1006.0,
+     "ci_low": 975.2,
+     "ci_high": 1033.6
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 987.7,
+     "ci_low": 958.9,
+     "ci_high": 1015.1
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 986.8,
+     "ci_low": 960.4,
+     "ci_high": 1014.1
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 980.3,
+     "ci_low": 947.0,
+     "ci_high": 1010.6
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 956.2,
+     "ci_low": 925.3,
+     "ci_high": 986.7
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 948.2,
+     "ci_low": 912.8,
+     "ci_high": 984.1
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 941.9,
+     "ci_low": 910.8,
+     "ci_high": 970.3
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 929.8,
+     "ci_low": 891.7,
+     "ci_high": 966.0
+    },
+    {
+     "model": "bm25",
+     "rating": 853.3,
+     "ci_low": 805.6,
+     "ci_high": 899.6
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 791.5,
+     "ci_low": 734.1,
+     "ci_high": 836.9
+    }
+   ]
+  },
+  "QuoraRetrieval": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1108.9,
+     "ci_low": 1075.3,
+     "ci_high": 1145.8
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1102.6,
+     "ci_low": 1071.1,
+     "ci_high": 1135.8
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1101.2,
+     "ci_low": 1068.6,
+     "ci_high": 1139.5
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 1093.7,
+     "ci_low": 1055.6,
+     "ci_high": 1136.8
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1089.4,
+     "ci_low": 1055.6,
+     "ci_high": 1129.7
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1077.1,
+     "ci_low": 1038.9,
+     "ci_high": 1118.1
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1067.6,
+     "ci_low": 1027.5,
+     "ci_high": 1106.7
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1067.4,
+     "ci_low": 1029.1,
+     "ci_high": 1108.1
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1054.1,
+     "ci_low": 1016.7,
+     "ci_high": 1095.6
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 1045.7,
+     "ci_low": 1016.6,
+     "ci_high": 1078.9
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1040.3,
+     "ci_low": 1010.4,
+     "ci_high": 1075.3
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1038.2,
+     "ci_low": 1003.5,
+     "ci_high": 1074.5
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 1033.3,
+     "ci_low": 990.7,
+     "ci_high": 1076.8
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1018.8,
+     "ci_low": 983.3,
+     "ci_high": 1058.5
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 1014.2,
+     "ci_low": 987.6,
+     "ci_high": 1039.9
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1006.9,
+     "ci_low": 970.9,
+     "ci_high": 1044.6
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 1000.0,
+     "ci_low": 959.6,
+     "ci_high": 1038.2
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 999.8,
+     "ci_low": 964.9,
+     "ci_high": 1034.4
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 998.8,
+     "ci_low": 955.5,
+     "ci_high": 1041.9
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 957.9,
+     "ci_low": 922.8,
+     "ci_high": 990.8
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 954.0,
+     "ci_low": 918.3,
+     "ci_high": 987.5
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 938.8,
+     "ci_low": 887.7,
+     "ci_high": 980.5
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 900.2,
+     "ci_low": 849.1,
+     "ci_high": 939.1
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 699.0,
+     "ci_low": 602.0,
+     "ci_high": 776.8
+    },
+    {
+     "model": "bm25",
+     "rating": 592.0,
+     "ci_low": 501.8,
+     "ci_high": 662.0
+    }
+   ]
+  },
+  "SciFact": {
+   "n_queries": 50,
+   "models": [
+    {
+     "model": "Qwen/Qwen3-Embedding-8B",
+     "rating": 1168.8,
+     "ci_low": 1133.6,
+     "ci_high": 1209.9
+    },
+    {
+     "model": "Alibaba-NLP/gte-Qwen2-7B-instruct",
+     "rating": 1118.2,
+     "ci_low": 1079.0,
+     "ci_high": 1160.6
+    },
+    {
+     "model": "NovaSearch/stella_en_1.5B_v5",
+     "rating": 1112.9,
+     "ci_low": 1081.3,
+     "ci_high": 1149.3
+    },
+    {
+     "model": "thenlper/gte-large",
+     "rating": 1088.5,
+     "ci_low": 1058.2,
+     "ci_high": 1125.9
+    },
+    {
+     "model": "NovaSearch/stella_en_400M_v5",
+     "rating": 1086.2,
+     "ci_low": 1052.2,
+     "ci_high": 1122.1
+    },
+    {
+     "model": "infly/inf-retriever-v1",
+     "rating": 1071.1,
+     "ci_low": 1031.1,
+     "ci_high": 1111.4
+    },
+    {
+     "model": "Linq-AI-Research/Linq-Embed-Mistral",
+     "rating": 1069.2,
+     "ci_low": 1037.4,
+     "ci_high": 1106.6
+    },
+    {
+     "model": "mixedbread-ai/mxbai-embed-large-v1",
+     "rating": 1065.8,
+     "ci_low": 1035.1,
+     "ci_high": 1099.7
+    },
+    {
+     "model": "intfloat/multilingual-e5-large-instruct",
+     "rating": 1044.2,
+     "ci_low": 1004.8,
+     "ci_high": 1087.4
+    },
+    {
+     "model": "BAAI/bge-large-en-v1.5",
+     "rating": 1037.3,
+     "ci_low": 1006.8,
+     "ci_high": 1070.9
+    },
+    {
+     "model": "BAAI/bge-base-en-v1.5",
+     "rating": 1033.9,
+     "ci_low": 999.0,
+     "ci_high": 1071.2
+    },
+    {
+     "model": "thenlper/gte-small",
+     "rating": 1031.9,
+     "ci_low": 989.1,
+     "ci_high": 1074.0
+    },
+    {
+     "model": "Salesforce/SFR-Embedding-2_R",
+     "rating": 996.0,
+     "ci_low": 955.7,
+     "ci_high": 1033.6
+    },
+    {
+     "model": "Alibaba-NLP/gte-base-en-v1.5",
+     "rating": 993.3,
+     "ci_low": 960.1,
+     "ci_high": 1026.9
+    },
+    {
+     "model": "intfloat/e5-base-v2",
+     "rating": 991.5,
+     "ci_low": 952.8,
+     "ci_high": 1026.6
+    },
+    {
+     "model": "BAAI/bge-small-en-v1.5",
+     "rating": 990.3,
+     "ci_low": 953.9,
+     "ci_high": 1027.1
+    },
+    {
+     "model": "nomic-ai/nomic-embed-text-v1.5",
+     "rating": 985.4,
+     "ci_low": 950.7,
+     "ci_high": 1021.3
+    },
+    {
+     "model": "sentence-transformers/all-mpnet-base-v2",
+     "rating": 982.7,
+     "ci_low": 938.1,
+     "ci_high": 1024.2
+    },
+    {
+     "model": "Snowflake/snowflake-arctic-embed-l-v2.0",
+     "rating": 967.8,
+     "ci_low": 927.9,
+     "ci_high": 1009.4
+    },
+    {
+     "model": "Alibaba-NLP/gte-modernbert-base",
+     "rating": 956.2,
+     "ci_low": 912.8,
+     "ci_high": 994.7
+    },
+    {
+     "model": "jinaai/jina-embeddings-v3",
+     "rating": 943.8,
+     "ci_low": 902.3,
+     "ci_high": 984.9
+    },
+    {
+     "model": "sentence-transformers/all-MiniLM-L6-v2",
+     "rating": 943.5,
+     "ci_low": 901.5,
+     "ci_high": 980.3
+    },
+    {
+     "model": "intfloat/multilingual-e5-small",
+     "rating": 890.0,
+     "ci_low": 847.1,
+     "ci_high": 928.3
+    },
+    {
+     "model": "bm25",
+     "rating": 834.2,
+     "ci_low": 779.7,
+     "ci_high": 884.1
+    },
+    {
+     "model": "intfloat/e5-mistral-7b-instruct",
+     "rating": 597.5,
+     "ci_low": 478.6,
+     "ci_high": 667.7
+    }
+   ]
+  }
+ },
+ "reliability": {
+  "BrightLeetcodeRetrieval": {
+   "committed": 0.5716,
+   "kappa": 0.143,
+   "clear": 0.5705,
+   "n_models": 23,
+   "n_queries": 80
+  },
+  "NQ": {
+   "committed": 0.7024,
+   "kappa": 0.405,
+   "clear": 0.7307,
+   "n_models": 24,
+   "n_queries": 80
+  },
+  "QuoraRetrieval": {
+   "committed": 0.6669,
+   "kappa": 0.334,
+   "clear": 0.7087,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "BrightBiologyRetrieval": {
+   "committed": 0.8092,
+   "kappa": 0.618,
+   "clear": 0.8509,
+   "n_models": 23,
+   "n_queries": 80
+  },
+  "FinQARetrieval": {
+   "committed": 0.6124,
+   "kappa": 0.225,
+   "clear": 0.617,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "BrightSustainableLivingRetrieval": {
+   "committed": 0.7645,
+   "kappa": 0.529,
+   "clear": 0.7959,
+   "n_models": 23,
+   "n_queries": 80
+  },
+  "BrightTheoremQATheoremsRetrieval": {
+   "committed": 0.8523,
+   "kappa": 0.705,
+   "clear": 0.873,
+   "n_models": 23,
+   "n_queries": 76
+  },
+  "ClimateFEVER": {
+   "committed": 0.5288,
+   "kappa": 0.058,
+   "clear": 0.5346,
+   "n_models": 23,
+   "n_queries": 80
+  },
+  "HumanEvalRetrieval": {
+   "committed": 0.9754,
+   "kappa": 0.951,
+   "clear": 0.9811,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "DBPedia": {
+   "committed": 0.6588,
+   "kappa": 0.318,
+   "clear": 0.7385,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "AILACasedocs": {
+   "committed": 0.6995,
+   "kappa": 0.399,
+   "clear": 0.7264,
+   "n_models": 23,
+   "n_queries": 50
+  },
+  "NFCorpus": {
+   "committed": 0.7827,
+   "kappa": 0.565,
+   "clear": 0.8658,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "SciFact": {
+   "committed": 0.7952,
+   "kappa": 0.59,
+   "clear": 0.8219,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "ArguAna": {
+   "committed": 0.5756,
+   "kappa": 0.151,
+   "clear": 0.6138,
+   "n_models": 25,
+   "n_queries": 80
+  },
+  "FiQA2018": {
+   "committed": 0.7758,
+   "kappa": 0.552,
+   "clear": 0.8079,
+   "n_models": 25,
+   "n_queries": 80
+  }
+ }
+}
