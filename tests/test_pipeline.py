@@ -230,6 +230,39 @@ def test_correlate():
     assert agreement._tau_ap(a, a) == 1.0 and agreement._tau_ap(-a, a) == -1.0
 
 
+def test_correlate_ties_equal_wins():
+    from scipy.stats import kendalltau, spearmanr
+
+    def v(qid, a, b, score):
+        return Verdict(qid=qid, query="q", model_a=a, model_b=b, score_a=score)
+
+    def balanced(b_vs_c):
+        out = []
+        for i in range(10):
+            out += [v(f"q{i}", "top", m, 0.75) for m in ("b", "c", "bottom")]
+            out += [v(f"q{i}", "b", "c", b_vs_c), v(f"q{i}", "b", "bottom", 0.75), v(f"q{i}", "c", "bottom", 0.75)]
+        return out
+
+    truth = {"top": 4.0, "b": 3.0, "c": 2.0, "bottom": 1.0}
+    # b and c have exactly equal total wins: their fit differs only by the stopping tolerance
+    tied = {r.name: r.rating for r in rate(balanced(0.5), bootstrap=0)}
+    assert abs(tied["b"] - tied["c"]) < agreement.RATING_TIE_TOL
+    res = agreement.correlate(tied, truth, bootstrap=0)
+    assert res["spearman_rho"] == pytest.approx(spearmanr([4, 2.5, 2.5, 1], [4, 3, 2, 1])[0])
+    assert res["kendall_tau"] == pytest.approx(kendalltau([4, 2.5, 2.5, 1], [4, 3, 2, 1])[0])
+    # tau AP gives the tied pair half credit: (1 + 1.5 / 2 + 1) * 2 / 3 - 1
+    assert res["kendall_ap"] == pytest.approx(5.0 / 6.0)
+    assert res["gym_ranking"][0] == "top" and res["gym_ranking"][-1] == "bottom"
+    # b ahead of c: no tie, strict agreement with the truth order
+    untied = {r.name: r.rating for r in rate(balanced(0.75), bootstrap=0)}
+    res = agreement.correlate(untied, truth, bootstrap=0)
+    assert res["spearman_rho"] == 1.0 and res["kendall_tau"] == 1.0 and res["kendall_ap"] == 1.0
+    import numpy as np
+
+    spread = np.array([3.0, 1.0, 2.0, 1.0 + 1e-3])
+    assert np.array_equal(agreement._snap_ties(spread), spread)
+
+
 def test_instruction():
     assert task_prompt("Represent this biology post for searching relevant passages: ") == (
         "Represent this biology post for searching relevant passages:"
