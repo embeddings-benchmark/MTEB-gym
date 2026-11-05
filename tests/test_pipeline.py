@@ -190,12 +190,12 @@ def test_judge():
 
 
 def test_a_timed_out_judge_call_is_left_out():
-    class APITimeoutError(Exception):  # what the openai SDK raises once its retries are spent
-        pass
+    httpx = pytest.importorskip("httpx")
+    openai = pytest.importorskip("openai")
 
     class Slow(MockLLM):
         def chat(self, messages, **kw):
-            raise APITimeoutError("Request timed out.")
+            raise openai.APITimeoutError(request=httpx.Request("POST", "http://judge"))
 
     queries = [Query("q0", "query", ["D0"])]
     v = Judge(Slow(), workers=1).judge_pair(fake_ranked("a", queries)[0], fake_ranked("b", queries)[0], "a", "b")
