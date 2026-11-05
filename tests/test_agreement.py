@@ -2,6 +2,8 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from mteb_gym import Result, agreement, load_results
 
 
@@ -86,3 +88,44 @@ def test_official_scores_across_revisions():
     assert agreement.official_scores(both, "NFCorpus", [meta.name]) == {meta.name: (0.55, meta.revision)}
 
     assert agreement.official_scores(external_only, "SciFact", [meta.name]) == {}
+
+
+def test_correlate_against_a_hand_worked_ranking():
+    gym = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    truth = {"a": 1.0, "b": 2.0, "c": 4.0, "d": 3.0}
+    out = agreement.correlate(gym, truth, bootstrap=0)
+    assert out["spearman_rho"] == pytest.approx(0.8)
+    assert out["kendall_tau"] == pytest.approx(4 / 6 - 2 / 6 + 1 / 3)
+    assert out["gym_ranking"] == ["d", "c", "b", "a"] and out["truth_ranking"] == ["c", "d", "b", "a"]
+
+
+def test_correlate_interval_follows_the_data():
+    same = {f"m{i}": float(i) for i in range(8)}
+    assert agreement.correlate(same, dict(same), bootstrap=50)["spearman_ci95"] == pytest.approx([1.0, 1.0])
+
+
+def test_tau_ap_counts_a_tie_as_no_agreement():
+    import numpy as np
+
+    assert agreement._tau_ap(np.array([2.0, 2.0, 1.0]), np.array([3.0, 2.0, 1.0])) == pytest.approx(0.0)
+
+
+def test_official_scores_are_on_the_hundred_scale(monkeypatch):
+    import mteb
+
+    monkeypatch.setattr(agreement, "official_scores", lambda cache, task, models: {"mteb/baseline-bm25s": (0.5, "r")})
+    monkeypatch.setattr(mteb.ResultCache, "download_from_remote", lambda self: None)
+    scores, source = agreement.fetch_truth(["mteb/baseline-bm25s"], "NFCorpus")
+    assert scores == {"mteb/baseline-bm25s": 50.0} and source["mteb/baseline-bm25s"]["official"] is True
+
+
+def test_the_no_judge_baseline_is_part_of_agreement(tmp_path, monkeypatch):
+    truth = {"a": 3.0, "b": 2.0, "c": 1.0}
+    monkeypatch.setattr(agreement, "fetch_truth", lambda m, t, **k: (truth, {}))
+    rows = [{"model": m, "rating": r, "ndcg_at_10": n} for m, r, n in (("a", 3, 0.1), ("b", 2, 0.2), ("c", 1, 0.3))]
+    rec = {"task_name": "t", "source": "mteb", "labels": "dataset", "config": {}, "diagnostics": {}, "ratings": rows}
+    out = Result(rec, tmp_path / "t" / "t__j__q.json").agreement(bootstrap=0)
+    assert out["spearman_rho"] == pytest.approx(1.0)
+    assert (
+        out["labels_baseline"]["spearman_rho"] == pytest.approx(-1.0) and out["labels_baseline"]["labels"] == "dataset"
+    )

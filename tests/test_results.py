@@ -1,10 +1,15 @@
+import json
+import math
 import tempfile
 import types
 from pathlib import Path
 
+import pytest
+
 from mteb_gym import Result, load_results, results
-from mteb_gym.judge import Verdict
+from mteb_gym.judge import Grade, Verdict
 from mteb_gym.rank import rate
+from mteb_gym.run import grade_diagnostics
 
 
 def test_record():
@@ -56,3 +61,50 @@ def test_record():
         repo.mkdir(parents=True)
         (repo / "demo__judge__q2-s0-abc.json").write_text(r.path.read_text())
         assert len(load_results(Path(tmp) / "repo").results) == 1
+
+
+def test_position_bias_is_the_share_of_decisive_answers_for_the_first_shown():
+    verdicts = [
+        Verdict("q0", "q", "a", "b", 0.5, raw=["A", "A"], parsed_ok=[True, True]),
+        Verdict("q1", "q", "a", "b", 0.75, raw=["A", "B"], parsed_ok=[True, True]),
+    ]
+    assert results.verdict_diagnostics(verdicts)["a_first_rate"] == pytest.approx(0.75)
+
+
+def test_grade_diagnostics_report_failures():
+    grades = [
+        Grade("q0", "d0", 4.0),
+        Grade("q0", "d1", 2.0),
+        Grade("q1", "d2", 0.0),
+        Grade("q1", "d3", 0.0, parsed_ok=False),
+    ]
+    out = grade_diagnostics(grades)
+    assert out["parse_failure_rate"] == 0.25 and out["grade_mean"] == pytest.approx(2.0) and out["pool_size_mean"] == 2
+
+
+def test_only_record_files_in_the_results_layout_are_loaded(tmp_path):
+    rec = {"task_name": "t", "ratings": []}
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "t__j__q.json").write_text(json.dumps(rec))
+    (tmp_path / "t" / "notes.json").write_text("not a record")
+    assert len(load_results(tmp_path).results) == 1
+
+
+def test_a_query_that_is_itself_a_document_is_dropped_only_with_the_flag(tmp_path):
+    from mteb_gym import retrieval
+
+    path = tmp_path / "t_predictions.json"
+    path.write_text(json.dumps({"default": {"test": {"q0": {"q0": 2.0, "d1": 1.0}}}}))
+    assert retrieval.ndcg_at_10(path, {"q0": {"d1": 1}}, True) == pytest.approx(1.0)
+    assert retrieval.ndcg_at_10(path, {"q0": {"d1": 1}}, False) == pytest.approx(1 / math.log2(3))
+
+
+def test_predictions_on_disk_are_not_computed_again(tmp_path, monkeypatch):
+    import mteb
+
+    from mteb_gym import retrieval
+
+    (tmp_path / "t_predictions.json").write_text("{}")
+    monkeypatch.setattr(mteb, "evaluate", lambda *a, **k: pytest.fail("should not run"))
+    task = types.SimpleNamespace(metadata=types.SimpleNamespace(name="t"))
+    assert retrieval.predict("m", task, tmp_path) == tmp_path / "t_predictions.json"

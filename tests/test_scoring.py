@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mteb_gym.judge import Verdict
-from mteb_gym.rank import BASE, SCALE, _bradley_terry, ndcg_per_query, rate, rate_pointwise
+from mteb_gym.rank import BASE, SCALE, _bradley_terry, format_leaderboard, ndcg_per_query, rate, rate_pointwise
 from mteb_gym.retrieval import Ranked
 
 
@@ -126,3 +126,33 @@ def test_rate_bootstraps_over_queries_not_verdicts():
     }
     assert half_width > (per_verdict["a"].ci_high - per_verdict["a"].ci_low) / 2 * 1.3
     assert r["a"].ci_low < r["a"].rating < r["a"].ci_high
+
+
+def test_an_ungraded_document_is_worth_nothing():
+    assert ndcg_per_query(["unknown"], {"known": 5.0}, [5.0], 1) == 0.0
+
+
+def test_pointwise_ideal_comes_from_every_models_documents():
+    ranked = lists({"weak": {"q0": ["w"]}, "strong": {"q0": ["s"]}})
+    r = {x.name: x.rating for x in rate_pointwise({("q0", "w"): 1.0, ("q0", "s"): 5.0}, ranked, k=1, bootstrap=0)}
+    assert r == {"strong": pytest.approx(100.0), "weak": pytest.approx(20.0)}
+
+
+def test_a_model_without_a_list_for_a_query_scores_zero_on_it():
+    ranked = lists({"both": {"q0": ["d"], "q1": ["e"]}, "one": {"q0": ["d"]}})
+    grades = {("q0", "d"): 5.0, ("q1", "e"): 5.0}
+    assert {x.name: x.rating for x in rate_pointwise(grades, ranked, k=1, bootstrap=0)} == {
+        "both": pytest.approx(100.0),
+        "one": pytest.approx(50.0),
+    }
+
+
+def test_games_are_counted_for_both_models():
+    r = {x.name: x for x in rate([verdict("a", "b", 1.0, "q0"), verdict("a", "b", 0.5, "q1")], bootstrap=0)}
+    assert r["a"].n == r["b"].n == 2
+
+
+def test_the_leaderboard_shows_the_interval():
+    row = {"model": "org/m", "rating": 1000.0, "ci_low": 980.0, "ci_high": 1020.0, "wins": 1, "losses": 2, "ties": 3}
+    line = format_leaderboard([row]).splitlines()[3].split()
+    assert line == ["1", "m", "1000", "20", "1", "2", "3"]

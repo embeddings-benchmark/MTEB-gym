@@ -119,3 +119,33 @@ def test_seed_documents_are_recorded():
 )
 def test_drafts_in_reasoning_are_never_the_answer(text, parsed):
     assert extract_json(text) == parsed
+
+
+def test_generate_rejects_what_fails_the_length_rule():
+    client = Answers(generated=["x" * 5000, "a usable query"])
+    assert [q.text for q in generator(client, n_queries=1, filter_queries=False).generate(DOCS)] == ["a usable query"]
+
+
+def test_the_filter_stops_at_the_requested_number():
+    queries = [Query(f"q{i}", f"distinct query {i} word{i}", []) for i in range(5)]
+    assert len(generator(Answers(), n_queries=2).apply_filters(queries)) == 2
+
+
+def test_the_seed_decides_which_documents_are_shown():
+    many = {f"d{i}": f"document {i}" for i in range(200)}
+
+    def seeds(seed):
+        gen = QueryGenerator(Answers(), task_instruction="t", n_queries=2, seed=seed, filter_queries=False, workers=1)
+        return [q.seed_doc_ids for q in gen.generate(many)]
+
+    assert seeds(0) == seeds(0) and seeds(0) != seeds(1)
+
+
+def test_a_score_it_cannot_read_is_the_neutral_three():
+    class NoScore(Answers):
+        def chat(self, messages):
+            return json.dumps({"reason": "no score"})
+
+    q = Query("q0", "a query", [])
+    generator(NoScore())._llm_quality([q])
+    assert q.quality == 3

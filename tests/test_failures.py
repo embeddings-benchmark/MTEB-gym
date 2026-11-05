@@ -148,3 +148,31 @@ def test_regenerated_queries_never_reuse_older_predictions(tmp_path):
     second = resolve_queries(corp, tmp_path, "synthetic", _generator("second"), 3, 0)
     assert first.texts != second.texts and first.id != second.id
     assert resolve_queries(corp, tmp_path, "synthetic", _generator("second"), 3, 0).id == second.id
+
+
+def test_only_the_current_pool_is_returned_and_rated(tmp_path):
+    """Grades saved for a model no longer on the roster do not change the ideal ranking of the rest."""
+    docs = {"d0": "d0", "d1": "d1"}
+    client = Counting(json.dumps({"grade": 5}))
+    judge = PointwiseJudge(client, "t", workers=1)
+    judge_pool_cached(tmp_path, judge, ranked({"gone": {"q0": ["d1"]}, "m": {"q0": ["d0"]}}), docs, "k")
+    grades = judge_pool_cached(tmp_path, judge, ranked({"m": {"q0": ["d0"]}}), docs, "k")
+    assert [g.doc_id for g in grades] == ["d0"]
+
+
+def test_only_the_requested_queries_of_a_pair_are_returned(tmp_path):
+    a = ranked({"a": {"q0": ["d0"], "q1": ["d0"]}})["a"]
+    b = ranked({"b": {"q0": ["d1"], "q1": ["d1"]}})["b"]
+    judge = PairwiseJudge(Counting(json.dumps({"winner": "A"})), "t")
+    judge_pair_cached(tmp_path, judge, "a", "b", a, b, "k")
+    assert [v.qid for v in judge_pair_cached(tmp_path, judge, "a", "b", a[:1], b[:1], "k")] == ["q0"]
+
+
+def test_pointwise_rating_uses_the_runs_top_k(tmp_path):
+    lists = ranked({"a": {"q0": ["good"]}, "b": {"q0": ["weak"]}})
+    grades = {"good": 5, "weak": 1}
+    corp = types.SimpleNamespace(name="task", docs={d: d for d in grades})
+    ratings, _, _ = _judge_pointwise(
+        Counting(grade_by_document(grades)), "t", corp, lists, tmp_path, "qs", 1, 2000, 0, 1
+    )
+    assert {r.name: r.rating for r in ratings}["b"] == pytest.approx(20.0)

@@ -83,3 +83,31 @@ def test_submit_prepares_a_commit(monkeypatch):
         assert len(judgments) == 1
         judgments[0].unlink()
         assert cache_files(subset, cache)["judgments"] == []
+
+
+def test_a_record_already_in_the_repository_is_not_submitted_again(tmp_path, monkeypatch):
+    import subprocess
+
+    from mteb_gym import submit
+
+    for k, v in {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }.items():
+        monkeypatch.setenv(k, v)
+    name = "demo__mock__original-queries__q1-s0-abc.json"
+    record = json.dumps({"task_name": "demo", "source": "mteb", "ratings": []})
+    remote, seed = tmp_path / "remote.git", tmp_path / "seed"
+    subprocess.run(["git", "init", "--quiet", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "clone", "--quiet", str(remote), str(seed)], check=True)
+    (seed / "results" / "demo").mkdir(parents=True)
+    (seed / "results" / "demo" / name).write_text(record)
+    subprocess.run(["git", "add", "."], cwd=seed, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "init"], cwd=seed, check=True)
+    subprocess.run(["git", "push", "--quiet", "origin", "main"], cwd=seed, check=True)
+    (tmp_path / "results" / "demo").mkdir(parents=True)
+    (tmp_path / "results" / "demo" / name).write_text(record)
+    out = submit(tmp_path / "results", cache_folder=tmp_path / "cache", repository=str(remote))
+    assert out == {"records": [], "files": []}

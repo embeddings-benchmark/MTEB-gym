@@ -335,3 +335,73 @@ def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatc
     monkeypatch.setattr(run_module, "rate", shifted)
     again = run(_docs(tmp_path), _TWO, **kw).record
     assert "agreement" not in again and again["ratings"][0]["rating"] == first.record["ratings"][0]["rating"] + 1
+
+
+def test_the_instruction_reaches_the_pairwise_judge(tmp_path):
+    from mteb_gym import run
+
+    judge = Calls()
+    run(
+        _docs(tmp_path),
+        _TWO,
+        judge=judge,
+        generator=MockLLM(),
+        task_instruction="my special task",
+        n_queries=3,
+        filter_queries=False,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    assert judge.prompts and all("my special task" in p[0]["content"] for p in judge.prompts)
+
+
+def test_a_run_whose_judge_failed_writes_no_record(tmp_path):
+    from mteb_gym import run
+
+    class Broken(MockLLM):
+        def chat(self, messages, **kw):
+            return "not json"
+
+    with pytest.raises(RuntimeError):
+        run(
+            _docs(tmp_path),
+            _TWO,
+            judge=Broken(),
+            generator=MockLLM(),
+            task_instruction="t",
+            n_queries=3,
+            filter_queries=False,
+            output_folder=tmp_path / "o",
+            cache_folder=tmp_path / "c",
+            workers=1,
+        )
+    assert not list((tmp_path / "o").rglob("*.json"))
+
+
+def _prediction_of(record, cache):
+    """Each rated model's prediction file, in the order of the ratings."""
+    by_model = {p.parts[-3].split("@")[0]: p for p in cache_files(record, cache)["predictions"]}
+    return [by_model[r["model"].replace("/", "_")] for r in record["ratings"]]
+
+
+def test_the_no_judge_baseline_is_really_scored(tmp_path):
+    from mteb_gym import retrieval, run
+
+    res = run(
+        _docs(tmp_path),
+        _TWO,
+        judge=MockLLM(),
+        generator=MockLLM(),
+        task_instruction="t",
+        n_queries=3,
+        filter_queries=False,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    assert res.record["labels"] == "seed_documents"
+    queries = json.loads(cache_files(res.record, tmp_path / "c")["queries"][0].read_text())["queries"]
+    qrels = {q["qid"]: {d: 1 for d in q["seed_doc_ids"]} for q in queries}
+    for rating, path in zip(res.record["ratings"], _prediction_of(res.record, tmp_path / "c"), strict=True):
+        assert rating["ndcg_at_10"] == pytest.approx(retrieval.ndcg_at_10(path, qrels))
