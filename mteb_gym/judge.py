@@ -13,12 +13,16 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import httpx
 from openai import APITimeoutError
 
 from .queries import extract_json
 from .retrieval import Ranked
+
+if TYPE_CHECKING:
+    from .llm import ChatClient, DecisionClient
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +40,7 @@ _TAIL = (
 )
 
 
-def _reply(client, messages: list[dict]) -> str | None:
+def _reply(client: ChatClient, messages: list[dict]) -> str | None:
     """The judge's answer, or None once a call has timed out through its retries: one stuck call, such as a reasoning
     model generating without end, costs one comparison or grade and not the run."""
     try:
@@ -92,13 +96,15 @@ def _parse(raw: str) -> tuple[str, str, bool]:
     return (winner or "tie"), out.get("reasoning", ""), winner is not None
 
 
-class Judge:
+class PairwiseJudge:
+    """Compares two models' result lists for a query, in both presentation orders."""
+
     # Dead-endpoint guards, checked once after the first EARLY_FAIL_WINDOW verdicts.
     EARLY_FAIL_WINDOW = 30
     MAX_EARLY_PARSE_FAIL = 0.5  # above this fraction unparseable: dead judge or bad API key
     MAX_EARLY_IDENTICAL = 0.95  # above this fraction identical lists: empty or mis-loaded corpus
 
-    def __init__(self, client, instruction: str, workers: int = 1, doc_chars: int = 2000):
+    def __init__(self, client: ChatClient, instruction: str, workers: int = 1, doc_chars: int = 2000):
         self.client = client
         self.system = judge_system(instruction)
         self.workers = max(1, workers)
@@ -238,7 +244,7 @@ class PointwiseJudge:
 
     def __init__(
         self,
-        client,
+        client: ChatClient | DecisionClient,
         instruction: str,
         workers: int = 8,
         doc_chars: int = 2000,

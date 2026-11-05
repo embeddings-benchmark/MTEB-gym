@@ -31,7 +31,7 @@ Repository = "https://github.com/embeddings-benchmark/MTEB-gym"
 Results = "https://github.com/embeddings-benchmark/gym-results"
 
 [project.scripts]
-mteb-gym = "mteb_gym.__main__:main"
+mteb-gym = "mteb_gym.cli:main"
 
 [dependency-groups]
 test = ["pytest>=8"]
@@ -39,6 +39,9 @@ dev = [{ include-group = "test" }, "ruff"]
 
 [tool.setuptools]
 packages = ["mteb_gym"]
+
+[tool.setuptools.package-data]
+mteb_gym = ["py.typed"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

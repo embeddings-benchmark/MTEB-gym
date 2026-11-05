@@ -12,10 +12,23 @@ import logging
 import os
 import re
 import time
+from typing import Protocol
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+class ChatClient(Protocol):
+    """What a generator or an LLM judge needs."""
+
+    def chat(self, messages: list[dict]) -> str: ...
+
+
+class DecisionClient(Protocol):
+    """What a decision-model judge needs."""
+
+    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]: ...
 
 
 class MockLLM:
@@ -46,6 +59,8 @@ class MockLLM:
 
 
 class LLM:
+    """A chat model behind an OpenAI-compatible endpoint."""
+
     def __init__(
         self,
         model: str,

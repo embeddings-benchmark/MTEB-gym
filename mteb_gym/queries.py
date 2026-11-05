@@ -14,7 +14,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from .llm import llm_settings
+from .llm import ChatClient, llm_settings
 
 logger = logging.getLogger(__name__)
 
@@ -75,12 +75,12 @@ def extract_json(text: str) -> dict:
 class QueryGenerator:
     def __init__(
         self,
-        client,
+        client: ChatClient,
         *,
         task_description: str,
         n_queries: int = 100,
         seed: int = 0,
-        filter: bool = True,
+        filter_queries: bool = True,
         workers: int = 16,
         docs_per_query: int = 3,
         overshoot: float = 1.6,
@@ -90,22 +90,36 @@ class QueryGenerator:
         dedup: float = 0.8,
     ):
         self.client = client
-        self.params = dict(
-            task_description=task_description,
-            n_queries=n_queries,
-            seed=seed,
-            filter=filter,
-            docs_per_query=docs_per_query,
-            overshoot=overshoot,
-            min_chars=min_chars,
-            max_chars=max_chars,
-            min_score=min_score,
-            dedup=dedup,
-        )  # everything that changes the query set
+        self.task_description = task_description
+        self.n_queries = n_queries
+        self.seed = seed
+        self.filter_queries = filter_queries
+        self.docs_per_query = docs_per_query
+        self.overshoot = overshoot
+        self.min_chars = min_chars
+        self.max_chars = max_chars
+        self.min_score = min_score
+        self.dedup = dedup
         self.system = _GEN_ROLE + _GEN_TASK.format(task=task_description) + _GEN_BODY
         self.workers = max(1, workers)
         self.n_generated: int | None = None  # pre-filter count, for the record
         self.settings: dict | None = None  # what the generator ran with, for the record
+
+    @property
+    def params(self) -> dict:
+        """Everything that changes the query set."""
+        return {
+            "task_description": self.task_description,
+            "n_queries": self.n_queries,
+            "seed": self.seed,
+            "filter": self.filter_queries,
+            "docs_per_query": self.docs_per_query,
+            "overshoot": self.overshoot,
+            "min_chars": self.min_chars,
+            "max_chars": self.max_chars,
+            "min_score": self.min_score,
+            "dedup": self.dedup,
+        }
 
     @property
     def prompts(self) -> tuple:
@@ -117,7 +131,7 @@ class QueryGenerator:
         raw = self.generate(docs)
         self.settings = llm_settings(self.client)  # stored with the query set
         self.n_generated = len(raw)
-        return self.filter(raw)
+        return self.apply_filters(raw)
 
     # ---------------------------------------------------------------- generate
     def _one(self, doc_ids: list[str], docs: dict[str, str], idx: int) -> Query | None:
@@ -136,16 +150,15 @@ class QueryGenerator:
         """Order-preserving waves: the seeded RNG draws document samples in the main
         thread and acceptance runs in attempt order, so the query set is identical
         for any worker count."""
-        p = self.params
-        rng = random.Random(p["seed"])
+        rng = random.Random(self.seed)
         doc_ids = list(docs)
-        target = int(p["n_queries"] * (p["overshoot"] if p["filter"] else 1.0))
+        target = int(self.n_queries * (self.overshoot if self.filter_queries else 1.0))
         cap = target * 3
         out: list[Query] = []
         attempts = 0
         while len(out) < target and attempts < cap:
             wave = min(target - len(out), cap - attempts)  # failed attempts are retried by the next wave
-            seeds = [rng.sample(doc_ids, min(p["docs_per_query"], len(doc_ids))) for _ in range(wave)]
+            seeds = [rng.sample(doc_ids, min(self.docs_per_query, len(doc_ids))) for _ in range(wave)]
             base, attempts = attempts, attempts + wave
             if self.workers <= 1 or wave <= 1:
                 results = [self._one(s, docs, base + k) for k, s in enumerate(seeds)]
@@ -161,9 +174,8 @@ class QueryGenerator:
 
     # ----------------------------------------------------------------- filters
     def _heuristic_ok(self, text: str) -> bool:
-        p = self.params
         return (
-            p["min_chars"] <= len(text) <= p["max_chars"]
+            self.min_chars <= len(text) <= self.max_chars
             and text.count(" ") >= 2  # one or two words: too trivial
             and re.search(r"[A-Za-z]", text) is not None
         )
@@ -196,7 +208,7 @@ class QueryGenerator:
                 len(queries),
             )
 
-    def _dedup(self, queries: list[Query]) -> list[Query]:
+    def _deduplicate(self, queries: list[Query]) -> list[Query]:
         """Drop a query whose token set overlaps an earlier one at Jaccard >= dedup."""
 
         def tokens(q):
@@ -205,17 +217,16 @@ class QueryGenerator:
         kept: list[Query] = []
         sets: list[set] = []
         for q, t in zip(queries, map(tokens, queries)):
-            if all(len(t & s) / len(t | s) < self.params["dedup"] for s in sets if t | s):
+            if all(len(t & s) / len(t | s) < self.dedup for s in sets if t | s):
                 kept.append(q)
                 sets.append(t)
         return kept
 
-    def filter(self, queries: list[Query]) -> list[Query]:
-        n = self.params["n_queries"]
-        if not self.params["filter"]:
-            return queries[:n]
+    def apply_filters(self, queries: list[Query]) -> list[Query]:
+        if not self.filter_queries:
+            return queries[: self.n_queries]
         self._llm_quality(queries)
-        good = self._dedup([q for q in queries if (q.quality or 0) >= self.params["min_score"]])[:n]
+        good = self._deduplicate([q for q in queries if (q.quality or 0) >= self.min_score])[: self.n_queries]
         for k, q in enumerate(good):  # re-id in kept order
             q.qid = f"q{k}"
         return good

@@ -16,8 +16,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .cache import cache_files, resolve_cache_folder
 from .results import load_results
-from .run import cache_files, default_cache_folder
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def submit(
         The records committed, the dataset files they were computed from, the local clone and branch,
         and the pull request URLs when opened.
     """
-    cache = Path(cache_folder) if cache_folder is not None else default_cache_folder()
+    cache = resolve_cache_folder(cache_folder)
     clone = cache / "remote" / "gym-results"
     if clone.exists():
         _git("fetch", "--quiet", "origin", cwd=clone)

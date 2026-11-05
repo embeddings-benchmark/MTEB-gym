@@ -35,9 +35,14 @@ def _version(name: str) -> str | None:
 
 
 def git_revision() -> str | None:
+    """The gym's commit when it runs from a git checkout. An installed package has none: the folder above it may be
+    the user's own repository."""
+    root = Path(__file__).resolve().parents[1]
+    if not (root / ".git").exists():
+        return None
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True, stderr=subprocess.DEVNULL
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -200,7 +205,6 @@ class Results:
 
 
 def load_results(root: str | Path) -> Results:
-    """All records under `root`: a results folder's or results repository's <task>/ folders, or an
-    older output folder's records/."""
-    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name in ("records", p.name.split("__")[0]))
+    """All records under `root`: a results folder's or results repository's <task>/ folders."""
+    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name == p.name.split("__")[0])
     return Results([Result.from_disk(p) for p in paths])
