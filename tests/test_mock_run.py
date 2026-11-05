@@ -304,8 +304,11 @@ def test_a_query_with_no_relevant_document_is_not_sampled(tmp_path, monkeypatch)
 
 
 def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatch):
-    import mteb_gym.run as run_module
+    import sys
+
     from mteb_gym import run
+
+    run_module = sys.modules["mteb_gym.run"]  # `mteb_gym.run`, the attribute, is the function
 
     kw = dict(
         judge=MockLLM(),
