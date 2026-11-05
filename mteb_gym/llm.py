@@ -1,8 +1,8 @@
-"""LLM clients: LLM for any OpenAI-compatible /chat/completions endpoint (vLLM, Ollama, OpenAI, Together, OpenRouter,
-and the compatible endpoints of Anthropic and Gemini), DecisionModel for a decision model's /v1/decide endpoint, MockLLM
-for tests and dry runs. A client implements chat(messages) -> str. Answers are asked as JSON in the prompt and read from
-the text, so a model may reason before it answers. Sampling is the model's own: its authors' defaults, unless the
-client was built with a temperature."""
+"""Clients: LLM for any OpenAI-compatible /chat/completions endpoint, DecisionModel for a decision model's /v1/decide
+endpoint, MockLLM for tests and dry runs. Answers are requested as JSON in the prompt and read from the text, so a model
+may reason before it answers. Sampling is the model's own unless the client is built with a temperature.
+
+An explicit base_url never receives OPENAI_API_KEY: pass api_key, or set MTEB_GYM_API_KEY."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import time
 from typing import Protocol
 
 import httpx
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -54,11 +55,6 @@ class MockLLM:
         words = re.findall(r"[A-Za-z]{4,}", prompt.split("[1] ", 1)[-1])[:6]  # from the first shown document
         return json.dumps({"query": "what is known about " + (" ".join(words) or f"topic {h % 1000}")})
 
-    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
-        options = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}.get(kind, options or [])
-        pick = self._hash(state + question) % len(options)
-        return {o: 0.9 if i == pick else 0.1 / (len(options) - 1) for i, o in enumerate(options)}
-
 
 class LLM:
     """A chat model behind an OpenAI-compatible endpoint."""
@@ -74,17 +70,14 @@ class LLM:
         extra_body: dict | None = None,
         timeout: float = 120.0,
     ):
-        from openai import OpenAI
-
-        key = api_key or os.environ.get("OPENAI_API_KEY")
+        key = api_key or (os.environ.get("MTEB_GYM_API_KEY") if base_url else os.environ.get("OPENAI_API_KEY"))
         if base_url is None and key is None and not os.environ.get("OPENAI_BASE_URL"):
             raise ValueError(
                 f"gym.LLM({model!r}): no API key and no base_url. Set OPENAI_API_KEY for OpenAI, pass base_url "
                 f"and api_key for another provider, or serve the model yourself (`vllm serve {model}`) and pass "
                 "base_url='http://localhost:8000/v1'."
             )
-        # The SDK retries connection errors, timeouts, 429 and 5xx with backoff. Anything else
-        # (bad key, unknown model) raises at once. timeout: a hung call would otherwise stall a worker forever.
+        # The SDK retries connection errors, timeouts, 429 and 5xx with backoff; anything else raises at once.
         # "EMPTY" is the conventional key for local servers, which accept anything.
         self.client = OpenAI(base_url=base_url, api_key=key or "EMPTY", timeout=timeout, max_retries=max_retries)
         self.model = model
@@ -109,8 +102,7 @@ class LLM:
                 self.served_model = getattr(resp, "model", None) or self.served_model
                 return resp.choices[0].message.content or ""
             except Exception as e:
-                # Some models refuse a parameter and answer 400 naming it, e.g. a temperature on a model
-                # that always reasons. Drop it, remember, and run at its defaults.
+                # A model may refuse a parameter with a 400 naming it: drop it, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
                 if getattr(e, "status_code", None) != 400 or not rejected:
                     raise
@@ -119,9 +111,8 @@ class LLM:
 
 
 class DecisionModel:
-    """A decision model behind a `/v1/decide` endpoint, e.g. AutoTrust JEV-27B served with its `serve_decide.py`.
-    A decision is a typed question with fixed answers: `decide("score", state, question)` returns a calibrated
-    probability for each grade "0" to "5", in one forward pass and without generated text."""
+    """A decision model behind a `/v1/decide` endpoint. `decide("score", state, question)` returns a probability for
+    each grade "0" to "5", in one forward pass."""
 
     def __init__(
         self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
@@ -129,41 +120,38 @@ class DecisionModel:
         self.model = model
         self.base_url = base_url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
-        key = api_key or os.environ.get("OPENAI_API_KEY") or "EMPTY"
+        key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
         self._http = httpx.Client(timeout=timeout, headers={"Authorization": f"Bearer {key}"})
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
         body = {"kind": kind, "state": state, "question": question, **({"options": options} if options else {})}
         # a busy server queues requests, so the timeout is long and retries back off; a client error is final
+        error = ""
         for attempt in range(self.max_retries + 1):
+            if attempt:
+                time.sleep(min(60, 2 ** (attempt - 1)))
             try:
                 r = self._http.post(f"{self.base_url}/v1/decide", json=body)
-                if r.status_code < 500:
-                    r.raise_for_status()
-                    out = r.json()
-                    return dict(zip(out["options"], out["probabilities"]))
-                error = f"HTTP {r.status_code}: {r.text[:200]}"
             except httpx.TransportError as e:
                 error = repr(e)
-            if attempt == self.max_retries:
-                raise RuntimeError(f"{self.base_url}/v1/decide failed after {attempt + 1} attempts: {error}")
-            time.sleep(min(60, 2**attempt))
-        raise AssertionError("unreachable")
+                continue
+            if r.status_code >= 500:
+                error = f"HTTP {r.status_code}: {r.text[:200]}"
+                continue
+            r.raise_for_status()
+            out = r.json()
+            return dict(zip(out["options"], out["probabilities"], strict=True))
+        raise RuntimeError(f"{self.base_url}/v1/decide failed after {self.max_retries + 1} attempts: {error}")
 
 
 def llm_settings(client) -> dict:
-    """How an LLM client is configured: the model, the endpoint, and the settings it sends, which are
-    the settings its answers' cache identity is built from, so a live run and a replay of cached
-    answers record the same. Settings a server refused, and the model it reported, are known only
-    from live calls."""
-    base_url = getattr(getattr(client, "client", None), "base_url", None) or getattr(client, "base_url", None)
+    """How a client is configured, for the record. The endpoint is left out: it can be private."""
     configured = {
         "temperature": getattr(client, "temperature", None),
         "max_completion_tokens": getattr(client, "max_tokens", None),
     }
     settings = {
         "model": getattr(client, "model", str(client)),
-        "base_url": str(base_url) if base_url else None,
         "served_model": getattr(client, "served_model", None),
         **{k: v for k, v in configured.items() if v is not None},
         **(getattr(client, "extra_body", None) or {}),

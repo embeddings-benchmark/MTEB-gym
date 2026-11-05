@@ -8,14 +8,6 @@ from mteb_gym.retrieval import Ranked
 from tests.helpers import fake_ranked
 
 
-def test_doc_chars_reaches_the_judge():
-
-    assert PairwiseJudge(MockLLM(), "t", doc_chars=300).doc_chars == 300
-    assert (
-        "x" * 301 not in PairwiseJudge(MockLLM(), "t", doc_chars=300).system
-    )  # the setting is the judge's, not the prompt's
-
-
 def test_judge():
     from mteb_gym.judge import _format
 
@@ -45,8 +37,8 @@ def test_judge():
 
 
 def test_a_timed_out_judge_call_is_left_out():
-    httpx = pytest.importorskip("httpx")
-    openai = pytest.importorskip("openai")
+    import httpx
+    import openai
 
     class Slow(MockLLM):
         def chat(self, messages, **kw):

@@ -1,9 +1,8 @@
 """Submit records to the results repository on GitHub, and the files behind them to the dataset on Hugging Face.
 
-As mteb's ResultCache.submit_results: the results repository is cloned into the cache, new records are
-committed there, and with create_pr=True the branch is pushed to the submitter's fork and a pull
-request opened. The query set, predictions and verdicts a record was computed from are too large
-for git; they go to the dataset as a pull request.
+The results repository is cloned into the cache and new records are committed there. With create_pr=True the branch is
+pushed to the submitter's fork and a pull request opened. The queries, predictions and judgments behind a record are
+too large for git, so they go to the dataset as a pull request. Runs on a local corpus are never submitted.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ def submit(
     dataset: str = DATASET,
 ) -> dict:
     """Commit the records in `results_folder` that the results repository lacks, and with `create_pr`
-    open a pull request there and one on the dataset with their queries and verdicts. Without it,
+    open a pull request there and one on the dataset with their queries and judgments. Without it,
     the commit is prepared locally and nothing leaves this machine.
 
     Returns:
@@ -48,6 +47,7 @@ def submit(
     cache = resolve_cache_folder(cache_folder)
     clone = cache / "remote" / "gym-results"
     if clone.exists():
+        _git("remote", "set-url", "origin", repository, cwd=clone)
         _git("fetch", "--quiet", "origin", cwd=clone)
         _git("checkout", "--quiet", "--force", "-B", "main", "origin/main", cwd=clone)
         _git("clean", "--quiet", "-fd", cwd=clone)  # drop records a failed call copied in
@@ -57,6 +57,9 @@ def submit(
 
     new = []
     for result in load_results(results_folder).results:
+        if result.record["source"] != "mteb":
+            logger.warning("not submitting %s: it is a run on a local corpus", result.path)
+            continue
         target = clone / "results" / result.record["task_name"] / result.path.name
         if target.exists() and filecmp.cmp(result.path, target, shallow=False):
             continue
@@ -67,7 +70,7 @@ def submit(
         logger.info("nothing to submit: every record is already in the results repository")
         return {"records": [], "files": []}
 
-    # records of the same models and queries share prediction and verdict files
+    # records of the same models and queries share files
     files = sorted(
         {
             p
@@ -139,7 +142,7 @@ def submit(
         repo_id=dataset,
         repo_type="dataset",
         operations=[CommitOperationAdd(str(p.relative_to(cache)), p) for p in files],
-        commit_message=f"{title}: queries, predictions and verdicts",
+        commit_message=f"{title}: queries, predictions and judgments",
         commit_description=out["pr_url"],
         create_pr=True,
     )

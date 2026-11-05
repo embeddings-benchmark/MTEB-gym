@@ -30,7 +30,7 @@ def test_extract_json():
 
 def test_query_generation():
     corpus = make_corpus()
-    gen = QueryGenerator(MockLLM(), task_description="t", n_queries=8, filter_queries=True, workers=1)
+    gen = QueryGenerator(MockLLM(), task_instruction="t", n_queries=8, filter_queries=True, workers=1)
     kept = gen.run(corpus)
     assert gen.n_generated >= 8 and len(kept) <= 8 and all(q.quality is not None for q in kept)
 
@@ -42,7 +42,7 @@ def test_query_generation():
 
     def gen_with(workers, client):
         return QueryGenerator(
-            client, task_description="t", n_queries=12, filter_queries=False, workers=workers
+            client, task_instruction="t", n_queries=12, filter_queries=False, workers=workers
         ).generate(corpus)
 
     for client in (MockLLM, Flaky):
@@ -62,11 +62,11 @@ def test_a_changed_prompt_is_a_new_query_set():
         def qset(gen):
             return resolve_queries(corp, Path(tmp), "synthetic", gen, 4, 0).id
 
-        gen = QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter_queries=False, workers=1)
+        gen = QueryGenerator(MockLLM(), task_instruction="t", n_queries=4, filter_queries=False, workers=1)
         assert qset(gen) == qset(
-            QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter_queries=False, workers=1)
+            QueryGenerator(MockLLM(), task_instruction="t", n_queries=4, filter_queries=False, workers=1)
         )
         gen.system += " One passage, one query."
         assert qset(gen) != qset(
-            QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter_queries=False, workers=1)
+            QueryGenerator(MockLLM(), task_instruction="t", n_queries=4, filter_queries=False, workers=1)
         )

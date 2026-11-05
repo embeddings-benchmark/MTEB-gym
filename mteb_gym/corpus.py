@@ -10,11 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 from dataclasses import dataclass
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -88,16 +85,16 @@ def _load_local(root: Path) -> Corpus:
         h.update(text.encode())
         h.update(b"\x01")
     digest = h.hexdigest()[:12]
-    # no benchmark task behind a local corpus: minimal metadata, no task prompt
+    # no benchmark task behind a local corpus: minimal metadata
     metadata = TaskMetadata(
         name=root.stem,
-        description=f"Local corpus {root}",
+        description=f"Local corpus {root.name}",
         type="Retrieval",
         category="t2t",
         modalities=["text"],
         eval_splits=["test"],
         eval_langs=["eng-Latn"],
         main_score="ndcg_at_10",
-        dataset={"path": str(root), "revision": digest},
+        dataset={"path": root.name, "revision": digest},
     )
     return Corpus(name=root.stem, id=f"local:{root.stem}@{digest}", docs=docs, metadata=metadata)

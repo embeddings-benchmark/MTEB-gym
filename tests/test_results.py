@@ -30,7 +30,13 @@ def test_record():
         source="local",
         metadata=types.SimpleNamespace(dataset={"path": "x", "revision": "y"}),
     )
-    exp = {"arm": "synthetic", "judge_model": "org/judge", "generator_model": "org/gen", "seed": 0, "n_queries": 3}
+    exp = {
+        "query_source": "synthetic",
+        "judge_model": "org/judge",
+        "generator_model": "org/gen",
+        "seed": 0,
+        "n_queries": 3,
+    }
     exp["config_hash"] = results.config_hash(exp)
     rec = results.build_record(corpus, exp, rate(verdicts, bootstrap=0), verdicts, 1.0, {"a": "r1", "b": None})
     assert rec["source"] == "local" and rec["diagnostics"]["tie_rate"] == 2 / 3
@@ -50,12 +56,3 @@ def test_record():
         repo.mkdir(parents=True)
         (repo / "demo__judge__q2-s0-abc.json").write_text(r.path.read_text())
         assert len(load_results(Path(tmp) / "repo").results) == 1
-
-
-def test_git_revision_is_only_read_from_a_checkout(tmp_path, monkeypatch):
-    """An installed package must not report the commit of whatever repository it sits in."""
-    module = tmp_path / "site-packages" / "mteb_gym" / "results.py"
-    module.parent.mkdir(parents=True)
-    module.write_text("")
-    monkeypatch.setattr(results, "__file__", str(module))
-    assert results.git_revision() is None

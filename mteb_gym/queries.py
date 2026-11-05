@@ -1,8 +1,7 @@
 """
-Synthetic queries. The generator sees a few corpus documents and writes one
-realistic query answerable from the corpus but not a restatement of a shown
-document. Three filters, cheapest first: length and degeneracy heuristics, an LLM
-quality score (keep >= min_score), near-duplicate removal by token overlap.
+Synthetic queries. The generator sees a few corpus documents and writes one query of the kind the task describes,
+answerable from the corpus but not a restatement of a shown document. Three filters, cheapest first: length, an LLM
+quality score (keep >= min_score), and near-duplicate removal by token overlap.
 """
 
 from __future__ import annotations
@@ -28,32 +27,34 @@ class Query:
 
 
 _GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n"
-_GEN_TASK = "The retrieval task is: {task}\nEvery query must express that kind of need.\n"
+_GEN_TASK = "The retrieval task is: {task}\n"
 _GEN_BODY = (
-    "Given a few documents from a corpus, produce ONE natural query a real user "
-    "might type that is answerable using the corpus but is NOT a restatement of "
-    "any single shown document. Vary phrasing and specificity. "
+    "Given a few documents from a corpus, produce ONE query of the kind the retrieval task describes, in the form it "
+    "describes: a claim if it gives claims, a topic if it gives topics, a question if it gives questions, a full "
+    "problem or case description if it gives those. The query must be answerable using the corpus but must NOT restate "
+    "any single shown document, and must not mention the documents. Vary phrasing and specificity. "
     'Reply with strict JSON: {"query": "..."}'
 )
 
 _GEN_USER = "Documents:\n{documents}\n\nWrite one query as JSON."
-# characters of each document shown to the generator: the whole document in practice. A short preview makes every
-# query answerable from the part a 512-token model also reads, which hides what long-context models do better
-_GEN_DOC_CHARS = 16000
+_GEN_DOC_CHARS = 16000  # characters of each document shown to the generator
 
 _FILTER_SYSTEM = (
-    "You rate the quality of search queries for benchmarking retrieval models. "
-    "A 5 is a clear, specific, genuinely answerable information need that would "
-    "separate good retrievers from bad ones. A 1 is vague, trivial, malformed, "
-    "or answerable by exact keyword match. "
-    'Reply with strict JSON: {"score": 1-5, "reason": "..."}'
+    "You rate the quality of queries for benchmarking retrieval models. The retrieval task is: {task}\n"
+    "A 5 is a clear, specific query of the kind the task describes that could be answered from a corpus and would "
+    "separate good retrievers from bad ones. A 1 is vague, trivial, malformed, or refers to shown documents. "
+    'Reply with strict JSON: {{"score": 1-5, "reason": "..."}}'
 )
 _FILTER_USER = "Query: {query}\nReply as JSON."
 
 
 def extract_json(text: str) -> dict:
-    """Last JSON object in a response (models add prose, fences, reasoning)."""
-    text = re.sub(r"```(?:json)?", "", text or "")
+    """Last JSON object in a response, ignoring reasoning in think tags. {} if there is none, or the reasoning never
+    closed: an answer cut off there has no answer in it, only drafts."""
+    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL)
+    if "<think>" in text:
+        return {}
+    text = re.sub(r"```(?:json)?", "", text)
     decoder = json.JSONDecoder()
     found: dict = {}
     i = text.find("{")
@@ -66,8 +67,7 @@ def extract_json(text: str) -> dict:
         if isinstance(obj, dict):
             found = obj
         i = text.find("{", end)
-    # A \u escape the model wrote for half a character decodes to a lone surrogate, which UTF-8 and
-    # the dataset's parquet conversion reject; each becomes U+FFFD.
+    # A \u escape for half a character decodes to a lone surrogate, which UTF-8 rejects; each becomes U+FFFD.
     text = json.dumps(found, ensure_ascii=False)
     return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
 
@@ -77,20 +77,20 @@ class QueryGenerator:
         self,
         client: ChatClient,
         *,
-        task_description: str,
+        task_instruction: str,
         n_queries: int = 100,
         seed: int = 0,
         filter_queries: bool = True,
         workers: int = 16,
         docs_per_query: int = 3,
         overshoot: float = 1.6,
-        min_chars: int = 15,
-        max_chars: int = 240,
+        min_chars: int = 3,
+        max_chars: int = 4000,
         min_score: int = 3,
         dedup: float = 0.8,
     ):
         self.client = client
-        self.task_description = task_description
+        self.task_instruction = task_instruction
         self.n_queries = n_queries
         self.seed = seed
         self.filter_queries = filter_queries
@@ -100,16 +100,16 @@ class QueryGenerator:
         self.max_chars = max_chars
         self.min_score = min_score
         self.dedup = dedup
-        self.system = _GEN_ROLE + _GEN_TASK.format(task=task_description) + _GEN_BODY
+        self.system = _GEN_ROLE + _GEN_TASK.format(task=task_instruction) + _GEN_BODY
         self.workers = max(1, workers)
-        self.n_generated: int | None = None  # pre-filter count, for the record
-        self.settings: dict | None = None  # what the generator ran with, for the record
+        self.n_generated: int | None = None  # before filtering
+        self.settings: dict | None = None  # what the generator ran with
 
     @property
     def params(self) -> dict:
         """Everything that changes the query set."""
         return {
-            "task_description": self.task_description,
+            "task_instruction": self.task_instruction,
             "n_queries": self.n_queries,
             "seed": self.seed,
             "filter": self.filter_queries,
@@ -123,8 +123,7 @@ class QueryGenerator:
 
     @property
     def prompts(self) -> tuple:
-        """What the generator and the filter are told. Part of the query set's identity, so a changed
-        prompt writes a new query set instead of reusing the old one."""
+        """What the generator and the filter are told: part of the query set's identity."""
         return (self.system, _GEN_USER, _GEN_DOC_CHARS, _FILTER_SYSTEM, _FILTER_USER)
 
     def run(self, docs: dict[str, str]) -> list[Query]:
@@ -133,17 +132,16 @@ class QueryGenerator:
         self.n_generated = len(raw)
         return self.apply_filters(raw)
 
-    # ---------------------------------------------------------------- generate
     def _one(self, doc_ids: list[str], docs: dict[str, str], idx: int) -> Query | None:
         snippet = "\n\n".join(f"[{i + 1}] {docs[d][:_GEN_DOC_CHARS]}" for i, d in enumerate(doc_ids))
         msg = [
             {"role": "system", "content": self.system},
             {"role": "user", "content": _GEN_USER.format(documents=snippet)},
         ]
-        # A client error propagates (the client has already retried): a dead endpoint or a bad
-        # key fails on the first call, not after minutes of empty waves. An unparseable answer
-        # yields None and the next wave retries with fresh documents.
-        text = (extract_json(self.client.chat(msg)).get("query") or "").strip()
+        # A client error propagates: a dead endpoint or a bad key fails on the first call. An unusable answer gives
+        # None, and the next wave tries fresh documents.
+        text = extract_json(self.client.chat(msg)).get("query")
+        text = text.strip() if isinstance(text, str) else ""
         return Query(qid=f"q{idx}", text=text, seed_doc_ids=doc_ids) if text else None
 
     def generate(self, docs: dict[str, str]) -> list[Query]:
@@ -172,19 +170,14 @@ class QueryGenerator:
             logger.info("query generation: %d/%d kept (%d attempts)", len(out), target, attempts)
         return out
 
-    # ----------------------------------------------------------------- filters
     def _heuristic_ok(self, text: str) -> bool:
-        return (
-            self.min_chars <= len(text) <= self.max_chars
-            and text.count(" ") >= 2  # one or two words: too trivial
-            and re.search(r"[A-Za-z]", text) is not None
-        )
+        return self.min_chars <= len(text) <= self.max_chars and any(c.isalpha() for c in text)
 
     def _llm_quality(self, queries: list[Query]) -> None:
         def score(q: Query) -> int:
-            """Score in place; return 1 if the score had to be defaulted."""
+            """Score in place; 1 if the score had to be defaulted, else 0."""
             msg = [
-                {"role": "system", "content": _FILTER_SYSTEM},
+                {"role": "system", "content": _FILTER_SYSTEM.format(task=self.task_instruction)},
                 {"role": "user", "content": _FILTER_USER.format(query=q.text)},
             ]
             try:
@@ -212,7 +205,7 @@ class QueryGenerator:
         """Drop a query whose token set overlaps an earlier one at Jaccard >= dedup."""
 
         def tokens(q):
-            return set(re.findall(r"[a-z0-9]+", q.text.lower()))
+            return set(re.findall(r"\w+", q.text.lower()))
 
         kept: list[Query] = []
         sets: list[set] = []

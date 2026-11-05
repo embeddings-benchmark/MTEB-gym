@@ -20,10 +20,19 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["mteb[bm25s]>=2.20", "openai>=1.40"]  # mteb brings torch, sentence-transformers, datasets; openai for any /chat/completions endpoint
+dependencies = [
+    "mteb[bm25s]>=2.20,<3",
+    "openai>=1.40",
+    "httpx",
+    "numpy",
+    "scipy",
+    "pandas",
+    "huggingface_hub",
+    "datasets",
+]
 
 [project.optional-dependencies]
-colbert = ["mteb[pylate]>=2.20"]
+colbert = ["mteb[pylate]>=2.20,<3"]
 
 [project.urls]
 Homepage = "https://github.com/embeddings-benchmark/MTEB-gym"

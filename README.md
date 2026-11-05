@@ -87,7 +87,7 @@ To check the install without an API key or GPU, use the mock LLM. It answers det
 ```python
 result = gym.run(
     corpus="NanoNFCorpusRetrieval",
-    task_description="Given a health or nutrition topic, retrieve medical research documents relevant to it",
+    task_instruction="Given a health or nutrition topic, retrieve medical research documents relevant to it",
     models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
     generator=gym.MockLLM(),
     judge=gym.MockLLM(),
@@ -101,7 +101,7 @@ result = gym.run(
 `gym.run` takes the corpus, the models, the judge and the generator, as in the Quickstart. The other options, with their defaults:
 
 - `queries="synthetic"`: `"original"` uses `n_queries` of the task's own queries, drawn with `seed`; your own go in as a `.jsonl` with `id` and `text`, a `.txt` with one per line, or a list of strings.
-- `task_description`: one sentence on what a good result is, given to the generator and the judge, for example `"Given a support ticket, retrieve the help article that resolves it"`. Required, except for the MTEB tasks in `mteb_gym/task_descriptions.py`.
+- `task_instruction`: one sentence on what a good result is, given to the generator and the judge, for example `"Given a support ticket, retrieve the help article that resolves it"`. Required, except for the MTEB tasks in `mteb_gym/task_instructions.py`.
 - `judging="auto"`: `"pointwise"` grades every retrieved document once and ranks by nDCG@`top_k`; `"pairwise"` compares the models' lists. Auto is pointwise for a decision model and pairwise for an LLM.
 - `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query (pairwise), `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
 

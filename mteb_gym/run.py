@@ -40,23 +40,21 @@ from .queries import Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
 from .retrieval import Ranked, slug
-from .task_descriptions import TASK_DESCRIPTIONS
+from .task_instructions import TASK_INSTRUCTIONS
 
 logger = logging.getLogger(__name__)
 
 MAX_JUDGE_FAILURE_RATE = 0.5
 
 
-def resolve_description(task_description: str | None, corpus) -> tuple[str, str]:
-    """The sentence the generator and the judge are given, and where it came from: yours, or the gym's own for the
-    MTEB tasks it is evaluated on. What counts as relevant is the one thing the gym cannot infer, so there is no
-    default."""
-    if task_description:
-        return task_description, "config:task_description"
-    if corpus.name in TASK_DESCRIPTIONS:
-        return TASK_DESCRIPTIONS[corpus.name], "mteb_gym:task_descriptions"
+def resolve_instruction(task_instruction: str | None, corpus) -> tuple[str, str]:
+    """The sentence the generator and the judge are given, and where it came from."""
+    if task_instruction:
+        return task_instruction, "config:task_instruction"
+    if corpus.name in TASK_INSTRUCTIONS:
+        return TASK_INSTRUCTIONS[corpus.name], "mteb_gym:task_instructions"
     raise ValueError(
-        f"{corpus.name}: pass task_description, one sentence on what a good result is, for example "
+        f"{corpus.name}: pass task_instruction, one sentence on what a good result is, for example "
         "'Given a support ticket, retrieve the help article that resolves it'."
     )
 
@@ -93,8 +91,7 @@ def _cached_queries(
 
 
 def sample_queries(queries: dict[str, str], n: int, seed: int) -> dict[str, str]:
-    """`n` of the dataset's own queries, drawn once with `seed`, in the dataset's order.
-    All of them when it has no more than `n`."""
+    """`n` of the queries, drawn with `seed`, in their order. All of them when there are no more than `n`."""
     if len(queries) <= n:
         return queries
     keep = set(random.Random(seed).sample(sorted(queries), n))
@@ -128,7 +125,7 @@ class QuerySet(NamedTuple):
     id: str  # part of the prediction and verdict paths
     texts: dict[str, str]
     queries: list[Query] | None  # None when they are the dataset's own
-    arm: str  # synthetic | original | own
+    query_source: str  # synthetic | original | own
     n_generated: int | None  # before filtering
     generator_settings: dict | None
 
@@ -147,7 +144,10 @@ def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: 
     if queries == "original":
         if not corp.queries:
             raise ValueError(f"{corp.name} has no queries of its own")
-        texts = sample_queries(corp.queries, n_queries, seed)
+        positives = {
+            q: t for q, t in corp.queries.items() if any(v > 0 for v in (corp.qrels or {}).get(q, {}).values())
+        }
+        texts = sample_queries(positives, n_queries, seed)  # mteb drops a query without a relevant document
         return QuerySet(f"{slug(corp.id)}-original-n{len(texts)}-s{seed}", texts, None, "original", None, None)
     qs = own_queries(queries)
     texts = {q.qid: q.text for q in qs}
@@ -195,7 +195,7 @@ def _resolve_judging(judging: str, judge, generator, queries) -> str:
 
 def _judge_pointwise(
     judge,
-    description: str,
+    instruction: str,
     corp,
     ranked: dict[str, list[Ranked]],
     cache: Path,
@@ -206,7 +206,7 @@ def _judge_pointwise(
     workers,
 ) -> tuple[list[ModelRating], dict, str]:
     """Grade every pooled document once and rate each model by nDCG over the grades."""
-    pj = PointwiseJudge(judge, instruction=description, workers=workers, doc_chars=doc_chars)
+    pj = PointwiseJudge(judge, instruction=instruction, workers=workers, doc_chars=doc_chars)
     key = grades_key(model_id(pj.client), pj.system, pj.instruction, pj.doc_chars, query_set)
     grades = judge_pool_cached(cache / "grades" / corp.name, pj, ranked, corp.docs, key, query_set)
     diagnostics = grade_diagnostics(grades)
@@ -224,7 +224,7 @@ def _judge_pointwise(
 
 def _judge_pairwise(
     judge,
-    description: str,
+    instruction: str,
     corp,
     models: list[str],
     revisions: dict,
@@ -241,7 +241,7 @@ def _judge_pairwise(
     """Compare the models' lists pair by pair, and rate them with Bradley-Terry."""
     # One limit on LLM calls in flight: `workers` pairs at once, each judged one query at a time.
     # Pairs write separate verdict files, so they are independent.
-    jd = PairwiseJudge(judge, instruction=description, workers=1, doc_chars=doc_chars)
+    jd = PairwiseJudge(judge, instruction=instruction, workers=1, doc_chars=doc_chars)
     pairs = list(itertools.combinations(models, 2))
     chosen = pair_subset(len(pairs), list(texts), pairs_per_query, seed)  # None: every pair for every query
 
@@ -269,7 +269,7 @@ def predict(
     *,
     generator=None,
     queries="synthetic",
-    task_description: str | None = None,
+    task_instruction: str | None = None,
     n_queries: int = 100,
     seed: int = 0,
     filter_queries: bool = True,
@@ -296,11 +296,11 @@ def predict(
         )
     cache = resolve_cache_folder(cache_folder)
     corp = corpus_mod.load(corpus)
-    description, _ = resolve_description(task_description, corp)
-    logger.info("criterion: %s", description)
+    instruction, _ = resolve_instruction(task_instruction, corp)
+    logger.info("criterion: %s", instruction)
     gen = QueryGenerator(
         generator,
-        task_description=description,
+        task_instruction=instruction,
         n_queries=n_queries,
         seed=seed,
         filter_queries=filter_queries,
@@ -310,7 +310,7 @@ def predict(
     logger.info("query set: %s", qset.id)
     revision = mteb.get_model_meta(model).revision
     folder = cache / "predictions" / corp.name / f"{slug(model)}@{revision}" / qset.id
-    return retrieval.predict(model, task_mod.build(corp, qset.queries), folder, batch_size=batch_size)
+    return retrieval.predict(model, task_mod.build(corp, qset.queries, qset.texts), folder, batch_size=batch_size)
 
 
 def run(
@@ -320,7 +320,7 @@ def run(
     generator=None,
     *,
     queries="synthetic",
-    task_description: str | None = None,
+    task_instruction: str | None = None,
     n_queries: int = 100,
     top_k: int = 10,
     doc_chars: int = 2000,
@@ -343,8 +343,8 @@ def run(
         generator: An LLM client that writes the queries. Defaults to the judge.
         queries: "synthetic" (generated), "original" (the dataset's own queries), or your own as a
             .jsonl with id and text, a .txt with one query per line, or a list of strings.
-        task_description: One sentence on what a good result is, given to generator and judge. Required, except for
-            the MTEB tasks in mteb_gym.task_descriptions.
+        task_instruction: One sentence on what a good result is, given to generator and judge. Required, except for
+            the MTEB tasks in mteb_gym.task_instructions.
         n_queries: Queries to generate.
         top_k: Documents judged per query.
         doc_chars: Characters of each document shown to the judge; longer documents are cut and marked.
@@ -358,13 +358,13 @@ def run(
         cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
         batch_size: Encoding batch size.
-        workers: Concurrent LLM calls.
+        workers: Concurrent grades when judging pointwise, or model pairs when judging pairwise.
 
     Returns:
         The run's Result: leaderboard, record and path.
     """
     started = time.time()
-    out, models = Path(output_folder), list(models)
+    out, models = Path(output_folder), sorted(set(models))  # the order must not change what is judged or its identity
     cache = resolve_cache_folder(cache_folder)
     if not models:
         raise ValueError("no models given")
@@ -374,11 +374,11 @@ def run(
         logger.warning("no generator given: the judge also writes the queries (self-preference risk)")
 
     corp = corpus_mod.load(corpus)
-    description, description_source = resolve_description(task_description, corp)
-    logger.info("criterion: %s", description)
+    instruction, instruction_source = resolve_instruction(task_instruction, corp)
+    logger.info("criterion: %s", instruction)
     gen = QueryGenerator(
         gen_client,
-        task_description=description,
+        task_instruction=instruction,
         n_queries=n_queries,
         seed=seed,
         filter_queries=filter_queries,
@@ -387,13 +387,13 @@ def run(
 
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
-    query_set, texts, qs, arm = qset.id, qset.texts, qset.queries, qset.arm
+    query_set, texts, qs, query_source = qset.id, qset.texts, qset.queries, qset.query_source
 
     import mteb
 
     revisions = {m: mteb.get_model_meta(m).revision for m in models}  # mteb's pins: part of every cache identity
-    gym_task = task_mod.build(corp, qs)
-    labels = task_mod.labels(corp, qs)  # None for your own queries
+    gym_task = task_mod.build(corp, qs, texts)
+    labels = task_mod.labels(corp, qs, texts)  # None for your own queries
     ranked: dict[str, list[Ranked]] = {}
     ndcg: dict[str, float] = {}  # the baseline that needs no judge: nDCG@10 against the labels
     for m in models:
@@ -406,12 +406,12 @@ def run(
     verdicts: list[Verdict] = []
     if judging == "pointwise":
         ratings, diagnostics, judge_system = _judge_pointwise(
-            judge, description, corp, ranked, cache, query_set, top_k, doc_chars, seed, workers
+            judge, instruction, corp, ranked, cache, query_set, top_k, doc_chars, seed, workers
         )
     else:
         ratings, verdicts, judge_system = _judge_pairwise(
             judge,
-            description,
+            instruction,
             corp,
             models,
             revisions,
@@ -431,11 +431,11 @@ def run(
     experiment = {
         "corpus_id": corp.id,
         "query_set": query_set,
-        "arm": arm,
+        "query_source": query_source,
         "judge_model": model_id(judge),
-        "generator_model": model_id(gen_client) if arm == "synthetic" else None,
-        "task_description": description,
-        "task_description_source": description_source,
+        "generator_model": model_id(gen_client) if query_source == "synthetic" else None,
+        "task_instruction": instruction,
+        "task_instruction_source": instruction_source,
         "judge_system": judge_system,
         "n_queries_generated": qset.n_generated,
         "n_queries": len(texts),
@@ -444,16 +444,14 @@ def run(
         "pairs_per_query": pairs_per_query if judging == "pairwise" else None,
         "judging": judging,
         "seed": seed,
-        **({f"gen_{k}": v for k, v in gen.params.items()} if arm == "synthetic" else {}),
+        **({f"gen_{k}": v for k, v in gen.params.items()} if query_source == "synthetic" else {}),
         "models": models,
         "model_revisions": revisions,
     }
     experiment["config_hash"] = results.config_hash(experiment)
     path = results.record_path(out, corp.name, experiment)
-    if path.exists():  # same configuration, same verdicts: the record stands, agreement included
-        return Result.from_disk(path)
     llms = {"judge": llm_settings(judge), "generator": qset.generator_settings}
-    label_source = "dataset" if arm == "original" else "seed_documents" if labels else None
+    label_source = "dataset" if query_source == "original" else "seed_documents" if labels else None
     result = Result(
         results.build_record(
             corp,
@@ -469,5 +467,9 @@ def run(
         ),
         path,
     )
+    if path.exists():
+        existing = Result.from_disk(path)
+        if existing.record["ratings"] == result.record["ratings"]:  # it may hold an agreement added since
+            return existing
     result.to_disk()
     return result

@@ -42,13 +42,10 @@ def predict(model_name: str, task, folder: Path, *, batch_size: int = 32) -> Pat
             show_progress_bar=False,
         )
         gc.collect()
-        try:
-            import torch
+        import torch
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()  # free GPU memory between models
-        except ImportError:
-            pass
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()  # free GPU memory between models
     return path
 
 

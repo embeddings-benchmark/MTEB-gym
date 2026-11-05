@@ -115,7 +115,7 @@ class Scripted:
 
 
 def _generator(label="first"):
-    return QueryGenerator(Scripted(label), task_description="t", n_queries=3, filter_queries=False, workers=1)
+    return QueryGenerator(Scripted(label), task_instruction="t", n_queries=3, filter_queries=False, workers=1)
 
 
 def test_the_first_writer_of_a_query_set_wins(tmp_path):

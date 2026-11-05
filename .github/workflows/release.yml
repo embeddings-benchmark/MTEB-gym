@@ -5,13 +5,25 @@ on:
     types: [published]
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+      - run: make install
+      - run: make test
   pypi:
+    needs: test
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write  # PyPI trusted publishing: no stored token
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Check the tag matches the version
+        run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@release/v1

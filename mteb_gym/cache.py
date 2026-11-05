@@ -1,6 +1,6 @@
 """
 Every stage a run can reuse (default ~/.cache/mteb_gym, or $MTEB_GYM_CACHE), laid out like the dataset its files are
-published to. Results are kept apart from the cache, as in mteb.
+published to.
 
     <cache_folder>/queries/<task>/<query set>.json                       generated queries and their generator
     <cache_folder>/predictions/<task>/<model>@<revision>/<query set>/    mteb's prediction file
@@ -26,11 +26,12 @@ logger = logging.getLogger(__name__)
 
 
 def sha(*parts) -> str:
-    return hashlib.sha256("|".join(map(str, parts)).encode()).hexdigest()[:12]
+    canonical = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
 def default_cache_folder() -> Path:
-    """$MTEB_GYM_CACHE, else ~/.cache/mteb_gym, as mteb uses $MTEB_CACHE, else ~/.cache/mteb."""
+    """$MTEB_GYM_CACHE, else ~/.cache/mteb_gym."""
     return Path(os.environ.get("MTEB_GYM_CACHE") or Path.home() / ".cache" / "mteb_gym").expanduser()
 
 
@@ -43,7 +44,7 @@ def model_id(client) -> str:
     settings it was built with."""
     name = str(getattr(client, "model", type(client).__name__))
     knobs = [getattr(client, k, None) for k in ("max_tokens", "extra_body", "temperature")]
-    return name if not any(k is not None for k in knobs) else f"{name}+{sha(*map(repr, knobs))}"
+    return name if not any(k is not None for k in knobs) else f"{name}+{sha(*knobs)}"
 
 
 def verdict_key(judge_id, system, top_k, doc_chars, query_set, a, rev_a, b, rev_b) -> str:
@@ -67,18 +68,17 @@ def grade_file(folder: Path, judge_id: str, key: str) -> Path:
 
 
 def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[str, list[Path]]:
-    """The cached files a record was computed from. Everything that names them is in the record, so publishing a run
-    needs nothing else."""
+    """The cached files a record was computed from, named from the record alone."""
     cache = resolve_cache_folder(cache_folder)
     cfg, task = record["config"], record["task_name"]
     revs = cfg["model_revisions"]
     if cfg["judging"] == "pointwise":
         key = grades_key(
-            cfg["judge_model"], cfg["judge_system"], cfg["task_description"], cfg["doc_chars"], cfg["query_set"]
+            cfg["judge_model"], cfg["judge_system"], cfg["task_instruction"], cfg["doc_chars"], cfg["query_set"]
         )
-        verdicts = [grade_file(cache / "grades" / task, cfg["judge_model"], key)]
+        judgments = [grade_file(cache / "grades" / task, cfg["judge_model"], key)]
     else:
-        verdicts = [
+        judgments = [
             verdict_file(
                 cache / "verdicts" / task,
                 a,
@@ -98,12 +98,14 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
             for a, b in itertools.combinations(cfg["models"], 2)
         ]
     recipe = cfg["query_set"].rsplit("-", 1)[0]  # the generated set's file is named before its queries exist
-    queries = [cache / "queries" / task / f"{recipe}.json"] if cfg["arm"] == "synthetic" else []
+    if cfg["pairs_per_query"] is not None:  # a random subset of pairs leaves the others without a file
+        judgments = [p for p in judgments if p.exists()]
+    queries = [cache / "queries" / task / f"{recipe}.json"] if cfg["query_source"] == "synthetic" else []
     predictions = [
         cache / "predictions" / task / f"{slug(m)}@{revs[m]}" / cfg["query_set"] / f"{task}_predictions.json"
         for m in cfg["models"]
     ]
-    return {"queries": queries, "predictions": predictions, "verdicts": verdicts}
+    return {"queries": queries, "predictions": predictions, "judgments": judgments}
 
 
 def _read_jsonl(path: Path, cls) -> list:
@@ -119,7 +121,7 @@ def _read_jsonl(path: Path, cls) -> list:
 
 
 def _appender(path: Path, run: dict):
-    """A function that appends an item to `path` as it is made, so a crash loses at most that item."""
+    """A function that appends an item to `path`, so a crash loses at most the item being written."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not path.read_bytes().endswith(b"\n"):  # a crash cut the last line short
         with path.open("a", encoding="utf-8") as f:

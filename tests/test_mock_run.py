@@ -1,5 +1,6 @@
 import json
 import tempfile
+import types
 from pathlib import Path
 
 import pytest
@@ -33,9 +34,7 @@ def test_original_queries_are_sampled_and_self_matches_dropped():
 
 
 def test_end_to_end_local_corpus():
-    mteb = pytest.importorskip("mteb")
-    pytest.importorskip("bm25s")
-    pytest.importorskip("sentence_transformers")
+    mteb = __import__("mteb")
     from mteb_gym import run
 
     calls = {"n": 0}
@@ -51,7 +50,7 @@ def test_end_to_end_local_corpus():
         for did, text in make_corpus(12).items():
             (docs / f"{did}.txt").write_text(text)
         kw = dict(
-            task_description="Given a topic, retrieve documents about it",
+            task_instruction="Given a topic, retrieve documents about it",
             models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=Counting(),
             n_queries=4,
@@ -72,8 +71,8 @@ def test_end_to_end_local_corpus():
         (qfile,) = cache_files(rec, Path(tmp) / "cache")["queries"]
         assert json.loads(qfile.read_text())["generator"]["model"] == "mock" == rec["llms"]["generator"]["model"]
         files = cache_files(rec, Path(tmp) / "cache")
-        assert len(files["verdicts"]) == 1 and all(p.exists() for p in files["verdicts"] + files["queries"])
-        assert rec["config"]["n_queries"] == 4 and rec["config"]["task_description"]  # local corpus: no task prompt
+        assert len(files["judgments"]) == 1 and all(p.exists() for p in files["judgments"] + files["queries"])
+        assert rec["config"]["n_queries"] == 4 and rec["config"]["task_instruction"]  # local corpus: no task prompt
         assert rec["source"] == "local" and rec["corpus_id"].startswith("local:docs@")
         assert rec["llms"]["judge"]["model"] == "mock" and rec["llms"]["generator"]["model"] == "mock"
         assert rec["labels"] == "seed_documents" and all(0 <= r["ndcg_at_10"] <= 1 for r in rec["ratings"])
@@ -87,16 +86,14 @@ def test_end_to_end_local_corpus():
         again = run(docs, **kw)  # everything cached: no LLM calls, the record stands as written
         assert calls["n"] == 0 and again.record == rec and again.path == res.path
         own = run(docs, queries=["statins and heart disease", "fiber and the gut", "vitamin D for asthma"], **kw)
-        assert own.record["config"]["arm"] == "own" and own.record["config"]["n_queries"] == 3
+        assert own.record["config"]["query_source"] == "own" and own.record["config"]["n_queries"] == 3
         assert own.record["labels"] is None and all(r["ndcg_at_10"] is None for r in own.record["ratings"])
         df = load_results(Path(tmp) / "out").to_dataframe()
-        assert len(df) == 4 and set(df["arm"]) == {"synthetic", "own"}
+        assert len(df) == 4 and set(df["query_source"]) == {"synthetic", "own"}
 
 
 def test_end_to_end_pointwise_decision_judge():
-    pytest.importorskip("mteb")
-    pytest.importorskip("bm25s")
-    pytest.importorskip("sentence_transformers")
+    __import__("mteb")
     from mteb_gym import run
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -106,7 +103,7 @@ def test_end_to_end_pointwise_decision_judge():
             (docs / f"{did}.txt").write_text(text)
         decider = Deciding()
         kw = dict(
-            task_description="Given a topic, retrieve documents about it",
+            task_instruction="Given a topic, retrieve documents about it",
             models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=decider,
             queries=["statins and heart disease", "fiber and the gut", "vitamin D for asthma"],
@@ -121,7 +118,7 @@ def test_end_to_end_pointwise_decision_judge():
         assert len(rec["ratings"]) == 2 and all(0 <= r["rating"] <= 100 for r in rec["ratings"])
         assert rec["diagnostics"]["n_grades"] == decider.calls > 0
         files = cache_files(rec, Path(tmp) / "cache")
-        assert len(files["verdicts"]) == 1 and files["verdicts"][0].exists()  # the grades file
+        assert len(files["judgments"]) == 1 and files["judgments"][0].exists()  # the grades file
         decider.calls = 0
         assert run(docs, **kw).record == rec and decider.calls == 0  # cached
         with pytest.raises(ValueError, match="judges pointwise"):
@@ -131,9 +128,7 @@ def test_end_to_end_pointwise_decision_judge():
 def test_predict_then_run_reuses_the_predictions():
     """One model per call, as a roster is run one model per process; the later run finds the
     prediction files already written and only judges."""
-    pytest.importorskip("mteb")
-    pytest.importorskip("bm25s")
-    pytest.importorskip("sentence_transformers")
+    __import__("mteb")
     from mteb_gym import predict, run
 
     models = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
@@ -143,7 +138,7 @@ def test_predict_then_run_reuses_the_predictions():
         for did, text in make_corpus(12).items():
             (docs / f"{did}.txt").write_text(text)
         shared = dict(
-            task_description="Given a topic, retrieve documents about it",
+            task_instruction="Given a topic, retrieve documents about it",
             n_queries=4,
             filter_queries=False,
             cache_folder=Path(tmp) / "cache",
@@ -168,9 +163,7 @@ def test_predict_then_run_reuses_the_predictions():
 
 
 def test_end_to_end_mteb_task():
-    pytest.importorskip("mteb")
-    pytest.importorskip("bm25s")
-    pytest.importorskip("sentence_transformers")
+    __import__("mteb")
     from mteb_gym import run
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -178,7 +171,7 @@ def test_end_to_end_mteb_task():
             "NanoNFCorpusRetrieval",
             ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=MockLLM(),
-            task_description="Given a health topic, retrieve documents about it",
+            task_instruction="Given a health topic, retrieve documents about it",
             n_queries=8,
             output_folder=Path(tmp),
             cache_folder=Path(tmp) / "cache",
@@ -186,6 +179,156 @@ def test_end_to_end_mteb_task():
         )
         cfg = res.record["config"]
         assert len(res.record["ratings"]) == 2 and cfg["n_queries"] >= 5  # the mock's queries survive filtering
-        assert cfg["task_description_source"] == "config:task_description" and "retrieve" in cfg["task_description"]
+        assert cfg["task_instruction_source"] == "config:task_instruction" and "retrieve" in cfg["task_instruction"]
         assert res.record["diagnostics"]["n_comparisons"] == cfg["n_queries"]
         assert res.record["source"] == "mteb" and "@" in res.record["corpus_id"] and cfg["query_set"]
+
+
+def _docs(tmp, n=30):
+    docs = Path(tmp) / "docs"
+    docs.mkdir(exist_ok=True)
+    for i in range(n):
+        (docs / f"{i}.txt").write_text(f"document {i} about topic {i % 5} and words alpha beta gamma {i * 7}")
+    return docs
+
+
+class Calls(MockLLM):
+    def __init__(self, seed=0):
+        super().__init__(seed)
+        self.prompts = []
+
+    def chat(self, messages, **kw):
+        self.prompts.append(messages)
+        return super().chat(messages, **kw)
+
+
+_BM25 = ["mteb/baseline-bm25s"]
+_TWO = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
+
+
+def test_the_generator_writes_and_the_judge_judges(tmp_path):
+    from mteb_gym import run
+
+    gen, judge = Calls(), Calls()
+    run(
+        _docs(tmp_path),
+        _TWO,
+        judge=judge,
+        generator=gen,
+        task_instruction="t",
+        n_queries=4,
+        filter_queries=False,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    assert all("write realistic" in p[0]["content"] for p in gen.prompts)
+    assert judge.prompts and all("compare two retrieval systems" in p[0]["content"] for p in judge.prompts)
+
+
+def test_pairs_per_query_limits_the_comparisons(tmp_path):
+    from mteb_gym import run
+
+    three = [*_TWO, "BAAI/bge-small-en-v1.5"]
+    judge = Calls()
+    res = run(
+        _docs(tmp_path),
+        three,
+        judge=judge,
+        generator=MockLLM(),
+        task_instruction="t",
+        n_queries=4,
+        filter_queries=False,
+        pairs_per_query=1,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    assert res.record["diagnostics"]["n_comparisons"] == 4  # one pair for each of the four queries
+
+
+def test_model_order_does_not_change_what_is_judged(tmp_path):
+    from mteb_gym import run
+
+    kw = dict(
+        judge=Calls(),
+        generator=MockLLM(),
+        task_instruction="t",
+        n_queries=3,
+        filter_queries=False,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    first = run(_docs(tmp_path), _TWO, **kw)
+    calls = len(kw["judge"].prompts)
+    second = run(_docs(tmp_path), list(reversed(_TWO)), **kw)
+    assert len(kw["judge"].prompts) == calls and first.path == second.path
+
+
+def test_original_queries_retrieve_and_score_only_the_sample(tmp_path, monkeypatch):
+    """The labels baseline and the judge must see the same queries, and only those are retrieved."""
+    from mteb_gym import corpus as corpus_mod
+    from mteb_gym import run
+
+    docs = {f"d{i}": f"document {i} about alpha beta" for i in range(20)}
+    queries = {f"q{i}": f"alpha question {i}" for i in range(10)}
+    qrels = {f"q{i}": {f"d{i}": 1} for i in range(10)}
+    local = corpus_mod.load(_docs(tmp_path, 3))
+    local.docs, local.queries, local.qrels = docs, queries, qrels
+    monkeypatch.setattr(corpus_mod, "load", lambda spec: local)
+    res = run(
+        "x",
+        _BM25 + _TWO[1:],
+        judge=MockLLM(),
+        queries="original",
+        n_queries=4,
+        task_instruction="t",
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    assert res.record["config"]["n_queries"] == 4 and res.record["labels"] == "dataset"
+    predictions = cache_files(res.record, tmp_path / "c")["predictions"][0]
+    assert len(json.loads(predictions.read_text())["default"]["test"]) == 4
+
+
+def test_a_query_with_no_relevant_document_is_not_sampled(tmp_path, monkeypatch):
+    from mteb_gym.run import resolve_queries
+
+    corp = types.SimpleNamespace(
+        name="t", id="t@1", docs={}, queries={"q0": "a", "q1": "b"}, qrels={"q0": {"d": 1}, "q1": {"d": 0}}
+    )
+    gen = types.SimpleNamespace()
+    assert list(resolve_queries(corp, tmp_path, "original", gen, 5, 0).texts) == ["q0"]
+
+
+def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatch):
+    import mteb_gym.run as run_module
+    from mteb_gym import run
+
+    kw = dict(
+        judge=MockLLM(),
+        generator=MockLLM(),
+        task_instruction="t",
+        n_queries=3,
+        filter_queries=False,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    first = run(_docs(tmp_path), _TWO, **kw)
+    first.record["agreement"] = {"kept": True}
+    first.to_disk()
+    assert run(_docs(tmp_path), _TWO, **kw).record["agreement"] == {"kept": True}  # nothing changed: the record stands
+    real = run_module.rate
+
+    def shifted(*a, **k):
+        out = real(*a, **k)
+        for r in out:
+            r.rating += 1
+        return out
+
+    monkeypatch.setattr(run_module, "rate", shifted)
+    again = run(_docs(tmp_path), _TWO, **kw).record
+    assert "agreement" not in again and again["ratings"][0]["rating"] == first.record["ratings"][0]["rating"] + 1

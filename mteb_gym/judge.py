@@ -1,10 +1,8 @@
 """
-Judges. Pointwise (bottom of the file): every pooled document is graded once, 0-5, and models are ranked by nDCG
-over the grades. Pairwise: each pair is judged in both presentation orders and scored
-fractionally: score_A = mean over the two orders of {win: 1, tie: 0.5, loss: 0}.
-A split across orders is 0.5, a soft tie that still carries magnitude into
-Bradley-Terry. Flipping cancels position bias in the score; the record reports
-it as a_first_rate (0.5 is unbiased).
+Judges. Pointwise: every pooled document is graded once, 0-5, and models are ranked by nDCG over the grades. Pairwise:
+each pair of result lists is judged in both presentation orders and scored fractionally, score_A = mean over the two
+orders of {win: 1, tie: 0.5, loss: 0}. Flipping cancels position bias in the score; the record reports it as
+a_first_rate (0.5 is unbiased).
 """
 
 from __future__ import annotations
@@ -41,8 +39,8 @@ _TAIL = (
 
 
 def _reply(client: ChatClient, messages: list[dict]) -> str | None:
-    """The judge's answer, or None once a call has timed out through its retries: one stuck call, such as a reasoning
-    model generating without end, costs one comparison or grade and not the run."""
+    """The judge's answer, or None once a call has timed out through its retries. One stuck call costs one comparison
+    or grade, not the run."""
     try:
         return client.chat(messages)
     except (TimeoutError, APITimeoutError, httpx.TimeoutException):
@@ -77,13 +75,18 @@ def _cut(text: str, n: int) -> str:
     """The first `n` characters, ending at a word boundary and marked, or the whole text if it fits."""
     if len(text) <= n:
         return text
-    head = text[:n]
-    return (head.rsplit(None, 1)[0] if " " in head else head) + "..."
+    words = text[:n].rsplit(None, 1)
+    return (words[0] if len(words) > 1 else text[:n]) + "..."
 
 
 def _format(r: Ranked, doc_chars: int) -> str:
     """The list as the judge sees it: each document cut to `doc_chars`."""
     return "\n".join(f"  {i + 1}. {_cut(t, doc_chars)}" for i, t in enumerate(r.doc_texts))
+
+
+def _reasoning(answer: dict) -> str:
+    reasoning = answer.get("reasoning", "")
+    return reasoning if isinstance(reasoning, str) else ""
 
 
 def _parse(raw: str) -> tuple[str, str, bool]:
@@ -93,7 +96,7 @@ def _parse(raw: str) -> tuple[str, str, bool]:
     # read as written, up to case and trim: "a", "Tie", "B." and "System A" all mean what they say
     said = str(out.get("winner", "")).strip().rstrip(".").lower().removeprefix("system ").strip()
     winner = {"a": "A", "b": "B", "tie": "tie"}.get(said)
-    return (winner or "tie"), out.get("reasoning", ""), winner is not None
+    return (winner or "tie"), _reasoning(out), winner is not None
 
 
 class PairwiseJudge:
@@ -199,11 +202,6 @@ class PairwiseJudge:
             return collect(pool.map(one, pairs))
 
 
-# ------------------------------------------------------------------------------------------- pointwise
-# Each document in the pool (every model's top k for a query) is graded once, 0-5, and each model is ranked by nDCG@k
-# over the grades. A decision model answers the grade question in one forward pass with a calibrated probability per
-# grade; a chat LLM writes a short reason and a grade.
-
 GRADE_QUESTION = (
     "How relevant is the document to the query, for this retrieval task? 0 = not relevant at all, "
     "5 = perfectly relevant: it fully satisfies the information need."
@@ -231,6 +229,7 @@ class Grade:
 
 
 def is_decision_model(client) -> bool:
+    """A client with decide() and no chat()."""
     return callable(getattr(client, "decide", None)) and not callable(getattr(client, "chat", None))
 
 
@@ -239,8 +238,8 @@ def grade_state(query: str, document: str, instruction: str, doc_chars: int) -> 
 
 
 class PointwiseJudge:
-    """Grades one (query, document) at a time. Uses `client.decide` when the client is a decision model, else the
-    client's chat endpoint with a JSON answer."""
+    """Grades one (query, document) at a time. A decision model answers in one forward pass with a probability per
+    grade; a chat LLM writes a short reason and a grade."""
 
     def __init__(
         self,
@@ -248,14 +247,12 @@ class PointwiseJudge:
         instruction: str,
         workers: int = 8,
         doc_chars: int = 2000,
-        decision: bool | None = None,
     ):
         self.client = client
         self.instruction = instruction
         self.workers = max(1, workers)
         self.doc_chars = doc_chars
-        # a client with decide() and no chat() is a decision model; `decision` overrides, e.g. for MockLLM
-        self.decision = is_decision_model(client) if decision is None else decision
+        self.decision = is_decision_model(client)
         # what the judge is told; part of the grades' cache identity
         self.system = GRADE_QUESTION if self.decision else _GRADE_ROLE + _TASK.format(task=instruction) + _GRADE_TAIL
 
@@ -281,7 +278,7 @@ class PointwiseJudge:
             ok = 0 <= g <= 5
         except (KeyError, TypeError, ValueError):
             g, ok = 0.0, False
-        return Grade(qid, doc_id, g, reasoning=out.get("reasoning", ""), parsed_ok=ok)
+        return Grade(qid, doc_id, g, reasoning=_reasoning(out), parsed_ok=ok)
 
     def grade_all(self, items: list[tuple[str, str, str, str]], on_grade=None) -> list[Grade]:
         """`items` are (qid, query, doc_id, document); `on_grade` is called per grade as it completes."""

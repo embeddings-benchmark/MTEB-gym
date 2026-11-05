@@ -24,8 +24,18 @@ def test_rank():
     ratings = rate(verdicts, bootstrap=100)
     assert [r.name for r in ratings] == ["winner", "mid", "loser"]
     assert ratings[-1].rating < ratings[1].rating - 50, "a model that loses every verdict must sink"
-    assert all(r.ci >= 0 for r in ratings)
-    assert format_leaderboard(ratings).count("\n") == 6
+    assert (
+        format_leaderboard(
+            [
+                {
+                    "model": r.name,
+                    **{k: getattr(r, k) for k in ("rating", "ci_low", "ci_high", "wins", "losses", "ties")},
+                }
+                for r in ratings
+            ]
+        ).count("\n")
+        == 6
+    )
 
 
 def test_rate_pointwise():

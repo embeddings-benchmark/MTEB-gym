@@ -1,7 +1,4 @@
-"""mteb-gym run --corpus NFCorpus --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 --judge autotrust/JEV-27B \
-    --judge-url http://localhost:8000 --judge-decision --generator gpt-4.1-mini
-mteb-gym run --corpus NFCorpus --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 --judge gpt-4.1
-mteb-gym predict --corpus NFCorpus --model BAAI/bge-base-en-v1.5 --generator gpt-4.1-mini"""
+"""The `mteb-gym` command."""
 
 from __future__ import annotations
 
@@ -30,7 +27,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
         help="'synthetic', 'original' (the dataset's own queries), or a path to your queries",
     )
     ap.add_argument(
-        "--task-description",
+        "--task-instruction",
         default=None,
         help="one sentence on what a good result is; required, except for the gym's evaluated MTEB tasks",
     )
@@ -40,7 +37,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--cache-folder",
         default=None,
-        help="queries, predictions, grades and verdicts (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
+        help="queries, predictions and judgments (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
     )
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--workers", type=int, default=8)
@@ -87,7 +84,7 @@ def main(argv=None) -> None:
 
     sub_ap = sub.add_parser(
         "submit",
-        help="records to the results repository on GitHub; their queries, predictions and verdicts to the dataset on Hugging Face",
+        help="records to the results repository on GitHub; their queries, predictions and judgments to the dataset on Hugging Face",
     )
     sub_ap.add_argument("--results-folder", default="results")
     sub_ap.add_argument("--cache-folder", default=None)
@@ -110,7 +107,7 @@ def main(argv=None) -> None:
     shared = dict(
         generator=client(args.generator, args.generator_url, args.generator_extra_body) if args.generator else None,
         queries=args.queries,
-        task_description=args.task_description,
+        task_instruction=args.task_instruction,
         n_queries=args.n_queries,
         seed=args.seed,
         filter_queries=not args.no_filter,

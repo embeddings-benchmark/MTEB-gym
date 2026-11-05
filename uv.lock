@@ -1100,8 +1100,16 @@ name = "mteb-gym"
 version = "0.3.0"
 source = { editable = "." }
 dependencies = [
+    { name = "datasets" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
     { name = "mteb", extra = ["bm25s"] },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "openai" },
+    { name = "pandas" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
 [package.optional-dependencies]
@@ -1120,9 +1128,15 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mteb", extras = ["bm25s"], specifier = ">=2.20" },
-    { name = "mteb", extras = ["pylate"], marker = "extra == 'colbert'", specifier = ">=2.20" },
+    { name = "datasets" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "mteb", extras = ["bm25s"], specifier = ">=2.20,<3" },
+    { name = "mteb", extras = ["pylate"], marker = "extra == 'colbert'", specifier = ">=2.20,<3" },
+    { name = "numpy" },
     { name = "openai", specifier = ">=1.40" },
+    { name = "pandas" },
+    { name = "scipy" },
 ]
 provides-extras = ["colbert"]
 

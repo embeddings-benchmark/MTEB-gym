@@ -2,8 +2,6 @@ import json
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from mteb_gym import Result, agreement, load_results
 
 
@@ -60,7 +58,7 @@ def test_agreement():
 def test_official_scores_across_revisions():
     """The results repository files many models' scores under "external", not under the revision
     mteb pins; the lookup must find those, and prefer the pinned one when both exist."""
-    mteb = pytest.importorskip("mteb")
+    import mteb
     from mteb.results import TaskResult
 
     meta = mteb.get_model_meta("BAAI/bge-base-en-v1.5")

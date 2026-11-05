@@ -33,9 +33,11 @@ def test_submit_prepares_a_commit(monkeypatch):
 
         record = {
             "task_name": "demo",
+            "source": "mteb",
             "config": {
                 "judging": "pairwise",
-                "arm": "original",
+                "pairs_per_query": None,
+                "query_source": "original",
                 "query_set": "qs",
                 "models": ["m/a", "m/b"],
                 "model_revisions": {"m/a": "1", "m/b": "1"},
@@ -69,3 +71,15 @@ def test_submit_prepares_a_commit(monkeypatch):
         # the results repository still lacks it, so a second call prepares the same commit again
         again = submit(tmp / "results", cache_folder=cache, repository=str(remote))
         assert again["records"] == out["records"] and again["branch"] == out["branch"]
+
+        # a run on a local corpus stays local
+        local = {**record, "source": "local"}
+        (results / "demo__mock__original-queries__q1-s0-abc.json").write_text(json.dumps(local))
+        assert submit(tmp / "results", cache_folder=cache, repository=str(remote))["records"] == []
+
+        # a random subset of pairs leaves the other pairs without a file, which must not block submitting
+        subset = {**record, "config": {**record["config"], "pairs_per_query": 1}}
+        judgments = cache_files(subset, cache)["judgments"]
+        assert len(judgments) == 1
+        judgments[0].unlink()
+        assert cache_files(subset, cache)["judgments"] == []
