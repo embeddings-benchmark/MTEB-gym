@@ -9,7 +9,7 @@ import pytest
 from mteb_gym import Result, load_results, results
 from mteb_gym.judge import Grade, Verdict
 from mteb_gym.rank import rate
-from mteb_gym.run import grade_diagnostics
+from mteb_gym.results import grade_diagnostics
 
 
 def test_record():
@@ -43,7 +43,9 @@ def test_record():
         "n_queries": 3,
     }
     exp["config_hash"] = results.config_hash(exp)
-    rec = results.build_record(corpus, exp, rate(verdicts, bootstrap=0), verdicts, 1.0, {"a": "r1", "b": None})
+    rec = results.build_record(
+        corpus, exp, rate(verdicts, bootstrap=0), results.verdict_diagnostics(verdicts), 1.0, {"a": "r1", "b": None}
+    )
     assert rec["source"] == "local" and rec["diagnostics"]["tie_rate"] == 2 / 3
     assert (
         results.record_path(Path("out"), "demo", exp)

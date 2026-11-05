@@ -102,6 +102,12 @@ def test_correlate_against_a_hand_worked_ranking():
 def test_correlate_interval_follows_the_data():
     same = {f"m{i}": float(i) for i in range(8)}
     assert agreement.correlate(same, dict(same), bootstrap=50)["spearman_ci95"] == pytest.approx([1.0, 1.0])
+    noisy = {"a": 1.0, "b": 3.0, "c": 2.0, "d": 5.0, "e": 4.0, "f": 7.0, "g": 6.0, "h": 8.0}
+    out = agreement.correlate(
+        noisy, same | {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0, "e": 4.0, "f": 5.0, "g": 6.0, "h": 7.0}, bootstrap=200
+    )
+    low, high = out["spearman_ci95"]
+    assert low < out["spearman_rho"] <= high and high - low > 0.05
 
 
 def test_tau_ap_counts_a_tie_as_no_agreement():

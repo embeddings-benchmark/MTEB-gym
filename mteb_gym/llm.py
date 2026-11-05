@@ -73,7 +73,7 @@ class LLM:
         key = api_key or (os.environ.get("MTEB_GYM_API_KEY") if base_url else os.environ.get("OPENAI_API_KEY"))
         if base_url is None and key is None and not os.environ.get("OPENAI_BASE_URL"):
             raise ValueError(
-                f"gym.LLM({model!r}): no API key and no base_url. Set OPENAI_API_KEY for OpenAI, pass base_url "
+                f"LLM({model!r}): no API key and no base_url. Set OPENAI_API_KEY for OpenAI, pass base_url "
                 f"and api_key for another provider, or serve the model yourself (`vllm serve {model}`) and pass "
                 "base_url='http://localhost:8000/v1'."
             )
@@ -100,7 +100,11 @@ class LLM:
                     model=self.model, messages=messages, extra_body=self.extra_body, **sent
                 )
                 self.served_model = getattr(resp, "model", None) or self.served_model
-                return resp.choices[0].message.content or ""
+                choice = resp.choices[0]
+                if getattr(choice, "finish_reason", None) == "length":  # cut off by a token limit: no usable answer
+                    logger.warning("%s hit its token limit; the answer is left out", self.model)
+                    return ""
+                return choice.message.content or ""
             except Exception as e:
                 # A model may refuse a parameter with a 400 naming it: drop it, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
@@ -135,11 +139,15 @@ class DecisionModel:
             except httpx.TransportError as e:
                 error = repr(e)
                 continue
-            if r.status_code >= 500:
+            if r.status_code >= 500 or r.status_code in (408, 429):
                 error = f"HTTP {r.status_code}: {r.text[:200]}"
                 continue
             r.raise_for_status()
-            out = r.json()
+            try:
+                out = r.json()
+            except ValueError:
+                error = f"not JSON: {r.text[:200]}"
+                continue
             return dict(zip(out["options"], out["probabilities"], strict=True))
         raise RuntimeError(f"{self.base_url}/v1/decide failed after {self.max_retries + 1} attempts: {error}")
 

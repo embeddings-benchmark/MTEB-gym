@@ -6,10 +6,10 @@ import types
 import pytest
 
 from mteb_gym.cache import judge_pair_cached, judge_pool_cached
-from mteb_gym.judge import PairwiseJudge, PointwiseJudge
+from mteb_gym.judge import PairwiseJudge, PointwiseJudge, Verdict
 from mteb_gym.queries import Query, QueryGenerator
 from mteb_gym.retrieval import Ranked
-from mteb_gym.run import _cached_queries, _check_judging, _judge_pointwise, resolve_queries
+from mteb_gym.run import _cached_queries, _check_coverage, _check_judging, _judge_pointwise, _Judging, resolve_queries
 
 
 class Counting:
@@ -49,7 +49,7 @@ def test_failed_grades_are_asked_again_on_a_rerun(tmp_path):
     docs = {"d0": "d0", "d1": "d1"}
     broken = Counting("no json here")
     grades = judge_pool_cached(tmp_path, PointwiseJudge(broken, "t", workers=1), lists, docs, "k")
-    assert broken.calls == 2 and not any(g.parsed_ok for g in grades)
+    assert broken.calls == 4 and not any(g.parsed_ok for g in grades)  # each asked twice
     healthy = Counting(json.dumps({"grade": 4}))
     grades = judge_pool_cached(tmp_path, PointwiseJudge(healthy, "t", workers=1), lists, docs, "k")
     assert healthy.calls == 2 and all(g.parsed_ok and g.grade == 4 for g in grades)
@@ -70,15 +70,17 @@ def test_failed_verdicts_are_asked_again_on_a_rerun(tmp_path):
 
 
 def test_a_query_with_a_failed_grade_does_not_count_against_any_model(tmp_path):
-    """With d_ungraded counted as 0, b would beat a on q1. Without q1, the order comes from q0 alone."""
-    lists = ranked({"a": {"q0": ["good"], "q1": ["d_ungraded"]}, "b": {"q0": ["bad"], "q1": ["d_ok"]}})
+    """Counting the ungraded document as 0 would hand q_failed to b. Without it, a wins every query that remains."""
+    a = {f"q{i}": ["good"] for i in range(10)} | {"q_failed": ["d_ungraded"]}
+    b = {f"q{i}": ["bad"] for i in range(10)} | {"q_failed": ["d_ok"]}
     grades = {"good": 5, "bad": 0, "d_ungraded": None, "d_ok": 5}
     corp = types.SimpleNamespace(name="task", docs={d: d for d in grades})
     client = Counting(grade_by_document(grades))
-    ratings, diagnostics, _ = _judge_pointwise(client, "t", corp, lists, tmp_path, "qs", 1, 2000, 0, 1)
-    by_model = {r.name: r.rating for r in ratings}
-    assert by_model == {"a": 100.0, "b": 0.0}
-    assert diagnostics["queries_left_out"] == 1
+    ratings, diagnostics, _ = _judge_pointwise(
+        client, "t", ranked({"a": a, "b": b}), _Judging(corp, tmp_path, "qs", 1, 2000, 0, 1)
+    )
+    assert {r.name: r.rating for r in ratings} == {"a": 100.0, "b": 0.0}
+    assert diagnostics["queries_left_out"] == 1 and diagnostics["queries_rated"] == 10
 
 
 @pytest.mark.parametrize(
@@ -92,7 +94,7 @@ def test_a_query_with_a_failed_grade_does_not_count_against_any_model(tmp_path):
 )
 def test_a_run_the_judge_failed_is_an_error_not_a_record(diagnostics, rated):
     ratings = [types.SimpleNamespace(name=m) for m in rated]
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="failed|no usable"):
         _check_judging(diagnostics, ratings, ["a", "b"])
 
 
@@ -150,8 +152,8 @@ def test_regenerated_queries_never_reuse_older_predictions(tmp_path):
     assert resolve_queries(corp, tmp_path, "synthetic", _generator("second"), 3, 0).id == second.id
 
 
-def test_only_the_current_pool_is_returned_and_rated(tmp_path):
-    """Grades saved for a model no longer on the roster do not change the ideal ranking of the rest."""
+def test_only_the_current_pool_is_returned(tmp_path):
+    """Grades saved for a model no longer on the roster are not returned."""
     docs = {"d0": "d0", "d1": "d1"}
     client = Counting(json.dumps({"grade": 5}))
     judge = PointwiseJudge(client, "t", workers=1)
@@ -173,6 +175,54 @@ def test_pointwise_rating_uses_the_runs_top_k(tmp_path):
     grades = {"good": 5, "weak": 1}
     corp = types.SimpleNamespace(name="task", docs={d: d for d in grades})
     ratings, _, _ = _judge_pointwise(
-        Counting(grade_by_document(grades)), "t", corp, lists, tmp_path, "qs", 1, 2000, 0, 1
+        Counting(grade_by_document(grades)), "t", lists, _Judging(corp, tmp_path, "qs", 1, 2000, 0, 1)
     )
     assert {r.name: r.rating for r in ratings}["b"] == pytest.approx(20.0)
+
+
+def test_too_many_queries_left_out_is_an_error(tmp_path):
+    """One failed grade loses a whole query, so a small rate of failed grades can lose most of the queries."""
+    queries = {f"q{i}": [f"d{i}"] for i in range(20)}
+    grades = {f"d{i}": (None if i < 3 else 5) for i in range(20)}
+    corp = types.SimpleNamespace(name="task", docs={d: d for d in grades})
+    with pytest.raises(RuntimeError, match="3 of 20"):
+        _judge_pointwise(
+            Counting(grade_by_document(grades)),
+            "t",
+            ranked({"m": queries}),
+            _Judging(corp, tmp_path, "qs", 1, 2000, 0, 1),
+        )
+
+
+def test_a_failed_grade_is_asked_again_within_the_run(tmp_path):
+    answers = iter(["no json", json.dumps({"grade": 3})])
+    client = Counting(lambda m: next(answers))
+    grades = judge_pool_cached(
+        tmp_path, PointwiseJudge(client, "t", workers=1), ranked({"m": {"q": ["d"]}}), {"d": "d"}, "k"
+    )
+    assert client.calls == 2 and grades[0].parsed_ok and grades[0].grade == 3
+
+
+def test_a_model_left_with_few_comparisons_is_an_error():
+    ok = dict(raw=["A", "A"], parsed_ok=[True, True])
+    bad = dict(raw=["tie", "tie"], parsed_ok=[False, False])
+    good = [Verdict(f"q{i}", "q", "a", "b", 1.0, **ok) for i in range(4)] + [Verdict("q0", "q", "a", "c", 1.0, **ok)]
+    _check_coverage(good)
+    with pytest.raises(RuntimeError, match=r"\['c'\]"):
+        _check_coverage([*good, *[Verdict(f"q{i}", "q", "a", "c", 0.5, **bad) for i in range(1, 4)]])
+
+
+def test_identical_retrieval_everywhere_is_an_error():
+    ratings = [types.SimpleNamespace(name="a")]
+    with pytest.raises(RuntimeError, match="identical"):
+        _check_judging({"identical_retrieval_rate": 1.0}, ratings, ["a"])
+
+
+def test_queries_survive_a_filesystem_without_hard_links(tmp_path, monkeypatch):
+    def no_links(src, dst):
+        raise PermissionError("no hard links here")
+
+    monkeypatch.setattr("os.link", no_links)
+    gen = _generator()
+    queries, _, _ = _cached_queries(tmp_path / "set.json", gen, {f"d{i}": "document" for i in range(9)})
+    assert queries and json.loads((tmp_path / "set.json").read_text())["queries"] and not list(tmp_path.glob("*.tmp*"))

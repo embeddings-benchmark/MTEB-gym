@@ -47,6 +47,14 @@ def model_id(client) -> str:
     return name if not any(k is not None for k in knobs) else f"{name}+{sha(*knobs)}"
 
 
+def texts_hash(texts: dict[str, str]) -> str:
+    return sha(sorted(texts.items()))
+
+
+def prediction_folder(cache: Path, task: str, model: str, revision: str | None, query_set: str) -> Path:
+    return cache / "predictions" / task / f"{slug(model)}@{revision}" / query_set
+
+
 def verdict_key(judge_id, system, top_k, doc_chars, query_set, a, rev_a, b, rev_b) -> str:
     """Identity of a pair's verdicts: the judge, what it is told and shown, the query set, both models at their
     revisions."""
@@ -102,8 +110,7 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
         judgments = [p for p in judgments if p.exists()]
     queries = [cache / "queries" / task / f"{recipe}.json"] if cfg["query_source"] == "synthetic" else []
     predictions = [
-        cache / "predictions" / task / f"{slug(m)}@{revs[m]}" / cfg["query_set"] / f"{task}_predictions.json"
-        for m in cfg["models"]
+        prediction_folder(cache, task, m, revs[m], cfg["query_set"]) / f"{task}_predictions.json" for m in cfg["models"]
     ]
     return {"queries": queries, "predictions": predictions, "judgments": judgments}
 
@@ -153,7 +160,12 @@ def judge_pool_cached(
     if todo:
         logger.info("grading %d documents (%d already graded)", len(todo), len(pool) - len(todo))
         run = dict(task=folder.name, judge=model_id(judge.client), query_set=query_set)
-        grades = judge.grade_all(todo, on_grade=_appender(path, run))
+        append = _appender(path, run)
+        grades = judge.grade_all(todo, on_grade=append)
+        failed = {(g.qid, g.doc_id) for g in grades if not g.parsed_ok}
+        if failed:
+            logger.info("asking again for %d failed grades", len(failed))
+            grades += judge.grade_all([t for t in todo if (t[0], t[2]) in failed], on_grade=append)
         done.update({(g.qid, g.doc_id): replace(g, **run) for g in grades})
     return [done[p] for p in pool]
 

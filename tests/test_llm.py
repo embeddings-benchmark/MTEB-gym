@@ -66,3 +66,4 @@ def test_only_a_400_counts_as_a_refused_parameter():
     llm.client = _answering_client(create)
     with pytest.raises(ServerError):
         llm.chat([])
+    assert llm._rejected == set()

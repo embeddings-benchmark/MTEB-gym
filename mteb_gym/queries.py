@@ -29,11 +29,11 @@ class Query:
 _GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n"
 _GEN_TASK = "The retrieval task is: {task}\n"
 _GEN_BODY = (
-    "Given a few documents from a corpus, produce ONE query of the kind the retrieval task describes, in the form it "
-    "describes: a claim if it gives claims, a topic if it gives topics, a question if it gives questions, a full "
-    "problem or case description if it gives those. The query must be answerable using the corpus but must NOT restate "
-    "any single shown document, and must not mention the documents. Vary phrasing and specificity. "
-    'Reply with strict JSON: {"query": "..."}'
+    "Given a few documents from a corpus, produce ONE query in the form the retrieval task names. A topic is a few "
+    "words, never a question or a sentence. A claim is a single declarative statement, never a question. A question is "
+    "a question. A problem, situation or case is a full account of it, as long as it needs, written the way its source "
+    "would state it. The query must be answerable using the corpus but must NOT restate any single shown document, and "
+    'must not mention the documents. Vary phrasing and specificity. Reply with strict JSON: {"query": "..."}'
 )
 
 _GEN_USER = "Documents:\n{documents}\n\nWrite one query as JSON."
@@ -49,24 +49,29 @@ _FILTER_USER = "Query: {query}\nReply as JSON."
 
 
 def extract_json(text: str) -> dict:
-    """Last JSON object in a response, ignoring reasoning in think tags. {} if there is none, or the reasoning never
-    closed: an answer cut off there has no answer in it, only drafts."""
-    text = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL)
-    if "<think>" in text:
+    """The last JSON object of an answer, read only after any reasoning. {} if there is none, if the reasoning never
+    closed, or if the answer was cut off after its last complete object."""
+    text = re.split(r"</think(?:ing)?>", text or "")[-1]
+    if re.search(r"<think(?:ing)?>", text):
         return {}
     text = re.sub(r"```(?:json)?", "", text)
     decoder = json.JSONDecoder()
     found: dict = {}
+    cut_off = False
     i = text.find("{")
     while i != -1:
         try:
             obj, end = decoder.raw_decode(text, i)
         except json.JSONDecodeError:
+            cut_off = True
             i = text.find("{", i + 1)
             continue
+        cut_off = False
         if isinstance(obj, dict):
             found = obj
         i = text.find("{", end)
+    if cut_off:
+        return {}
     # A \u escape for half a character decodes to a lone surrogate, which UTF-8 rejects; each becomes U+FFFD.
     text = json.dumps(found, ensure_ascii=False)
     return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
@@ -175,7 +180,7 @@ class QueryGenerator:
 
     def _llm_quality(self, queries: list[Query]) -> None:
         def score(q: Query) -> int:
-            """Score in place; 1 if the score had to be defaulted, else 0."""
+            """Set the query's quality; 1 if it had to be defaulted, else 0."""
             msg = [
                 {"role": "system", "content": _FILTER_SYSTEM.format(task=self.task_instruction)},
                 {"role": "user", "content": _FILTER_USER.format(query=q.text)},

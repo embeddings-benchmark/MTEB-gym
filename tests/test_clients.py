@@ -1,5 +1,7 @@
 """The clients' behaviour against a fake server."""
 
+import json
+
 import httpx
 import pytest
 
@@ -12,7 +14,7 @@ def decision_model(handler, **kw):
     return model
 
 
-def test_decide_pairs_each_option_with_its_probability(monkeypatch):
+def test_decide_pairs_each_option_with_its_probability():
     seen = {}
 
     def handler(request):
@@ -64,4 +66,30 @@ def test_openai_key_is_not_sent_to_other_endpoints(monkeypatch):
 
 
 def test_the_record_leaves_out_a_private_endpoint():
-    assert "base_url" not in llm_settings(LLM("m", base_url="http://private:8000/v1", api_key="k"))
+    assert "private" not in json.dumps(llm_settings(LLM("m", base_url="http://private:8000/v1", api_key="k")))
+
+
+@pytest.mark.parametrize("status", [408, 429])
+def test_decide_waits_out_a_busy_server(monkeypatch, status):
+    monkeypatch.setattr("mteb_gym.llm.time.sleep", lambda s: None)
+    answers = iter([httpx.Response(status), httpx.Response(200, json={"options": ["1"], "probabilities": [1.0]})])
+    assert decision_model(lambda r: next(answers)).decide("score", "s", "q") == {"1": 1.0}
+
+
+def test_decide_reports_a_reply_that_is_not_json(monkeypatch):
+    monkeypatch.setattr("mteb_gym.llm.time.sleep", lambda s: None)
+    with pytest.raises(RuntimeError, match="not JSON"):
+        decision_model(lambda r: httpx.Response(200, text="<html>")).decide("score", "s", "q")
+
+
+def test_an_answer_cut_off_by_the_token_limit_is_empty():
+    import types
+
+    choice = types.SimpleNamespace(finish_reason="length", message=types.SimpleNamespace(content='{"winner": "A"}'))
+    llm = LLM("m", api_key="x")
+
+    def create(**kw):
+        return types.SimpleNamespace(model="m", choices=[choice])
+
+    llm.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
+    assert llm.chat([]) == ""

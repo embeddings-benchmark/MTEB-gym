@@ -6,7 +6,6 @@ import httpx
 import pytest
 
 from mteb_gym.judge import PairwiseJudge, PointwiseJudge, _cut, grade_state
-from mteb_gym.llm import MockLLM
 from mteb_gym.retrieval import Ranked
 
 
@@ -126,11 +125,6 @@ def test_a_decision_model_grade_is_the_expected_grade():
     assert g.grade == 3.0 and g.parsed_ok and g.probabilities == {"1": 0.5, "5": 0.5}
 
 
-def test_the_mock_can_grade():
-    g = PointwiseJudge(MockLLM(), "t", workers=1).grade("q", "query", "d", "text")
-    assert g.parsed_ok and 0 <= g.grade <= 5
-
-
 @pytest.mark.parametrize("error", [TimeoutError("slow"), httpx.ReadTimeout("slow")])
 def test_every_kind_of_timeout_costs_one_answer(error):
     def times_out(messages):
@@ -149,15 +143,9 @@ def test_a_dead_judge_stops_early():
     a = [ranked(f"q{i}", "x") for i in range(40)]
     b = [ranked(f"q{i}", "y") for i in range(40)]
     client = Answering(lambda m: "not json")
-    with pytest.raises(RuntimeError, match="parse-failure"):
+    with pytest.raises(RuntimeError, match="no usable answer"):
         PairwiseJudge(client, "t").judge_all(a, b, "a", "b")
     assert len(client.prompts) == 60  # the first 30 comparisons, each in both orders
-
-
-def test_identical_retrieval_everywhere_stops_early():
-    a = [ranked(f"q{i}", "x") for i in range(40)]
-    with pytest.raises(RuntimeError, match="identical"):
-        PairwiseJudge(Answering(lambda m: pytest.fail("not asked")), "t").judge_all(a, a, "a", "b")
 
 
 def test_a_decision_model_sees_the_cut_document():
@@ -172,3 +160,18 @@ def test_a_decision_model_sees_the_cut_document():
 
     PointwiseJudge(Decider(), "t", workers=1, doc_chars=20).grade("q", "query", "d", "word " * 100)
     assert "word " * 100 not in seen[0] and "word word" in seen[0]
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [{}, {"0": float("nan"), "5": 1.0}, {"0": 50.0, "5": 50.0}, {"0": 0.5}, {"high": 1.0}, {"0": -1.0, "5": 2.0}],
+)
+def test_an_invalid_decision_is_flagged(probabilities):
+    class Decider:
+        model = "decider"
+
+        def decide(self, kind, state, question, options=None):
+            return probabilities
+
+    g = PointwiseJudge(Decider(), "t", workers=1).grade("q", "query", "d", "text")
+    assert not g.parsed_ok and g.grade == 0.0

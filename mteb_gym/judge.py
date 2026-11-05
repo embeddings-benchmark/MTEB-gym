@@ -8,6 +8,7 @@ a_first_rate (0.5 is unbiased).
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -102,10 +103,8 @@ def _parse(raw: str) -> tuple[str, str, bool]:
 class PairwiseJudge:
     """Compares two models' result lists for a query, in both presentation orders."""
 
-    # Dead-endpoint guards, checked once after the first EARLY_FAIL_WINDOW verdicts.
     EARLY_FAIL_WINDOW = 30
-    MAX_EARLY_PARSE_FAIL = 0.5  # above this fraction unparseable: dead judge or bad API key
-    MAX_EARLY_IDENTICAL = 0.95  # above this fraction identical lists: empty or mis-loaded corpus
+    MAX_EARLY_PARSE_FAIL = 0.5
 
     def __init__(self, client: ChatClient, instruction: str, workers: int = 1, doc_chars: int = 2000):
         self.client = client
@@ -152,20 +151,12 @@ class PairwiseJudge:
             parsed_ok=[ok1, ok2],
         )
 
-    def _early_failure_guard(self, n_done: int, n_failed: int, n_identical: int) -> None:
-        """Abort loudly instead of scoring a whole run as ties."""
-        if n_done != self.EARLY_FAIL_WINDOW:
-            return
-        if n_failed / n_done > self.MAX_EARLY_PARSE_FAIL:
+    def _early_failure_guard(self, n_done: int, n_failed: int) -> None:
+        """Stop before a dead endpoint or a bad key costs a whole run."""
+        if n_done == self.EARLY_FAIL_WINDOW and n_failed / n_done > self.MAX_EARLY_PARSE_FAIL:
             raise RuntimeError(
-                f"judge parse-failure rate {n_failed / n_done:.0%} over the first {n_done} "
-                "verdicts: the judge endpoint is likely dead or the API key invalid."
-            )
-        if n_identical / n_done > self.MAX_EARLY_IDENTICAL:
-            raise RuntimeError(
-                f"{n_identical / n_done:.0%} of the first {n_done} pairs had identical retrieved "
-                "lists, so the judge was never called: the corpus is likely empty, "
-                "mis-loaded, or smaller than top_k."
+                f"{n_failed / n_done:.0%} of the first {n_done} comparisons had no usable answer: "
+                "the judge endpoint is likely dead or the API key invalid."
             )
 
     def judge_all(
@@ -175,15 +166,14 @@ class PairwiseJudge:
         by_qid = {r.qid: r for r in ranked_b}
         pairs = [(ra, by_qid[ra.qid]) for ra in ranked_a if ra.qid in by_qid]
         guard_lock = threading.Lock()
-        counts = {"done": 0, "failed": 0, "identical": 0}
+        counts = {"done": 0, "failed": 0}
 
         def one(pair):
             v = self.judge_pair(*pair, model_a, model_b)
             with guard_lock:
                 counts["done"] += 1
                 counts["failed"] += bool(v.parsed_ok) and not any(v.parsed_ok)
-                counts["identical"] += v.raw == ["identical"]
-                self._early_failure_guard(counts["done"], counts["failed"], counts["identical"])
+                self._early_failure_guard(counts["done"], counts["failed"])
             if on_verdict is not None:
                 on_verdict(v)
             return v
@@ -228,6 +218,15 @@ class Grade:
     query_set: str = ""
 
 
+def _valid_probabilities(p: dict) -> bool:
+    return (
+        bool(p)
+        and set(p) <= {"0", "1", "2", "3", "4", "5"}
+        and all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in p.values())
+        and math.isclose(sum(p.values()), 1.0, abs_tol=0.01)
+    )
+
+
 def is_decision_model(client) -> bool:
     """A client with decide() and no chat()."""
     return callable(getattr(client, "decide", None)) and not callable(getattr(client, "chat", None))
@@ -261,6 +260,8 @@ class PointwiseJudge:
             p = self.client.decide(
                 "score", grade_state(query, document, self.instruction, self.doc_chars), GRADE_QUESTION
             )
+            if not _valid_probabilities(p):
+                return Grade(qid, doc_id, 0.0, parsed_ok=False)
             return Grade(qid, doc_id, sum(int(k) * v for k, v in p.items()), probabilities=p)
         msg = [
             {"role": "system", "content": self.system},

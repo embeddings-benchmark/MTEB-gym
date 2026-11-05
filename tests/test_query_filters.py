@@ -115,6 +115,10 @@ def test_seed_documents_are_recorded():
         ('<think>maybe {"winner": "B"}</think>{"winner": "A"}', {"winner": "A"}),
         ('<think>maybe {"winner": "B"}</think>{"reasoning": "cut off', {}),
         ('<think>still going {"winner": "B"}', {}),
+        ('draft {"winner": "A"} hmm</think>{"reasoning": "cut off', {}),
+        ('<thinking>{"winner": "B"}</thinking>{"winner":', {}),
+        ('Maybe {"winner": "B"}? Actually the answer is {"winner":', {}),
+        ('draft {"winner": "A"}</think>{"winner": "B"}', {"winner": "B"}),
     ],
 )
 def test_drafts_in_reasoning_are_never_the_answer(text, parsed):

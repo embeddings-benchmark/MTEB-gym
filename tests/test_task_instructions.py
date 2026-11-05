@@ -9,8 +9,8 @@ from mteb_gym.run import resolve_instruction
 from mteb_gym.task_instructions import TASK_INSTRUCTIONS
 
 
-def test_descriptions_cover_the_paper_tasks():
-    """Every evaluated task has a sentence, each names a real mteb task, and a corpus without one is an error."""
+def test_every_instruction_names_a_real_task():
+    """Every key in the table is an mteb task."""
     import mteb
 
     for name in TASK_INSTRUCTIONS:

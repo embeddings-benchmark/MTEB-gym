@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -32,7 +35,10 @@ class Corpus:
 def load(spec: str | Path) -> Corpus:
     """`spec` is an mteb task name, or a path to a directory / .jsonl of documents."""
     path = Path(spec)
-    return _load_local(path) if path.exists() else _load_task(str(spec))
+    if path.exists():
+        logger.info("loading the local corpus at %s", path)
+        return _load_local(path)
+    return _load_task(str(spec))
 
 
 def _text(row) -> str:
@@ -46,9 +52,16 @@ def _load_task(name: str) -> Corpus:
     task.load_data()
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset
-    subset = "default" if subsets.get("default") else next(iter(subsets))  # an empty "default" falls through
+    filled = [name_ for name_, splits in subsets.items() if splits]
+    if len(filled) > 1:
+        raise ValueError(
+            f"{name} has several subsets ({', '.join(sorted(filled))}); the gym runs on one corpus at a time"
+        )
+    subset = filled[0]
     split = "test" if "test" in subsets[subset] else next(iter(subsets[subset]))
     data = subsets[subset][split]
+    if data.get("top_ranked"):
+        raise ValueError(f"{name} is a reranking task; the gym compares retrieval over the whole corpus")
     docs = {row["id"]: _text(row) for row in data["corpus"]}
 
     meta = task.metadata
@@ -71,7 +84,7 @@ def _load_local(root: Path) -> Corpus:
     from mteb.abstasks.task_metadata import TaskMetadata
 
     if root.is_file() and root.suffix == ".jsonl":
-        rows = (json.loads(line) for line in root.read_text().splitlines() if line.strip())
+        rows = (json.loads(line) for line in root.read_text().split("\n") if line.strip())
         docs = {str(r["id"]): str(r.get("text") or "") for r in rows}
     else:
         files = sorted(p for p in root.rglob("*") if p.suffix in (".txt", ".md"))

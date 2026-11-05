@@ -59,3 +59,14 @@ def test_predict_is_one_model(monkeypatch, capsys):
     )
     cli.main("predict --corpus d --model a --queries original".split())
     assert seen["model"] == "a" and seen["queries"] == "original" and "predictions -> p" in capsys.readouterr().out
+
+
+def test_each_endpoint_can_use_its_own_key_variable(run_call, monkeypatch):
+    monkeypatch.setenv("JUDGE_KEY", "judge-secret")
+    monkeypatch.setenv("GEN_KEY", "generator-secret")
+    cli.main(
+        "run --corpus d --models a --judge j --judge-url http://j --judge-decision --judge-key-env JUDGE_KEY "
+        "--generator g --generator-url http://g/v1 --generator-key-env GEN_KEY".split()
+    )
+    assert run_call["judge"]._http.headers["authorization"] == "Bearer judge-secret"
+    assert run_call["generator"].client.api_key == "generator-secret"

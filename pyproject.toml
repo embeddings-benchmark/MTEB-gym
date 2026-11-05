@@ -23,12 +23,12 @@ classifiers = [
 dependencies = [
     "mteb[bm25s]>=2.20,<3",
     "openai>=1.40",
-    "httpx",
-    "numpy",
-    "scipy",
-    "pandas",
-    "huggingface_hub",
-    "datasets",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2",
+    "huggingface_hub>=0.25",
+    "datasets>=2.19",
 ]
 
 [project.optional-dependencies]

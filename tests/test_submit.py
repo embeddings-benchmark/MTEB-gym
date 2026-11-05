@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from mteb_gym.cache import texts_hash
+
 
 def test_submit_prepares_a_commit(monkeypatch):
     """Without create_pr, new records are committed to a clone of the results repository, and the
@@ -79,10 +81,11 @@ def test_submit_prepares_a_commit(monkeypatch):
 
         # a random subset of pairs leaves the other pairs without a file, which must not block submitting
         subset = {**record, "config": {**record["config"], "pairs_per_query": 1}}
+        (results / "demo__mock__original-queries__q1-s0-abc.json").write_text(json.dumps(subset))
         judgments = cache_files(subset, cache)["judgments"]
-        assert len(judgments) == 1
         judgments[0].unlink()
-        assert cache_files(subset, cache)["judgments"] == []
+        assert len(cache_files(subset, cache)["judgments"]) == len(judgments) - 1
+        assert submit(tmp / "results", cache_folder=cache, repository=str(remote))["records"]
 
 
 def test_a_record_already_in_the_repository_is_not_submitted_again(tmp_path, monkeypatch):
@@ -111,3 +114,42 @@ def test_a_record_already_in_the_repository_is_not_submitted_again(tmp_path, mon
     (tmp_path / "results" / "demo" / name).write_text(record)
     out = submit(tmp_path / "results", cache_folder=tmp_path / "cache", repository=str(remote))
     assert out == {"records": [], "files": []}
+
+
+def test_a_published_record_is_not_overwritten(tmp_path, monkeypatch):
+    import subprocess
+
+    from mteb_gym import submit
+
+    for k, v in {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }.items():
+        monkeypatch.setenv(k, v)
+    name = "demo__mock__original-queries__q1-s0-abc.json"
+    remote, seed = tmp_path / "remote.git", tmp_path / "seed"
+    subprocess.run(["git", "init", "--quiet", "--bare", "-b", "main", str(remote)], check=True)
+    subprocess.run(["git", "clone", "--quiet", str(remote), str(seed)], check=True)
+    (seed / "results" / "demo").mkdir(parents=True)
+    (seed / "results" / "demo" / name).write_text(json.dumps({"task_name": "demo", "source": "mteb", "ratings": [1]}))
+    subprocess.run(["git", "add", "."], cwd=seed, check=True)
+    subprocess.run(["git", "commit", "--quiet", "-m", "init"], cwd=seed, check=True)
+    subprocess.run(["git", "push", "--quiet", "origin", "main"], cwd=seed, check=True)
+    (tmp_path / "results" / "demo").mkdir(parents=True)
+    (tmp_path / "results" / "demo" / name).write_text(
+        json.dumps({"task_name": "demo", "source": "mteb", "ratings": [2]})
+    )
+    assert submit(tmp_path / "results", cache_folder=tmp_path / "c", repository=str(remote))["records"] == []
+
+
+def test_a_query_file_holding_other_queries_is_refused(tmp_path):
+    from mteb_gym.submit import _check_query_file
+
+    path = tmp_path / "queries.json"
+    path.write_text(json.dumps({"queries": [{"qid": "q0", "text": "new query"}]}))
+    good = texts_hash({"q0": "new query"})
+    _check_query_file({"config": {"query_set": f"recipe-{good}"}}, path)
+    with pytest.raises(ValueError, match="does not hold"):
+        _check_query_file({"config": {"query_set": f"recipe-{texts_hash({'q0': 'old query'})}"}}, path)

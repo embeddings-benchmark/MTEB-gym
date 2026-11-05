@@ -1128,15 +1128,15 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "datasets" },
-    { name = "httpx" },
-    { name = "huggingface-hub" },
+    { name = "datasets", specifier = ">=2.19" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "huggingface-hub", specifier = ">=0.25" },
     { name = "mteb", extras = ["bm25s"], specifier = ">=2.20,<3" },
     { name = "mteb", extras = ["pylate"], marker = "extra == 'colbert'", specifier = ">=2.20,<3" },
-    { name = "numpy" },
+    { name = "numpy", specifier = ">=1.26" },
     { name = "openai", specifier = ">=1.40" },
-    { name = "pandas" },
-    { name = "scipy" },
+    { name = "pandas", specifier = ">=2" },
+    { name = "scipy", specifier = ">=1.11" },
 ]
 provides-extras = ["colbert"]
 

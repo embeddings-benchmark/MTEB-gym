@@ -5,14 +5,20 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 
 from . import LLM, DecisionModel, MockLLM, predict, run, submit
 
 
-def client(model: str, base_url: str | None, extra_body: str | None = None):
+def _key(variable: str | None) -> str | None:
+    return os.environ[variable] if variable else None
+
+
+def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None):
     if model == "mock":
         return MockLLM()
-    return LLM(model, base_url=base_url, extra_body=json.loads(extra_body) if extra_body else None)
+    extra = json.loads(extra_body) if extra_body else None
+    return LLM(model, base_url=base_url, api_key=_key(key_variable), extra_body=extra)
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
@@ -20,6 +26,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--corpus", required=True, help="mteb retrieval task name, or a directory / .jsonl of documents")
     ap.add_argument("--generator", default=None, help="query generator model id (default: the judge)")
     ap.add_argument("--generator-url", default=None)
+    ap.add_argument("--generator-key-env", default=None, help="environment variable holding the generator's API key")
     ap.add_argument("--generator-extra-body", default=None, help="JSON passed to the generator's server")
     ap.add_argument(
         "--queries",
@@ -29,7 +36,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--task-instruction",
         default=None,
-        help="one sentence on what a good result is; required, except for the gym's evaluated MTEB tasks",
+        help="one sentence on what a good result is; required, except for the MTEB tasks in mteb_gym/task_instructions.py",
     )
     ap.add_argument("--n-queries", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
@@ -56,6 +63,7 @@ def main(argv=None) -> None:
         "--judge", required=True, help="judge model id on an OpenAI-compatible endpoint ('mock' for a dry run)"
     )
     run_ap.add_argument("--judge-url", default=None, help="base url for the judge endpoint")
+    run_ap.add_argument("--judge-key-env", default=None, help="environment variable holding the judge's API key")
     run_ap.add_argument(
         "--judge-decision",
         action="store_true",
@@ -105,7 +113,9 @@ def main(argv=None) -> None:
                 print(f"{where}: {out[key]}")
         return
     shared = dict(
-        generator=client(args.generator, args.generator_url, args.generator_extra_body) if args.generator else None,
+        generator=client(args.generator, args.generator_url, args.generator_extra_body, args.generator_key_env)
+        if args.generator
+        else None,
         queries=args.queries,
         task_instruction=args.task_instruction,
         n_queries=args.n_queries,
@@ -123,9 +133,9 @@ def main(argv=None) -> None:
     if args.judge_decision:
         if not args.judge_url:
             ap.error("--judge-decision needs --judge-url")
-        judge = DecisionModel(args.judge, base_url=args.judge_url)
+        judge = DecisionModel(args.judge, base_url=args.judge_url, api_key=_key(args.judge_key_env))
     else:
-        judge = client(args.judge, args.judge_url, args.judge_extra_body)
+        judge = client(args.judge, args.judge_url, args.judge_extra_body, args.judge_key_env)
     result = run(
         args.corpus,
         args.models,

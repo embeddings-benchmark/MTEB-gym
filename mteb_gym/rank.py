@@ -41,7 +41,9 @@ def _win_matrix(verdicts, names) -> np.ndarray:
     return W
 
 
-def _bradley_terry(W: np.ndarray, iters: int = 20000, tol: float = 1e-9, smoothing: float = 0.1) -> np.ndarray:
+def _bradley_terry(
+    W: np.ndarray, iters: int = 20000, tol: float = 1e-9, smoothing: float = 0.1, warn: bool = True
+) -> np.ndarray:
     """MM fixed point; strengths normalised to geometric mean 1. `smoothing` adds a symmetric pseudo-win per pair, so a
     winless model converges to the bottom instead of staying at its initial strength."""
     n = W.shape[0]
@@ -56,12 +58,13 @@ def _bradley_terry(W: np.ndarray, iters: int = 20000, tol: float = 1e-9, smoothi
         p = update
         if converged:
             return p
-    logger.warning("Bradley-Terry did not converge in %d iterations", iters)
+    if warn:
+        logger.warning("Bradley-Terry did not converge in %d iterations", iters)
     return p
 
 
-def _ratings(verdicts, names) -> np.ndarray:
-    r = SCALE * np.log10(np.clip(_bradley_terry(_win_matrix(verdicts, names)), 1e-12, None))
+def _ratings(verdicts, names, warn: bool = True) -> np.ndarray:
+    r = SCALE * np.log10(np.clip(_bradley_terry(_win_matrix(verdicts, names), warn=warn), 1e-12, None))
     return r - r.mean() + BASE
 
 
@@ -87,7 +90,9 @@ def rate(verdicts, bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRatin
         rng = np.random.default_rng(seed)
         boot = np.vstack(
             [
-                _ratings([v for q in rng.choice(qids, size=len(qids), replace=True) for v in by_qid[q]], names)
+                _ratings(
+                    [v for q in rng.choice(qids, size=len(qids), replace=True) for v in by_qid[q]], names, warn=False
+                )
                 for _ in range(bootstrap)
             ]
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -63,7 +64,7 @@ def record_path(out: Path, task_name: str, experiment: dict[str, Any]) -> Path:
 
 
 def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
-    """Judge diagnostics from persisted verdicts, so cached and resumed runs report the truth."""
+    """Judge diagnostics from the verdicts, including any read back from the cache."""
     n = len(verdicts)
     identical = sum(v.raw == ["identical"] for v in verdicts)
     ties = sum(float(v.score_a) == 0.5 for v in verdicts)
@@ -86,17 +87,29 @@ def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
     }
 
 
+def grade_diagnostics(grades: list[Any]) -> dict[str, Any]:
+    n = len(grades)
+    failed = sum(not g.parsed_ok for g in grades)
+    ok = [g.grade for g in grades if g.parsed_ok]
+    n_queries = len({g.qid for g in grades})
+    return {
+        "n_grades": n,
+        "pool_size_mean": n / n_queries if n_queries else None,
+        "grade_mean": sum(ok) / len(ok) if ok else None,
+        "parse_failure_rate": failed / n if n else None,
+    }
+
+
 def build_record(
     corpus,
     experiment,
     ratings,
-    verdicts,
+    diagnostics: dict,
     evaluation_time: float,
     revisions: dict[str, str | None],
     llms: dict | None = None,
     ndcg: dict[str, float] | None = None,
     labels: str | None = None,
-    diagnostics: dict | None = None,
 ) -> dict:
     dataset = getattr(corpus.metadata, "dataset", None) or {}
     return {
@@ -111,7 +124,7 @@ def build_record(
         "config": experiment,
         "llms": llms,  # what the judge and generator actually ran with; informational, not identity
         "labels": labels,  # what ndcg_at_10 below is scored against: "seed_documents", "dataset", or None
-        "diagnostics": diagnostics if diagnostics is not None else verdict_diagnostics(verdicts),
+        "diagnostics": diagnostics,
         "ratings": [
             {
                 "model": m.name,
@@ -144,7 +157,7 @@ class Result:
     def to_disk(self, path: str | Path | None = None) -> Path:
         self.path = Path(path or self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
+        temporary = self.path.with_suffix(f".tmp{os.getpid()}")
         temporary.write_text(json.dumps(self.record, indent=2))
         temporary.replace(self.path)
         return self.path

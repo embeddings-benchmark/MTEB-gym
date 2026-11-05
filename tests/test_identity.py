@@ -8,8 +8,7 @@ import pytest
 from mteb_gym import corpus as corpus_mod
 from mteb_gym import task as task_mod
 from mteb_gym.cache import grades_key, model_id, sha, verdict_key
-from mteb_gym.llm import MockLLM
-from mteb_gym.queries import _FILTER_SYSTEM, _FILTER_USER, Query, QueryGenerator
+from mteb_gym.queries import Query, QueryGenerator
 from mteb_gym.results import git_revision
 from mteb_gym.run import own_queries, resolve_queries, sample_queries
 
@@ -58,18 +57,17 @@ def test_settings_change_a_clients_identity_and_their_order_does_not():
         {"task_instruction": "other"},
         {"n_queries": 3},
         {"seed": 1},
-        {"filter_queries": False},
+        {"filter_queries": True},
         {"docs_per_query": 2},
         {"overshoot": 2.0},
         {"min_chars": 9},
-        {"max_chars": 9},
+        {"max_chars": 90},
         {"min_score": 1},
         {"dedup": 0.5},
     ],
 )
-def test_every_setting_is_part_of_a_query_sets_identity(change):
-    kw = dict(task_instruction="t", n_queries=2, workers=1)
-    assert QueryGenerator(MockLLM(), **kw).params != QueryGenerator(MockLLM(), **{**kw, **change}).params
+def test_every_setting_is_part_of_a_query_sets_id(tmp_path, change):
+    assert _set_id(tmp_path, **change) != _set_id(tmp_path)
 
 
 def test_an_installed_package_reports_no_commit_of_its_own(tmp_path, monkeypatch):
@@ -140,9 +138,12 @@ def test_a_generated_sets_id_depends_on_how_it_was_made(tmp_path):
     assert _set_id(tmp_path, _corpus(id="other@1")) != base
 
 
-def test_a_changed_filter_prompt_is_a_new_query_set():
-    gen = QueryGenerator(Named("m"), task_instruction="t", n_queries=1, workers=1)
-    assert _FILTER_SYSTEM in gen.prompts and _FILTER_USER in gen.prompts
+def test_a_changed_prompt_is_a_new_query_set(tmp_path, monkeypatch):
+    base = _set_id(tmp_path)
+    monkeypatch.setattr("mteb_gym.queries._FILTER_SYSTEM", "another prompt {task}")
+    filter_changed = _set_id(tmp_path)
+    monkeypatch.setattr("mteb_gym.queries._GEN_DOC_CHARS", 1)
+    assert len({base, filter_changed, _set_id(tmp_path)}) == 3
 
 
 def test_original_and_own_sets_are_identified_by_their_queries(tmp_path):
