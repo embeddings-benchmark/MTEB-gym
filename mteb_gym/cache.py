@@ -97,7 +97,8 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
             )
             for a, b in itertools.combinations(cfg["models"], 2)
         ]
-    queries = [cache / "queries" / task / f"{cfg['query_set']}.json"] if cfg["arm"] == "synthetic" else []
+    recipe = cfg["query_set"].rsplit("-", 1)[0]  # the generated set's file is named before its queries exist
+    queries = [cache / "queries" / task / f"{recipe}.json"] if cfg["arm"] == "synthetic" else []
     predictions = [
         cache / "predictions" / task / f"{slug(m)}@{revs[m]}" / cfg["query_set"] / f"{task}_predictions.json"
         for m in cfg["models"]
@@ -141,9 +142,9 @@ def judge_pool_cached(
     query_set: str = "",
 ) -> list[Grade]:
     """A grade for every document in every query's pool (the union of the models' lists). A crash, a rerun or an added
-    model grades only what is missing."""
+    model grades only what is missing, and a failed answer counts as missing."""
     path = grade_file(folder, model_id(judge.client), key)
-    done = {(g.qid, g.doc_id): g for g in _read_jsonl(path, Grade)}
+    done = {(g.qid, g.doc_id): g for g in _read_jsonl(path, Grade) if g.parsed_ok}
     query = {r.qid: r.query for lists in ranked.values() for r in lists}
     pool = sorted({(r.qid, d) for lists in ranked.values() for r in lists for d in r.doc_ids})
     todo = [(q, query[q], d, docs[d]) for q, d in pool if (q, d) not in done]
@@ -166,9 +167,9 @@ def judge_pair_cached(
     query_set: str = "",
 ) -> list[Verdict]:
     """Verdicts for one pair under `key`, for the queries in `ra`. A crash, a rerun or a run over a subset of queries
-    judges only what is missing."""
+    judges only what is missing, and a failed answer counts as missing."""
     path = verdict_file(folder, a, b, key)
-    done = {v.qid: v for v in _read_jsonl(path, Verdict)}
+    done = {v.qid: v for v in _read_jsonl(path, Verdict) if all(v.parsed_ok)}
     todo = [r for r in ra if r.qid not in done]
     if todo:
         if done:

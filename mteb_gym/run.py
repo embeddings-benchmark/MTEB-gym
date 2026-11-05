@@ -13,7 +13,9 @@ from __future__ import annotations
 import itertools
 import json
 import logging
+import os
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -42,6 +44,8 @@ from .task_descriptions import TASK_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
+MAX_JUDGE_FAILURE_RATE = 0.5
+
 
 def resolve_description(task_description: str | None, corpus) -> tuple[str, str]:
     """The sentence the generator and the judge are given, and where it came from: yours, or the gym's own for the
@@ -57,16 +61,18 @@ def resolve_description(task_description: str | None, corpus) -> tuple[str, str]
     )
 
 
+def _read_query_set(path: Path) -> tuple[list[Query], int | None, dict | None]:
+    data = json.loads(path.read_text())
+    return [Query(**q) for q in data["queries"]], data["n_generated"], data["generator"]
+
+
 def _cached_queries(
     path: Path, gen: QueryGenerator, docs: dict[str, str]
 ) -> tuple[list[Query], int | None, dict | None]:
-    """The query set and the generator settings it was written with. The settings are kept with the queries, since a
-    later run reads the queries back and never calls the generator itself."""
+    """The query set and the generator settings it was written with. When two processes generate the same set, the
+    first to finish wins and the other reads its queries."""
     if path.exists():
-        data = json.loads(path.read_text())
-        if data["queries"]:
-            return [Query(**q) for q in data["queries"]], data["n_generated"], data["generator"]
-        logger.warning("the query cache at %s is empty; generating again", path)
+        return _read_query_set(path)
     queries = gen.run(docs)
     if not queries:
         raise RuntimeError(
@@ -75,7 +81,14 @@ def _cached_queries(
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"generator": gen.settings, "n_generated": gen.n_generated, "queries": [asdict(q) for q in queries]}
-    path.write_text(json.dumps(data, indent=2))
+    temporary = path.with_suffix(f".tmp{os.getpid()}-{threading.get_ident()}")
+    temporary.write_text(json.dumps(data, indent=2))
+    try:
+        os.link(temporary, path)  # fails if the file exists, and never leaves a partial one
+    except FileExistsError:
+        return _read_query_set(path)
+    finally:
+        temporary.unlink()
     return queries, gen.n_generated, gen.settings
 
 
@@ -120,12 +133,17 @@ class QuerySet(NamedTuple):
     generator_settings: dict | None
 
 
+def _texts_hash(texts: dict[str, str]) -> str:
+    return sha(*(f"{k}:{v}" for k, v in texts.items()))
+
+
 def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: int, seed: int) -> QuerySet:
     """Generate the queries, take the dataset's own, or read the ones you supplied."""
     if queries == "synthetic":
-        qid = f"{slug(corp.id)}-{slug(model_id(gen.client))}-{sha(sorted(gen.params.items()), *gen.prompts)}"
-        qs, n_generated, settings = _cached_queries(cache / "queries" / corp.name / f"{qid}.json", gen, corp.docs)
-        return QuerySet(qid, {q.qid: q.text for q in qs}, qs, "synthetic", n_generated, settings)
+        recipe = f"{slug(corp.id)}-{slug(model_id(gen.client))}-{sha(sorted(gen.params.items()), *gen.prompts)}"
+        qs, n_generated, settings = _cached_queries(cache / "queries" / corp.name / f"{recipe}.json", gen, corp.docs)
+        texts = {q.qid: q.text for q in qs}
+        return QuerySet(f"{recipe}-{_texts_hash(texts)}", texts, qs, "synthetic", n_generated, settings)
     if queries == "original":
         if not corp.queries:
             raise ValueError(f"{corp.name} has no queries of its own")
@@ -133,8 +151,7 @@ def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: 
         return QuerySet(f"{slug(corp.id)}-original-n{len(texts)}-s{seed}", texts, None, "original", None, None)
     qs = own_queries(queries)
     texts = {q.qid: q.text for q in qs}
-    qid = f"{slug(corp.id)}-own-{sha(*(f'{k}:{v}' for k, v in texts.items()))}"
-    return QuerySet(qid, texts, qs, "own", None, None)
+    return QuerySet(f"{slug(corp.id)}-own-{_texts_hash(texts)}", texts, qs, "own", None, None)
 
 
 def grade_diagnostics(grades: list[Grade]) -> dict:
@@ -151,6 +168,16 @@ def grade_diagnostics(grades: list[Grade]) -> dict:
         "grade_mean": sum(ok) / len(ok) if ok else None,
         "parse_failure_rate": failed / n if n else None,
     }
+
+
+def _check_judging(diagnostics: dict, ratings: list[ModelRating], models: list[str]) -> None:
+    """Fail rather than write a record the judge did not really produce."""
+    failure_rate = diagnostics.get("parse_failure_rate") or 0.0
+    if failure_rate > MAX_JUDGE_FAILURE_RATE:
+        raise RuntimeError(f"{failure_rate:.0%} of the judge's answers failed: check the endpoint and its answers")
+    missing = sorted(set(models) - {r.name for r in ratings})
+    if missing:
+        raise RuntimeError(f"no usable judgement for {missing}: check the endpoint and its answers")
 
 
 def _resolve_judging(judging: str, judge, generator, queries) -> str:
@@ -182,8 +209,17 @@ def _judge_pointwise(
     pj = PointwiseJudge(judge, instruction=description, workers=workers, doc_chars=doc_chars)
     key = grades_key(model_id(pj.client), pj.system, pj.instruction, pj.doc_chars, query_set)
     grades = judge_pool_cached(cache / "grades" / corp.name, pj, ranked, corp.docs, key, query_set)
-    usable = {(g.qid, g.doc_id): g.grade for g in grades if g.parsed_ok}
-    return rate_pointwise(usable, ranked, k=top_k, seed=seed), grade_diagnostics(grades), pj.system
+    diagnostics = grade_diagnostics(grades)
+    # a query with an ungraded document is left out: counting the document as 0 would punish whichever model found it
+    failed = {g.qid for g in grades if not g.parsed_ok}
+    diagnostics["queries_left_out"] = len(failed)
+    if failed:
+        logger.warning("left out %d queries with a document the judge could not grade", len(failed))
+    usable = {(g.qid, g.doc_id): g.grade for g in grades if g.qid not in failed}
+    kept = {m: [r for r in lists if r.qid not in failed] for m, lists in ranked.items()}
+    if not usable:
+        raise RuntimeError("the judge graded no query completely: check the endpoint and its answers")
+    return rate_pointwise(usable, kept, k=top_k, seed=seed), diagnostics, pj.system
 
 
 def _judge_pairwise(
@@ -391,6 +427,7 @@ def run(
         )
         diagnostics = None
 
+    _check_judging(diagnostics or results.verdict_diagnostics(verdicts), ratings, models)
     experiment = {
         "corpus_id": corp.id,
         "query_set": query_set,

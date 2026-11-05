@@ -47,6 +47,8 @@ class MockLLM:
         h = self._hash(prompt)
         if "rate the quality" in prompt.lower():
             return json.dumps({"score": (h % 5) + 1, "reason": "mock"})
+        if "grade how relevant" in prompt.lower():
+            return json.dumps({"reasoning": "mock", "grade": h % 6})
         if "system a" in prompt.lower():
             return json.dumps({"winner": ["A", "B", "tie"][h % 3], "confidence": "low", "reasoning": "mock"})
         words = re.findall(r"[A-Za-z]{4,}", prompt.split("[1] ", 1)[-1])[:6]  # from the first shown document
