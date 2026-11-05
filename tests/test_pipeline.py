@@ -9,12 +9,13 @@ from pathlib import Path
 import pytest
 
 from mteb_gym import Result, agreement, cache_files, load_results, results
-from mteb_gym.judge import Judge, Verdict, judge_system, task_prompt
+from mteb_gym.judge import Judge, Verdict, judge_system
 from mteb_gym.llm import MockLLM
 from mteb_gym.queries import Query, QueryGenerator, extract_json
 from mteb_gym.rank import format_leaderboard, rate
 from mteb_gym.retrieval import Ranked
 from mteb_gym.run import judge_pair_cached, pair_subset, resolve_description, resolve_queries, verdict_key
+from mteb_gym.task_descriptions import TASK_DESCRIPTIONS
 
 
 def make_corpus(n=40):
@@ -51,7 +52,7 @@ def test_extract_json():
 
 def test_query_generation():
     corpus = make_corpus()
-    gen = QueryGenerator(MockLLM(), n_queries=8, filter=True, workers=1)
+    gen = QueryGenerator(MockLLM(), task_description="t", n_queries=8, filter=True, workers=1)
     kept = gen.run(corpus)
     assert gen.n_generated >= 8 and len(kept) <= 8 and all(q.quality is not None for q in kept)
 
@@ -62,7 +63,9 @@ def test_query_generation():
             return "no json here" if self._hash(prompt) % 3 == 0 else super().chat(messages, **kw)
 
     def gen_with(workers, client):
-        return QueryGenerator(client, n_queries=12, filter=False, workers=workers).generate(corpus)
+        return QueryGenerator(client, task_description="t", n_queries=12, filter=False, workers=workers).generate(
+            corpus
+        )
 
     for client in (MockLLM, Flaky):
         seq, par = gen_with(1, client()), gen_with(4, client())
@@ -81,10 +84,10 @@ def test_a_changed_prompt_is_a_new_query_set():
         def qset(gen):
             return resolve_queries(corp, Path(tmp), "synthetic", gen, 4, 0).id
 
-        gen = QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1)
-        assert qset(gen) == qset(QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1))
+        gen = QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter=False, workers=1)
+        assert qset(gen) == qset(QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter=False, workers=1))
         gen.system += " One passage, one query."
-        assert qset(gen) != qset(QueryGenerator(MockLLM(), n_queries=4, filter=False, workers=1))
+        assert qset(gen) != qset(QueryGenerator(MockLLM(), task_description="t", n_queries=4, filter=False, workers=1))
 
 
 def test_llm_drops_rejected_params():
@@ -117,18 +120,12 @@ def test_llm_drops_rejected_params():
     assert llm_settings(llm)["refused"] == ["max_completion_tokens", "temperature"]  # configured, but refused
 
 
-def test_description_is_what_the_encoders_get():
-    """The judge is given the task's own mteb prompt, the same sentence mteb gives an
-    instruction-tuned encoder, or nothing when the task has none."""
+def test_descriptions_cover_the_paper_tasks():
+    """Every evaluated task has a sentence, each names a real mteb task, and a corpus without one is an error."""
     mteb = pytest.importorskip("mteb")
-    from mteb_gym.corpus import Corpus
-
-    def described(name):
-        return resolve_description(None, Corpus(name, name, {}, mteb.get_task(name).metadata))
-
-    assert described("ArguAna") == ("Given a claim, find documents that refute the claim", "mteb:task_prompt")
-    assert described("ClimateFEVERHardNegatives") == (None, None)  # no prompt: so is the encoder's
-    assert described("BrightBiologyRetrieval")[0].startswith("Represent this biology post")
+    assert len(TASK_DESCRIPTIONS) == 28
+    for name in TASK_DESCRIPTIONS:
+        assert mteb.get_task(name).metadata.name == name
 
 
 def test_original_queries_are_sampled_and_self_matches_dropped():
@@ -157,8 +154,8 @@ def test_original_queries_are_sampled_and_self_matches_dropped():
 def test_doc_chars_reaches_the_judge():
     from mteb_gym.judge import Judge
 
-    assert Judge(MockLLM(), doc_chars=300).doc_chars == 300
-    assert "x" * 301 not in Judge(MockLLM(), doc_chars=300).system  # the setting is the judge's, not the prompt's
+    assert Judge(MockLLM(), "t", doc_chars=300).doc_chars == 300
+    assert "x" * 301 not in Judge(MockLLM(), "t", doc_chars=300).system  # the setting is the judge's, not the prompt's
 
 
 def test_judge():
@@ -168,8 +165,8 @@ def test_judge():
     assert shown.splitlines() == ["  1. one two...", "  2. short"]  # cut at a word boundary and marked, or whole
     queries = [Query(f"q{i}", f"query {i} about statins", ["D0"]) for i in range(30)]
     ra, rb = fake_ranked("a", queries), fake_ranked("b", queries)
-    seq = Judge(MockLLM(seed=1), workers=1).judge_all(ra, rb, "m_a", "m_b")
-    par = Judge(MockLLM(seed=1), workers=8).judge_all(ra, rb, "m_a", "m_b")
+    seq = Judge(MockLLM(seed=1), "t", workers=1).judge_all(ra, rb, "m_a", "m_b")
+    par = Judge(MockLLM(seed=1), "t", workers=8).judge_all(ra, rb, "m_a", "m_b")
     assert all(0.0 <= v.score_a <= 1.0 for v in seq)
     assert [(v.qid, v.score_a) for v in par] == [(v.qid, v.score_a) for v in seq]
 
@@ -177,14 +174,14 @@ def test_judge():
         def chat(self, messages, **kw):
             raise AssertionError("judge must not be called for identical result sets")
 
-    v = Judge(Exploding()).judge_all(ra[:1], fake_ranked("a", queries[:1]), "m_a", "m_b")[0]
+    v = Judge(Exploding(), "t").judge_all(ra[:1], fake_ranked("a", queries[:1]), "m_a", "m_b")[0]
     assert v.score_a == 0.5 and v.raw == ["identical"]
 
     class Garbage:
         def chat(self, messages, **kw):
             return "I refuse to answer in the requested format."
 
-    verdicts = Judge(Garbage()).judge_all(ra[:5], rb[:5], "m_a", "m_b")
+    verdicts = Judge(Garbage(), "t").judge_all(ra[:5], rb[:5], "m_a", "m_b")
     assert all(v.score_a == 0.5 for v in verdicts)
     assert results.verdict_diagnostics(verdicts)["parse_failure_rate"] == 1.0
 
@@ -230,37 +227,15 @@ def test_correlate():
     assert agreement._tau_ap(a, a) == 1.0 and agreement._tau_ap(-a, a) == -1.0
 
 
-def test_instruction():
-    assert task_prompt("Represent this biology post for searching relevant passages: ") == (
-        "Represent this biology post for searching relevant passages:"
-    )  # mteb's own text, verbatim; replace it with task_description if it reads badly
-    assert (
-        task_prompt({"query": "Given a claim, find documents that refute the claim"})
-        == "Given a claim, find documents that refute the claim"
-    )
-    assert task_prompt(None) is None
-    corpus = types.SimpleNamespace(
-        metadata=types.SimpleNamespace(prompt="Given a claim, find documents that refute the claim")
-    )
-    assert resolve_description(None, corpus) == (
-        "Given a claim, find documents that refute the claim",
-        "mteb:task_prompt",
-    )
-    assert resolve_description("Prefer replies that resolve the ticket", corpus)[1] == "config:task_description"
-    bare = types.SimpleNamespace(metadata=types.SimpleNamespace(prompt=None, name="X", adapted_from=None))
-    assert resolve_description(None, bare) == (None, None)
+def test_description_is_required():
+    named = types.SimpleNamespace(name="ArguAna")
+    assert resolve_description(None, named) == (TASK_DESCRIPTIONS["ArguAna"], "mteb_gym:task_descriptions")
+    assert resolve_description("Prefer replies that resolve the ticket", named)[1] == "config:task_description"
+    with pytest.raises(ValueError, match="task_description"):
+        resolve_description(None, types.SimpleNamespace(name="my-corpus"))
     gen = QueryGenerator(MockLLM(), task_description="Given a claim, find documents that refute the claim")
     assert "refute the claim" in gen.system and gen.params["task_description"]  # part of the query cache key
-    assert "retrieval task is" not in QueryGenerator(MockLLM()).system
-    with_task = judge_system("Given a claim, find documents that refute the claim")
-    # the sentence is inserted as written, whatever punctuation it ends with
-    assert "relevant passages:\n" in judge_system("Represent this biology post for searching relevant passages:")
-    without = judge_system(None)
-    assert "refute the claim" in with_task and "retrieval task is" not in without
-    # the only difference is the sentence itself, so an arm with one compares with an arm without
-    assert (
-        with_task.replace("The retrieval task is: Given a claim, find documents that refute the claim\n", "") == without
-    )
+    assert "The retrieval task is: Given a claim" in judge_system("Given a claim, find documents that refute the claim")
 
 
 def test_verdict_cache():
@@ -275,7 +250,7 @@ def test_verdict_cache():
     ra, rb = fake_ranked("a", queries), fake_ranked("b", queries)
     with tempfile.TemporaryDirectory() as tmp:
         vdir = Path(tmp)
-        judge = Judge(Counting(seed=1), workers=1)
+        judge = Judge(Counting(seed=1), "t", workers=1)
         key = verdict_key(judge, 5, "qs", "m_a", "r1", "m_b", "r1")
         full = judge_pair_cached(vdir, judge, "m_a", "m_b", ra, rb, key, "qs")
         assert len(full) == 6 and calls["n"] == 12
@@ -302,7 +277,7 @@ def test_verdict_cache():
         assert _model_id(MockLLM()) != _model_id(types.SimpleNamespace(model="mock", extra_body={"think": True}))
         # a new revision of one model is a new key: no reuse
         assert verdict_key(judge, 5, "qs", "m_a", "r1", "m_b", "r2") != key
-        assert verdict_key(Judge(Counting(seed=1), doc_chars=300), 5, "qs", "m_a", "r1", "m_b", "r1") != key
+        assert verdict_key(Judge(Counting(seed=1), "t", doc_chars=300), 5, "qs", "m_a", "r1", "m_b", "r1") != key
         calls["n"] = 0
         judge_pair_cached(
             vdir,
@@ -370,7 +345,7 @@ def test_pointwise_judge_and_grade_cache():
     }
     ranked = {"a": fake_ranked("a", queries, k=4), "b": fake_ranked("b", queries, k=4)}
     with tempfile.TemporaryDirectory() as tmp:
-        judge = PointwiseJudge(decider, workers=2)
+        judge = PointwiseJudge(decider, "t", workers=2)
         key = grades_key(judge, "qs")
         grades = judge_pool_cached(Path(tmp), judge, ranked, docs, key, "qs")
         assert len(grades) == 24 and decider.calls == 24  # pool: 2 models x 4 docs x 3 queries, each graded once
@@ -388,7 +363,7 @@ def test_pointwise_judge_and_grade_cache():
         docs["Dnew"] = "statins"
         assert len(judge_pool_cached(Path(tmp), judge, ranked, docs, key, "qs")) == 27 and decider.calls == 3
         # a chat LLM grades with a JSON answer
-        chat = PointwiseJudge(MockLLM(), workers=1)
+        chat = PointwiseJudge(MockLLM(), "t", workers=1)
         assert not chat.decision and chat.system != judge.system
         assert grades_key(chat, "qs") != key
 
@@ -589,6 +564,7 @@ def test_end_to_end_local_corpus():
         for did, text in make_corpus(12).items():
             (docs / f"{did}.txt").write_text(text)
         kw = dict(
+            task_description="Given a topic, retrieve documents about it",
             models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=Counting(),
             n_queries=4,
@@ -610,9 +586,7 @@ def test_end_to_end_local_corpus():
         assert json.loads(qfile.read_text())["generator"]["model"] == "mock" == rec["llms"]["generator"]["model"]
         files = cache_files(rec, Path(tmp) / "cache")
         assert len(files["verdicts"]) == 1 and all(p.exists() for p in files["verdicts"] + files["queries"])
-        assert (
-            rec["config"]["n_queries"] == 4 and rec["config"]["task_description"] is None
-        )  # local corpus: no task prompt
+        assert rec["config"]["n_queries"] == 4 and rec["config"]["task_description"]  # local corpus: no task prompt
         assert rec["source"] == "local" and rec["corpus_id"].startswith("local:docs@")
         assert rec["llms"]["judge"]["model"] == "mock" and rec["llms"]["generator"]["model"] == "mock"
         assert rec["labels"] == "seed_documents" and all(0 <= r["ndcg_at_10"] <= 1 for r in rec["ratings"])
@@ -645,6 +619,7 @@ def test_end_to_end_pointwise_decision_judge():
             (docs / f"{did}.txt").write_text(text)
         decider = Deciding()
         kw = dict(
+            task_description="Given a topic, retrieve documents about it",
             models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=decider,
             queries=["statins and heart disease", "fiber and the gut", "vitamin D for asthma"],
@@ -680,7 +655,13 @@ def test_predict_then_run_reuses_the_predictions():
         docs.mkdir()
         for did, text in make_corpus(12).items():
             (docs / f"{did}.txt").write_text(text)
-        shared = dict(n_queries=4, filter_queries=False, cache_folder=Path(tmp) / "cache", workers=1)
+        shared = dict(
+            task_description="Given a topic, retrieve documents about it",
+            n_queries=4,
+            filter_queries=False,
+            cache_folder=Path(tmp) / "cache",
+            workers=1,
+        )
         with pytest.raises(ValueError, match="generator"):
             predict(docs, models[0], **shared)  # a generated query set is identified by the generator
         paths = [predict(docs, m, generator=MockLLM(), **shared) for m in models]
@@ -710,6 +691,7 @@ def test_end_to_end_mteb_task():
             "NanoNFCorpusRetrieval",
             ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
             judge=MockLLM(),
+            task_description="Given a health topic, retrieve documents about it",
             n_queries=8,
             output_folder=Path(tmp),
             cache_folder=Path(tmp) / "cache",
@@ -717,6 +699,6 @@ def test_end_to_end_mteb_task():
         )
         cfg = res.record["config"]
         assert len(res.record["ratings"]) == 2 and cfg["n_queries"] >= 5  # the mock's queries survive filtering
-        assert cfg["task_description_source"] == "mteb:task_prompt" and "retrieve" in cfg["task_description"]
+        assert cfg["task_description_source"] == "config:task_description" and "retrieve" in cfg["task_description"]
         assert res.record["diagnostics"]["n_comparisons"] == cfg["n_queries"]
         assert res.record["source"] == "mteb" and "@" in res.record["corpus_id"] and cfg["query_set"]

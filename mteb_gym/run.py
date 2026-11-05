@@ -34,12 +34,13 @@ from typing import NamedTuple
 from . import corpus as corpus_mod
 from . import results, retrieval
 from . import task as task_mod
-from .judge import Grade, Judge, PointwiseJudge, Verdict, is_decision_model, task_prompt
+from .judge import Grade, Judge, PointwiseJudge, Verdict, is_decision_model
 from .llm import llm_settings
 from .queries import Query, QueryGenerator
 from .rank import rate, rate_pointwise
 from .results import Result
 from .retrieval import Ranked, slug
+from .task_descriptions import TASK_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,18 @@ def _model_id(client) -> str:
     return name if knobs == (None, None) else f"{name}+{_sha(*map(repr, knobs))}"
 
 
-def resolve_description(task_description: str | None, corpus) -> tuple[str | None, str | None]:
-    """The sentence the generator and the judge are given. By default the one mteb gives the
-    embedding models for this task: `TaskMetadata.prompt` if the task has one, else nothing, which
-    judges plain relevance as mteb's own fallback does. `task_description` replaces it."""
-    if task_description is not None:
+def resolve_description(task_description: str | None, corpus) -> tuple[str, str]:
+    """The sentence the generator and the judge are given, and where it came from: yours, or the gym's own for the
+    MTEB tasks it is evaluated on. What counts as relevant is the one thing the gym cannot infer, so there is no
+    default."""
+    if task_description:
         return task_description, "config:task_description"
-    prompt = task_prompt(getattr(corpus.metadata, "prompt", None))
-    return (prompt, "mteb:task_prompt") if prompt else (None, None)
+    if corpus.name in TASK_DESCRIPTIONS:
+        return TASK_DESCRIPTIONS[corpus.name], "mteb_gym:task_descriptions"
+    raise ValueError(
+        f"{corpus.name}: pass task_description, one sentence on what a good result is, for example "
+        "'Given a support ticket, retrieve the help article that resolves it'."
+    )
 
 
 def default_cache_folder() -> Path:
@@ -348,7 +353,7 @@ def predict(
     cache = Path(cache_folder) if cache_folder is not None else default_cache_folder()
     corp = corpus_mod.load(corpus)
     description, _ = resolve_description(task_description, corp)
-    logger.info("criterion: %s", description or "plain relevance")
+    logger.info("criterion: %s", description)
     gen = QueryGenerator(
         generator, task_description=description, n_queries=n_queries, seed=seed, filter=filter_queries, workers=workers
     )
@@ -389,8 +394,8 @@ def run(
         generator: An LLM client that writes the queries. Defaults to the judge.
         queries: "synthetic" (generated), "original" (the dataset's own queries), or your own as a
             .jsonl with id and text, a .txt with one query per line, or a list of strings.
-        task_description: One sentence on what counts as a good result, given to generator and judge.
-            Defaults to the task's mteb prompt.
+        task_description: One sentence on what a good result is, given to generator and judge. Required, except for
+            the MTEB tasks in mteb_gym.task_descriptions.
         n_queries: Queries to generate.
         top_k: Documents judged per query.
         doc_chars: Characters of each document shown to the judge; longer documents are cut and marked.
@@ -428,7 +433,7 @@ def run(
 
     corp = corpus_mod.load(corpus)
     description, description_source = resolve_description(task_description, corp)
-    logger.info("criterion: %s", description or "plain relevance")
+    logger.info("criterion: %s", description)
     gen = QueryGenerator(
         gen_client, task_description=description, n_queries=n_queries, seed=seed, filter=filter_queries, workers=workers
     )

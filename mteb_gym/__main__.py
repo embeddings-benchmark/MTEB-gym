@@ -32,7 +32,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--task-description",
         default=None,
-        help="one sentence on what counts as a good result (default: the task's mteb prompt)",
+        help="one sentence on what a good result is; required, except for the gym's evaluated MTEB tasks",
     )
     ap.add_argument("--n-queries", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)

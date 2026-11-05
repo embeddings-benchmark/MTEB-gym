@@ -78,7 +78,7 @@ class QueryGenerator:
         self,
         client,
         *,
-        task_description: str | None = None,
+        task_description: str,
         n_queries: int = 100,
         seed: int = 0,
         filter: bool = True,
@@ -103,8 +103,7 @@ class QueryGenerator:
             min_score=min_score,
             dedup=dedup,
         )  # everything that changes the query set
-        task = _GEN_TASK.format(task=task_description) if task_description else ""
-        self.system = _GEN_ROLE + task + _GEN_BODY
+        self.system = _GEN_ROLE + _GEN_TASK.format(task=task_description) + _GEN_BODY
         self.workers = max(1, workers)
         self.n_generated: int | None = None  # pre-filter count, for the record
         self.settings: dict | None = None  # what the generator ran with, for the record

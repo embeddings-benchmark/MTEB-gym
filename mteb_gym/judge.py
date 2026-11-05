@@ -33,16 +33,8 @@ _TAIL = (
 )
 
 
-def task_prompt(prompt) -> str | None:
-    """The query prompt from mteb TaskMetadata.prompt, which is a string or a dict of them."""
-    return (prompt if isinstance(prompt, str) else (prompt or {}).get("query") or "").strip() or None
-
-
-def judge_system(instruction: str | None = None) -> str:
-    """The judge's instruction. With and without a task description the wording is identical
-    apart from the description itself, so a run with one can be compared with a run without."""
-    task = _TASK.format(task=instruction) if instruction else ""
-    return _ROLE + task + _BODY + _TAIL
+def judge_system(instruction: str) -> str:
+    return _ROLE + _TASK.format(task=instruction) + _BODY + _TAIL
 
 
 _OUTCOME = {"A": 1.0, "tie": 0.5, "B": 0.0}
@@ -93,7 +85,7 @@ class Judge:
     MAX_EARLY_PARSE_FAIL = 0.5  # above this fraction unparseable: dead judge or bad API key
     MAX_EARLY_IDENTICAL = 0.95  # above this fraction identical lists: empty or mis-loaded corpus
 
-    def __init__(self, client, instruction: str | None = None, workers: int = 1, doc_chars: int = 2000):
+    def __init__(self, client, instruction: str, workers: int = 1, doc_chars: int = 2000):
         self.client = client
         self.system = judge_system(instruction)
         self.workers = max(1, workers)
@@ -222,9 +214,8 @@ def is_decision_model(client) -> bool:
     return callable(getattr(client, "decide", None)) and not callable(getattr(client, "chat", None))
 
 
-def grade_state(query: str, document: str, instruction: str | None, doc_chars: int) -> str:
-    task = f"Retrieval task: {instruction}\n" if instruction else ""
-    return f"{task}Query: {query}\nDocument: {_cut(document, doc_chars)}"
+def grade_state(query: str, document: str, instruction: str, doc_chars: int) -> str:
+    return f"Retrieval task: {instruction}\nQuery: {query}\nDocument: {_cut(document, doc_chars)}"
 
 
 class PointwiseJudge:
@@ -234,7 +225,7 @@ class PointwiseJudge:
     def __init__(
         self,
         client,
-        instruction: str | None = None,
+        instruction: str,
         workers: int = 8,
         doc_chars: int = 2000,
         decision: bool | None = None,
@@ -245,9 +236,8 @@ class PointwiseJudge:
         self.doc_chars = doc_chars
         # a client with decide() and no chat() is a decision model; `decision` overrides, e.g. for MockLLM
         self.decision = is_decision_model(client) if decision is None else decision
-        task = _TASK.format(task=instruction) if instruction else ""
         # what the judge is told; part of the grades' cache identity
-        self.system = GRADE_QUESTION if self.decision else _GRADE_ROLE + task + _GRADE_TAIL
+        self.system = GRADE_QUESTION if self.decision else _GRADE_ROLE + _TASK.format(task=instruction) + _GRADE_TAIL
 
     def grade(self, qid: str, query: str, doc_id: str, document: str) -> Grade:
         if self.decision:
