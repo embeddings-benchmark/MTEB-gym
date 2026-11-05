@@ -40,14 +40,16 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--cache-folder",
         default=None,
-        help="queries, predictions and verdicts (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
+        help="queries, predictions, grades and verdicts (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
     )
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--workers", type=int, default=8)
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(prog="mteb-gym", description="Rank embedding models on a corpus with an LLM judge.")
+    ap = argparse.ArgumentParser(
+        prog="mteb-gym", description="Rank embedding models on a corpus, without relevance labels."
+    )
     sub = ap.add_subparsers(dest="command", required=True)
 
     run_ap = sub.add_parser("run", help="rank models: queries, retrieval, judging, ranking")

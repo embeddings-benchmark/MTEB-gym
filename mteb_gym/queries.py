@@ -1,9 +1,8 @@
 """
 Synthetic queries. The generator sees a few corpus documents and writes one
 realistic query answerable from the corpus but not a restatement of a shown
-document. Filtering is the biggest lever on agreement with ground truth; three
-gates, cheapest first: length/degeneracy heuristics, an LLM quality score
-(keep >= min_score), near-duplicate removal by token overlap.
+document. Three filters, cheapest first: length and degeneracy heuristics, an LLM
+quality score (keep >= min_score), near-duplicate removal by token overlap.
 """
 
 from __future__ import annotations

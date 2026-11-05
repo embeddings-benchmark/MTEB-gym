@@ -1,7 +1,7 @@
 """
 One call runs the pipeline:
 
-    corpus -> queries -> mteb retrieval per model -> pairwise judging -> Bradley-Terry -> record
+    corpus -> queries -> mteb retrieval per model -> judging -> ranking -> record
 
 Results and caches are kept apart, as mteb keeps results apart from its cache. The results folder
 has the layout of the results repository, so publishing a run is copying its files:
@@ -13,7 +13,8 @@ out like the dataset its queries and verdicts are published to:
 
     <cache_folder>/queries/<task>/<query set>.json            generated queries and their generator
     <cache_folder>/predictions/<task>/<model>@<revision>/<query set>/   mteb's prediction file
-    <cache_folder>/verdicts/<task>/<pair>-<key>.jsonl         one line per comparison
+    <cache_folder>/grades/<task>/<judge>-<key>.jsonl          pointwise: one line per graded document
+    <cache_folder>/verdicts/<task>/<pair>-<key>.jsonl         pairwise: one line per comparison
 """
 
 from __future__ import annotations
@@ -384,7 +385,7 @@ def run(
     batch_size: int = 32,
     workers: int = 8,
 ) -> Result:
-    """Rank `models` on `corpus` with an LLM judge.
+    """Rank `models` on `corpus` without relevance labels.
 
     Args:
         corpus: An mteb retrieval task name, a folder of .txt/.md files, or a .jsonl with id and text.
@@ -406,7 +407,7 @@ def run(
         seed: Seed for document sampling and the bootstrap.
         filter_queries: LLM quality filter and deduplication of generated queries.
         output_folder: Where the record is written, as <task>/<record>.json: the results repository's layout.
-        cache_folder: Where queries, predictions and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
+        cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
         batch_size: Encoding batch size.
         workers: Concurrent LLM calls.

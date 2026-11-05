@@ -36,7 +36,7 @@ def fetch_truth(
     cache = mteb.ResultCache()
     try:
         cache.download_from_remote()
-    except Exception:  # noqa: BLE001 - offline: use the local copy
+    except Exception:  # offline: use the local copy
         logger.warning("could not refresh the MTEB results cache; using the local copy")
     official = official_scores(cache, task, models)
     scores: dict[str, float] = {}

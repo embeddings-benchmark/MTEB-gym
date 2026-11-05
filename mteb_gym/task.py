@@ -1,8 +1,8 @@
 """
 The gym hands mteb a retrieval task and lets mteb run every model on it. The
 task is the corpus plus the gym's queries; the qrels are each synthetic query's
-seed documents (a diagnostic, not a label) or, in the human-query arm, the
-task's own labels.
+seed documents (a diagnostic, not a label) or, for the task's own queries, its
+own labels.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def build(corpus: Corpus, queries: list[Query] | None):
 
     if queries is None:
         if not corpus.queries or not corpus.qrels:
-            raise ValueError(f"{corpus.name} has no queries/qrels for a human-query arm")
+            raise ValueError(f"{corpus.name} has no queries and labels of its own")
         texts, qrels = corpus.queries, corpus.qrels
     else:
         texts = {q.qid: q.text for q in queries}

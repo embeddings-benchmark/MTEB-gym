@@ -23,7 +23,7 @@ class Corpus:
     id: str  # mteb: <dataset path>@<revision>/<subset>/<split>; local: local:<name>@<content hash>
     docs: dict[str, str]
     metadata: object  # mteb TaskMetadata
-    queries: dict[str, str] | None = None  # the task's own queries (human-query arm)
+    queries: dict[str, str] | None = None  # the task's own queries
     qrels: dict[str, dict[str, int]] | None = None  # the task's own relevance labels
     ignore_identical_ids: bool = False  # mteb's flag: a query that is itself a document, as in ArguAna
 

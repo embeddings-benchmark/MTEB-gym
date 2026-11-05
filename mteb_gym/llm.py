@@ -1,8 +1,8 @@
-"""LLM clients: LLM for any OpenAI-compatible /chat/completions endpoint (vLLM, Ollama,
-OpenAI, Together, OpenRouter, and the compatible endpoints of Anthropic and Gemini),
-DecisionModel for a decision model's /v1/decide endpoint, MockLLM for tests and dry runs. A client implements chat(messages) -> str. Answers are asked for
-as JSON in the prompt and read from the text, so a model may reason before it answers. Sampling
-is the model's own: its authors' defaults, unless the client was built with a temperature."""
+"""LLM clients: LLM for any OpenAI-compatible /chat/completions endpoint (vLLM, Ollama, OpenAI, Together, OpenRouter,
+and the compatible endpoints of Anthropic and Gemini), DecisionModel for a decision model's /v1/decide endpoint, MockLLM
+for tests and dry runs. A client implements chat(messages) -> str. Answers are asked as JSON in the prompt and read from
+the text, so a model may reason before it answers. Sampling is the model's own: its authors' defaults, unless the
+client was built with a temperature."""
 
 from __future__ import annotations
 
@@ -11,6 +11,9 @@ import json
 import logging
 import os
 import re
+import time
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +91,7 @@ class LLM:
                 )
                 self.served_model = getattr(resp, "model", None) or self.served_model
                 return resp.choices[0].message.content or ""
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 # Some models refuse a parameter and answer 400 naming it, e.g. a temperature on a model
                 # that always reasons. Drop it, remember, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
@@ -106,8 +109,6 @@ class DecisionModel:
     def __init__(
         self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
     ):
-        import httpx  # comes with openai
-
         self.model = model
         self.base_url = base_url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
@@ -115,10 +116,6 @@ class DecisionModel:
         self._http = httpx.Client(timeout=timeout, headers={"Authorization": f"Bearer {key}"})
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
-        import time
-
-        import httpx
-
         body = {"kind": kind, "state": state, "question": question, **({"options": options} if options else {})}
         # a busy server queues requests, so the timeout is long and retries back off; a client error is final
         for attempt in range(self.max_retries + 1):
