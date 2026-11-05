@@ -14,6 +14,9 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+import httpx
+from openai import APITimeoutError
+
 from .queries import extract_json
 from .retrieval import Ranked
 
@@ -31,6 +34,16 @@ _TAIL = (
     "Reply with strict JSON, reasoning first: "
     '{"reasoning": "one sentence", "winner": "A"|"B"|"tie"}'
 )
+
+
+def _reply(client, messages: list[dict]) -> str | None:
+    """The judge's answer, or None once a call has timed out through its retries: one stuck call, such as a reasoning
+    model generating without end, costs one comparison or grade and not the run."""
+    try:
+        return client.chat(messages)
+    except (TimeoutError, APITimeoutError, httpx.TimeoutException):
+        logger.warning("judge call timed out after its retries; it is left out")
+        return None
 
 
 def task_prompt(prompt) -> str | None:
@@ -108,7 +121,8 @@ class Judge:
                 f"System B results:\n{_format(second, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        return _parse(self.client.chat(msg))
+        reply = _reply(self.client, msg)
+        return ("tie", "", False) if reply is None else _parse(reply)
 
     def judge_pair(self, ra: Ranked, rb: Ranked, model_a: str, model_b: str) -> Verdict:
         """Both presentation orders, averaged to a fractional score for A. Identical
@@ -262,7 +276,10 @@ class PointwiseJudge:
                 "content": f"Query: {query}\n\nDocument:\n{_cut(document, self.doc_chars)}\n\nReply as JSON.",
             },
         ]
-        out = extract_json(self.client.chat(msg))
+        reply = _reply(self.client, msg)
+        if reply is None:
+            return Grade(qid, doc_id, 0.0, parsed_ok=False)
+        out = extract_json(reply)
         try:
             g = float(out["grade"])
             ok = 0 <= g <= 5
