@@ -87,3 +87,41 @@ def test_pointwise_rating_matches_the_hand_computed_ndcg(tmp_path, retrieved):
         OK: pytest.approx(40.0),
         BAD: pytest.approx(0.0),
     }
+
+
+def test_a_run_stops_if_failed_answers_leave_a_model_short(tmp_path, retrieved):
+    class FailsOnOneModel(Comparer):
+        def chat(self, messages):
+            return "not json" if "useless" in messages[-1]["content"] else super().chat(messages)
+
+    with pytest.raises(RuntimeError, match="most comparisons failed"):
+        run(
+            docs(tmp_path),
+            [BAD, GOOD, OK],
+            FailsOnOneModel(),
+            queries=QUERIES,
+            task_instruction="t",
+            output_folder=tmp_path / "o",
+            cache_folder=tmp_path / "c",
+            workers=1,
+        )
+    assert not list((tmp_path / "o").rglob("*.json"))
+
+
+def test_a_run_stops_if_every_model_retrieved_the_same_lists(tmp_path, retrieved, monkeypatch):
+    def same_list(path, corpus, texts, k):
+        return [Ranked(q, t, [f"great {q}"], [f"great {q}"]) for q, t in texts.items()]
+
+    monkeypatch.setattr("mteb_gym.retrieval.top_k", same_list)
+    with pytest.raises(RuntimeError, match="identical"):
+        run(
+            docs(tmp_path),
+            [BAD, GOOD, OK],
+            Comparer(),
+            queries=QUERIES,
+            task_instruction="t",
+            output_folder=tmp_path / "o",
+            cache_folder=tmp_path / "c",
+            workers=1,
+        )
+    assert not list((tmp_path / "o").rglob("*.json"))
