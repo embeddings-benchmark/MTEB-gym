@@ -181,10 +181,8 @@ def _check_coverage(verdicts: list[Verdict]) -> None:
 
 def _resolve_judging(judging: str, judge, generator, queries) -> str:
     """The judging mode, after checking the judge can do it."""
-    if judging == "auto":
-        judging = "pointwise" if is_decision_model(judge) else "pairwise"
     if judging not in ("pointwise", "pairwise"):
-        raise ValueError(f"judging must be 'auto', 'pointwise' or 'pairwise', not {judging!r}")
+        raise ValueError(f"judging must be 'pointwise' or 'pairwise', not {judging!r}")
     if is_decision_model(judge) and generator is None and queries == "synthetic":
         raise ValueError("a decision model cannot write queries: pass generator=, or queries='original' / your own")
     return judging
@@ -337,7 +335,7 @@ def run(
     top_k: int = 10,
     doc_chars: int | None = None,
     pairs_per_query: int | None = None,
-    judging: str = "auto",
+    judging: str = "pointwise",
     seed: int = 0,
     filter_queries: bool = False,
     output_folder: str | Path = "results",
@@ -367,8 +365,7 @@ def run(
             judge on 4000, since a comparison shows 2 * top_k documents, which costs far more per call.
         pairs_per_query: Pairwise judging: judge only this many random model pairs per query; all pairs by default.
         judging: "pointwise" grades every pooled document once (0-5) and ranks models by nDCG@top_k over the grades;
-            "pairwise" compares the models' lists and ranks with Bradley-Terry. "auto": pointwise for a decision
-            model, pairwise for an LLM.
+            "pairwise" compares the models' lists and ranks with Bradley-Terry.
         seed: Seed for document sampling and the bootstrap.
         filter_queries: Add an LLM quality filter and deduplication of generated queries.
         output_folder: Where the record is written, as <task>/<record>.json: the results repository's layout.

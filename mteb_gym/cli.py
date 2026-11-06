@@ -80,10 +80,9 @@ def main(argv=None) -> None:
     run_ap.add_argument("--judge-key-env", default=None, help="environment variable holding the judge's API key")
     run_ap.add_argument(
         "--judging",
-        default="auto",
-        choices=["auto", "pointwise", "pairwise"],
-        help="pointwise: grade every pooled document, rank by nDCG; pairwise: compare lists (default: pointwise for a "
-        "decision model, pairwise for an LLM)",
+        default="pointwise",
+        choices=["pointwise", "pairwise"],
+        help="pointwise: grade every pooled document, rank by nDCG; pairwise: compare lists",
     )
     run_ap.add_argument(
         "--judge-extra-body",

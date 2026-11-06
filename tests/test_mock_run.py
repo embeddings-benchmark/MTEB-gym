@@ -1,6 +1,7 @@
 import json
 import tempfile
 import types
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -178,6 +179,8 @@ def test_end_to_end_mteb_task():
     __import__("mteb")
     from mteb_gym import run
 
+    run = partial(run, judging="pairwise")
+
     with tempfile.TemporaryDirectory() as tmp:
         res = run(
             "NanoNFCorpusRetrieval",
@@ -221,6 +224,8 @@ _TWO = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
 def test_the_generator_writes_and_the_judge_judges(tmp_path):
     from mteb_gym import run
 
+    run = partial(run, judging="pairwise")
+
     gen, judge = Calls(), Calls()
     run(
         _docs(tmp_path),
@@ -240,6 +245,8 @@ def test_the_generator_writes_and_the_judge_judges(tmp_path):
 
 def test_pairs_per_query_limits_the_comparisons(tmp_path):
     from mteb_gym import run
+
+    run = partial(run, judging="pairwise")
 
     three = [*_TWO, "BAAI/bge-small-en-v1.5"]
     judge = Calls()
@@ -324,6 +331,8 @@ def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatc
     import sys
 
     from mteb_gym import run
+
+    run = partial(run, judging="pairwise")
 
     run_module = sys.modules["mteb_gym.run"]  # `mteb_gym.run`, the attribute, is the function
 

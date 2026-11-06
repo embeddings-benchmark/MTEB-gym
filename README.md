@@ -60,9 +60,8 @@ The judge and the generator can be [any model](#choosing-the-judge-and-generator
 | **Each model's rating** | nDCG over the grades, 0 to 100 | Bradley-Terry, centred on 1000 |
 | **Judge calls** | One per retrieved document, shared across models | Two per query per model pair, one in each order |
 | **Adding a model** | Grades only the documents it adds | Judges only its new pairs |
-| **Default for** | A decision model | An LLM |
 
-Either kind of judge works either way. Set it with `judging="pointwise"` or `judging="pairwise"`. Pairwise costs more: 100 queries and 10 models take 9,000 calls, which `pairs_per_query` reduces.
+Pointwise is the default. Set `judging="pairwise"` to compare lists. It costs more: 100 queries and 10 models take 9,000 calls, which `pairs_per_query` reduces.
 
 ## Usage
 
@@ -105,7 +104,7 @@ gym.run(..., embedding_cache="path/to/vectors")
 |---|---|---|
 | `queries` | `"synthetic"` | `"synthetic"`, `"original"`, or your own |
 | `task_instruction` | `None` | One sentence on what a good result is |
-| `judging` | `"auto"` | `"pointwise"`, `"pairwise"`, or the judge's default |
+| `judging` | `"pointwise"` | `"pointwise"` or `"pairwise"` |
 | `pairs_per_query` | `None` | Pairwise: judge this many random model pairs per query, not all |
 | `n_queries` | `100` | Queries to generate or sample |
 | `top_k` | `10` | Documents judged per query |
@@ -199,12 +198,12 @@ mteb-gym submit --create-pr  # open a pull request on each
 Change a name to change a model. Give a URL for a model you serve yourself:
 
 ```python
-gym.run(..., judge="gpt-5.4", generator="gpt-5.4-mini")  # with OPENAI_API_KEY set
 gym.run(..., judge="autotrust/JEV-27B", judge_url="http://localhost:8001")
+gym.run(..., judge="gpt-5.4", generator="gpt-5.4-mini")  # through an API, with OPENAI_API_KEY set
 ```
 
+- **Judge:** a decision model with a `/v1/decide` endpoint, such as [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
 - **Generator:** any OpenAI-compatible chat model.
-- **Judge:** a chat model, or a decision model with a `/v1/decide` endpoint such as [JEV-27B](https://huggingface.co/autotrust/JEV-27B). A decision model is found by its endpoint.
 - **Models to compare:** any model `mteb` can load.
 
 ## Command line
