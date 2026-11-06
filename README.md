@@ -1,238 +1,92 @@
-# MTEB Gym
+<h1 align="center">MTEB Gym</h1>
 
-Label-free evaluation of embedding models.
+<h3 align="center">Evaluate embedding models on any corpus, without relevance labels</h3>
 
-Give it a corpus, either an MTEB task or your own documents. It generates queries for the corpus, or takes yours. Every model retrieves for the same queries, a judge grades each retrieved document once, and every model is ranked by nDCG over those grades. No relevance labels are needed.
+<p align="center">
+  <a href="https://pypi.org/project/mteb-gym/"><img src="https://img.shields.io/pypi/v/mteb-gym.svg" alt="PyPI"></a>
+  <a href="https://github.com/embeddings-benchmark/MTEB-gym/blob/main/LICENSE"><img src="https://img.shields.io/github/license/embeddings-benchmark/MTEB-gym.svg" alt="License"></a>
+  <a href="https://pepy.tech/project/mteb-gym"><img src="https://static.pepy.tech/badge/mteb-gym" alt="Downloads"></a>
+</p>
 
-```text
-corpus → queries → retrieval → judging → ranking
-```
+<h4 align="center">
+  <a href="#installation">Installation</a> |
+  <a href="#example-usage">Usage</a> |
+  <a href="#models">Models</a> |
+  <a href="#overview">Overview</a> |
+  <a href="#citing">Citing</a>
+</h4>
 
-Started in the [MTEB Gym discussion](https://github.com/embeddings-benchmark/mteb/discussions/3068).
+MTEB Gym writes queries for your corpus, lets each embedding model retrieve for them, has a judge grade what they retrieved, and ranks the models. You don't need labels or queries of your own, only your documents.
 
 ## Installation
 
 ```bash
-pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym"
+pip install mteb-gym
 ```
 
-`[colbert]` adds late-interaction models.
-
-## Quickstart
-
-The judge is a decision model: it answers "how relevant is this document to this query?" with a grade from 0 to 5 in one forward pass, without generating text. Every retrieved document is graded once, and each model is ranked by nDCG over the grades. The example uses [JEV-27B](https://huggingface.co/AutoTrust/jev-27b), which grades a task's retrieved documents in a few minutes on one GPU.
-
-Serve it with vLLM:
-
-```bash
-hf download autotrust/JEV-27B --local-dir JEV-27B
-python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8000 \
-    --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-27B/adapter_vllm \
-    --logprobs-mode processed_logprobs --max-model-len 32768
-```
-
-A decision model cannot write queries, so the generator is an LLM:
+## Example Usage
 
 ```python
 import mteb_gym as gym
 
 result = gym.run(
-    corpus="NFCorpus",
-    models=["mteb/baseline-bm25s", "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2"],
-    generator=gym.LLM("gpt-5.4-mini"),  # writes the queries
-    judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8000"),  # grades what the models retrieve
-    n_queries=100,
-    output_folder="results",
+    corpus="path/to/docs",  # a folder of .txt/.md files, a .jsonl with id and text, or an MTEB task
+    task_instruction="Given a support ticket, retrieve the help article that resolves it",  # optional, recommended
+    models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
+    generator=gym.LLM("deepseek-ai/DeepSeek-V4-Flash", base_url="http://localhost:8000/v1"),
+    judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8001"),
 )
 print(result.leaderboard)
 ```
 
-Or from the command line:
+This expects the generator and the judge to be running, see [Models](#models). Or use the command line:
 
 ```bash
-mteb-gym run --corpus NFCorpus \
-    --models mteb/baseline-bm25s BAAI/bge-base-en-v1.5 intfloat/e5-base-v2 \
-    --generator gpt-5.4-mini --judge autotrust/JEV-27B --judge-url http://localhost:8000 --judge-decision
+mteb-gym run --corpus path/to/docs \
+    --task-instruction "Given a support ticket, retrieve the help article that resolves it" \
+    --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 intfloat/e5-base-v2 \
+    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1 \
+    --judge autotrust/JEV-27B --judge-url http://localhost:8001 --judge-decision
 ```
 
-`gym.DecisionModel` talks to a server with JEV-27B's `/v1/decide` endpoint. Any other decision model works as the judge through an object with one method, `decide(kind, state, question, options=None)`, that returns a probability for each option; for `kind="score"` the options are the grades `"0"` to `"5"`, and pairwise judging uses `kind="choice"` with `"System A"`, `"System B"` and `"Tie"`.
+## Models
 
-## LLM judges
+- **Models to compare:** any model id that `mteb` can load.
+- **Generator:** writes the queries. Any OpenAI-compatible chat model works, either from an API (set `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for other providers) or served with vLLM, SGLang or Ollama.
+- **Judge:** a decision model behind a `/v1/decide` endpoint, any object with a `decide(kind, state, question, options)` method, or an LLM (`gym.LLM`). By default a decision model grades each retrieved document, and an LLM compares the models' lists. `judging="pointwise"` or `"pairwise"` chooses either way for either kind; pairwise costs more.
 
-An LLM judge compares two models' lists pairwise instead, and Bradley–Terry turns the comparisons into a ranking. With `OPENAI_API_KEY` set, `gym.LLM(model)` uses OpenAI. Any other OpenAI-compatible provider, such as OpenRouter, Together, Anthropic or Gemini, works with its URL in `OPENAI_BASE_URL` and its key.
-
-```python
-result = gym.run(
-    corpus="NFCorpus",
-    models=["mteb/baseline-bm25s", "BAAI/bge-base-en-v1.5", "intfloat/e5-base-v2"],
-    generator=gym.LLM("gpt-5.4-mini"),
-    judge=gym.LLM("gpt-5.4"),  # compares the models' lists pairwise
-    n_queries=100,
-    output_folder="results",
-)
-```
-
-`gym.LLM` talks to any OpenAI-compatible server, so open models work too:
+<details>
+<summary>Serving the generator and the judge with vLLM</summary>
 
 ```bash
-vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000
-export OPENAI_BASE_URL=http://localhost:8000/v1
-export OPENAI_API_KEY=EMPTY  # a local server accepts any key
+vllm serve deepseek-ai/DeepSeek-V4-Flash --port 8000 --trust-remote-code --tokenizer-mode deepseek_v4 --reasoning-parser deepseek_v4
+
+hf download autotrust/JEV-27B --local-dir JEV-27B
+python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8001 \
+    --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-27B/adapter_vllm \
+    --logprobs-mode processed_logprobs --max-model-len 32768
 ```
 
-SGLang and `transformers serve` expose the same endpoint. A judge and a generator from different model families are preferred.
+</details>
 
-To check the install without an API key or GPU, use the mock LLM. It answers deterministically, so it does not rank models. The first run downloads a small dataset and MiniLM; allow a few minutes.
+## Overview
 
-```python
-result = gym.run(
-    corpus="NanoNFCorpusRetrieval",
-    models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
-    generator=gym.MockLLM(),
-    judge=gym.MockLLM(),
-    n_queries=20,
-    output_folder="results",
-)
-```
+| Topic | |
+|---|---|
+| **Queries** | `queries="original"` uses an MTEB task's own queries; your own go in as a list, `.txt` or `.jsonl`. `help(gym.run)` lists every option |
+| **Encoding once** | `embedding_cache="path"` keeps each model's vectors, and `max_seq_length=8192` caps very long models. By default models run as `mteb` loads them |
+| **Outputs** | Each run writes a JSON record to `results/<task>/`. Read them back with `gym.load_results("results/").to_dataframe()` |
+| **Caching** | A rerun reuses its queries, retrievals and grades. Adding a model only grades the documents it adds |
+| **MTEB comparison** | For an MTEB task, `result.agreement()` compares the ranking with the official MTEB scores |
+| **Submitting** | `mteb-gym submit --create-pr` opens pull requests to the [results repository](https://github.com/embeddings-benchmark/gym-results) and the [runs dataset](https://huggingface.co/datasets/mteb/gym-runs) |
+| **Contributing** | `make install`, `make test` and `make lint`. Tests need no API key or GPU |
 
-## Usage
+## Citing
 
-`gym.run` takes the corpus, the models, the judge and the generator, as in the Quickstart. The other options, with their defaults:
+MTEB Gym builds on MTEB. A citation for MTEB Gym will follow with the paper.
 
-- `queries="synthetic"`: `"original"` uses `n_queries` of the task's own queries, drawn with `seed`; your own go in as a `.jsonl` with `id` and `text`, a `.txt` with one per line, or a list of strings.
-- `task_instruction=None`: an optional sentence on what a good result is, given to the generator and the judge. Without it the generator writes natural queries and the judge grades plain relevance. Recommended; for example `"Given a support ticket, retrieve the help article that resolves it"`. `gym.TASK_INSTRUCTIONS` has one for each of a set of MTEB tasks.
-- `judging="auto"`: `"pointwise"` grades every retrieved document once and ranks by nDCG@`top_k`; `"pairwise"` compares the models' lists. Either kind of judge does both; auto is pointwise for a decision model and pairwise for an LLM.
-- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=None` characters of each document shown to the generator and the judge (16000, with a pairwise judge on 4000, since a comparison shows every document of two lists), `pairs_per_query=None` to judge only that many random model pairs per query (pairwise), `seed=0`, `filter_queries=False`, `True` to add an LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `embedding_cache=None`, a folder for mteb's embedding cache so a corpus is encoded once per model, `max_seq_length=None` to cap a long-context model's length (recorded, and part of the predictions' identity; by default models run as mteb loads them), `batch_size=32`, `workers=8` concurrent LLM calls.
-
-`help(gym.run)` documents each one.
-
-Results and caches are kept apart, as in mteb. `output_folder` holds the records only, in the layout of the [results repository](https://github.com/embeddings-benchmark/gym-results). A record holds the ratings, the configuration, the diagnostics, and each model's nDCG@10 against the seed documents or the dataset's labels, a baseline that needs no judge:
-
-```text
-results/
-└── NFCorpus/
-    └── NFCorpus__gpt-5.4__gpt-5.4-mini__q100-s0-<hash>.json   # task, judge, queries, n queries, seed, configuration hash
-```
-
-```jsonc
-{
-  "task_name": "NFCorpus", "dataset": {"path": "...", "revision": "..."},
-  "mteb_version": "...", "gym_version": "...", "gym_revision": "...", "evaluation_time": 812.4,
-  "config": {"query_set": "...", "judge_model": "...", "generator_model": "...", "judge_system": "...",
-             "n_queries": 100, "top_k": 10, "doc_chars": 16000, "seed": 0,
-             "models": ["..."], "model_revisions": {"...": "..."}, "config_hash": "..."},  // identity of the run
-  "llms": {"judge": {"model": "...", "base_url": "..."}, "generator": {}},  // what the LLMs ran with
-  "labels": "seed_documents",  // what ndcg_at_10 is scored against
-  "diagnostics": {"judge_calls": 1600, "parse_failure_rate": 0.0, "a_first_rate": 0.52, "tie_rate": 0.11},  // and more
-  "ratings": [{"model": "...", "revision": "...", "rating": 1034.2, "ci_low": 1012.8, "ci_high": 1055.1,
-               "wins": 412, "losses": 301, "ties": 87, "n": 800, "ndcg_at_10": 0.34}],
-  "agreement": {}  // added by agreement(): correlation with the official MTEB scores
-}
-```
-
-Everything a rerun reuses goes to `cache_folder`, laid out like the [dataset](https://huggingface.co/datasets/mteb/gym-runs) it is published to:
-
-```text
-~/.cache/mteb_gym/
-├── queries/NFCorpus/<query set>.json          # generated queries, their quality scores, and the generator's settings
-├── predictions/NFCorpus/<model>@<revision>/<query set>/   # mteb's prediction file per model
-├── grades/NFCorpus/<judge>-<key>.jsonl        # pointwise: one line per graded (query, document)
-└── verdicts/NFCorpus/<pair>-<key>.jsonl       # pairwise: one line per comparison
-```
-
-- **Reruns.** The same configuration reuses all of it; adding a model judges only the new pairs.
-- **Many models on one GPU.** Retrieval loads one model at a time, and a long roster can exhaust the GPU in one process. Run the models one per process so the operating system reclaims each, then judge:
-
-  ```bash
-  for m in "${MODELS[@]}"; do
-      mteb-gym predict --corpus NFCorpus --model "$m" --generator gpt-5.4-mini
-  done
-  mteb-gym run --corpus NFCorpus --models "${MODELS[@]}" --generator gpt-5.4-mini --judge gpt-5.4
-  ```
-
-  `run` finds the prediction files already written and only judges. The arguments that decide the query set, the corpus, generator, `queries`, `n_queries` and `seed`, must match between the two.
-- **Cost.** Two judge calls per query per model pair: 100 queries and 10 models is 9,000 calls.
-- **Reading back.** `gym.Result.from_disk(path)` for one run (`.leaderboard`, `.to_dataframe()`); `gym.load_results("results/")` for every run under a directory, a clone of the results repository included.
-
-## Submitting results
-
-A run's record goes to the [results repository](https://github.com/embeddings-benchmark/gym-results) on GitHub. The files it was computed from go to the [dataset](https://huggingface.co/datasets/mteb/gym-runs) on Hugging Face, since they are too large for git.
-
-| What | Where | Path |
-|---|---|---|
-| the record: ratings, configuration, LLM settings | GitHub, `embeddings-benchmark/gym-results` | `results/<task>/<record>.json` |
-| the query set, each model's predictions, the grades or verdicts | Hugging Face, `mteb/gym-runs` | `queries/…`, `predictions/…`, `grades/…` or `verdicts/…`, as in the cache |
-
-```bash
-gh auth login && hf auth login
-mteb-gym submit              # commit new records to a local clone; nothing is uploaded
-mteb-gym submit --create-pr  # open a pull request on each: GitHub from your fork, Hugging Face directly
-```
-
-- Every record in `results/` that the repository lacks is submitted; one whose files are not all in the cache is refused.
-- `--results-folder` and `--cache-folder` point at other folders. `gym.submit()` does the same in Python.
-
-## Agreement with MTEB
-
-For an MTEB task, compare the ranking with the official scores after the run. The labels never enter the pipeline. `queries="original"` runs the same comparison on the dataset's own queries instead of generated ones.
-
-```python
-result.agreement()  # one run
-gym.load_results("results/").agreement()  # every run under a directory
-```
-
-- Official scores come from the MTEB results repository through mteb's cache; `agreement(evaluate_missing=True)` runs mteb for models that have none.
-- Reported: Spearman, Kendall, top-10 Spearman and AP correlation with bootstrap intervals, and whether each score was official or self-run.
-
-## How it works
-
-1. **Generate queries**  
-   Sample documents; the generator writes one query per sample.
-
-2. **Filter queries**  
-   Drop short, malformed, low-quality and near-duplicate queries.
-
-3. **Retrieve**  
-   Every model retrieves through `mteb.evaluate`.
-
-4. **Judge**  
-   Pointwise (a decision model): every document in a query's pool, the union of the models' top-k, is graded 0–5 once. A new model only adds the documents it brings. Pairwise (an LLM): the judge compares two models' top-k lists per query, in both orders; a split decision counts half.
-
-5. **Rank models**  
-   Pointwise: each model's nDCG@k over the grades, ×100. Pairwise: Bradley–Terry over all pairwise outcomes. Either way, confidence intervals come from resampling queries.
-
-6. **Record the run**  
-   The record goes to the results folder; queries, predictions and grades or verdicts to the cache, so a rerun repeats only what changed.
-
-## Development
-
-```bash
-make install   # uv sync with dev tools
-make test      # pytest, two end-to-end runs included
-make lint      # ruff
-```
-
-Tests use the mock LLM: no key, no GPU. CI runs on Python 3.10 and 3.13.
-
-```text
-mteb_gym/
-├── corpus.py     an MTEB task corpus or a local one
-├── queries.py    query generation and filtering
-├── task.py       corpus + queries as an mteb retrieval task
-├── retrieval.py  mteb.evaluate per model; read its predictions
-├── judge.py      pairwise judging, both orders
-├── rank.py       Bradley–Terry with bootstrap CIs
-├── results.py    Result, Results, load_results
-├── agreement.py  agreement with official MTEB scores
-├── llm.py        LLM and MockLLM
-└── run.py        the pipeline
-```
-
-## Citation
-
-Paper and citation information will be added with the MTEB Gym release.
-
-MTEB Gym builds on MTEB:
+<details>
+<summary>BibTeX</summary>
 
 ```bibtex
 @article{muennighoff2022mteb,
@@ -241,3 +95,5 @@ MTEB Gym builds on MTEB:
   year   = {2022}
 }
 ```
+
+</details>
