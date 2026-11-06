@@ -23,9 +23,10 @@ class Corpus:
     id: str  # mteb: <dataset path>@<revision>/<subset>/<split>; local: local:<name>@<content hash>
     docs: dict[str, str]
     metadata: object  # mteb TaskMetadata
-    queries: dict[str, str] | None = None  # the task's own queries (human-query arm)
+    queries: dict[str, str] | None = None  # the task's own queries
     qrels: dict[str, dict[str, int]] | None = None  # the task's own relevance labels
     ignore_identical_ids: bool = False  # mteb's flag: a query that is itself a document, as in ArguAna
+    top_ranked: dict[str, list[str]] | None = None  # mteb's documents each of the task's own queries may retrieve
 
     @property
     def source(self) -> str:
@@ -35,7 +36,10 @@ class Corpus:
 def load(spec: str | Path) -> Corpus:
     """`spec` is an mteb task name, or a path to a directory / .jsonl of documents."""
     path = Path(spec)
-    return _load_local(path) if path.exists() else _load_task(str(spec))
+    if path.exists():
+        logger.info("loading the local corpus at %s", path)
+        return _load_local(path)
+    return _load_task(str(spec))
 
 
 def _text(row) -> str:
@@ -49,7 +53,14 @@ def _load_task(name: str) -> Corpus:
     task.load_data()
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset
-    subset = "default" if subsets.get("default") else next(iter(subsets))  # an empty "default" falls through
+    filled = [name_ for name_, splits in subsets.items() if splits]
+    if "en" in filled:  # a multilingual task runs on its English subset, as an English corpus
+        filled = ["en"]
+    if len(filled) > 1:
+        raise ValueError(
+            f"{name} has several subsets ({', '.join(sorted(filled))}); the gym runs on one corpus at a time"
+        )
+    subset = filled[0]
     split = "test" if "test" in subsets[subset] else next(iter(subsets[subset]))
     data = subsets[subset][split]
     docs = {row["id"]: _text(row) for row in data["corpus"]}
@@ -67,6 +78,7 @@ def _load_task(name: str) -> Corpus:
         queries=queries,
         qrels=data.get("relevant_docs"),
         ignore_identical_ids=task.ignore_identical_ids,
+        top_ranked=dict(data["top_ranked"]) if data.get("top_ranked") else None,
     )
 
 
@@ -74,7 +86,7 @@ def _load_local(root: Path) -> Corpus:
     from mteb.abstasks.task_metadata import TaskMetadata
 
     if root.is_file() and root.suffix == ".jsonl":
-        rows = (json.loads(line) for line in root.read_text().splitlines() if line.strip())
+        rows = (json.loads(line) for line in root.read_text().split("\n") if line.strip())
         docs = {str(r["id"]): str(r.get("text") or "") for r in rows}
     else:
         files = sorted(p for p in root.rglob("*") if p.suffix in (".txt", ".md"))
@@ -88,16 +100,16 @@ def _load_local(root: Path) -> Corpus:
         h.update(text.encode())
         h.update(b"\x01")
     digest = h.hexdigest()[:12]
-    # no benchmark task behind a local corpus: minimal metadata, no task prompt
+    # no benchmark task behind a local corpus: minimal metadata
     metadata = TaskMetadata(
         name=root.stem,
-        description=f"Local corpus {root}",
+        description=f"Local corpus {root.name}",
         type="Retrieval",
         category="t2t",
         modalities=["text"],
         eval_splits=["test"],
         eval_langs=["eng-Latn"],
         main_score="ndcg_at_10",
-        dataset={"path": str(root), "revision": digest},
+        dataset={"path": root.name, "revision": digest},
     )
     return Corpus(name=root.stem, id=f"local:{root.stem}@{digest}", docs=docs, metadata=metadata)

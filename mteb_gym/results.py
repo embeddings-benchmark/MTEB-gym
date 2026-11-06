@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass
@@ -20,9 +21,8 @@ from .rank import format_leaderboard
 
 
 def config_hash(config: dict[str, Any], length: int = 8) -> str:
-    """Stable short hash over the experiment-defining config (never over itself)."""
-    payload = {k: v for k, v in config.items() if k != "config_hash"}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()[
+    """A short, stable hash of the configuration."""
+    return hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()[
         :length
     ]
 
@@ -35,9 +35,14 @@ def _version(name: str) -> str | None:
 
 
 def git_revision() -> str | None:
+    """The gym's commit when it runs from a git checkout. An installed package has none: the folder above it may be
+    the user's own repository."""
+    root = Path(__file__).resolve().parents[1]
+    if not (root / ".git").exists():
+        return None
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).resolve().parents[1], text=True, stderr=subprocess.DEVNULL
+            ["git", "rev-parse", "HEAD"], cwd=root, text=True, stderr=subprocess.DEVNULL
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
@@ -48,16 +53,18 @@ def _short(model: str | None) -> str:
 
 
 def record_path(out: Path, task_name: str, experiment: dict[str, Any]) -> Path:
-    """out/<task>/<task>__<judge>__<generator or arm>__q<n>-s<seed>-<hash>.json, the results repository's layout"""
+    """out/<task>/<task>__<judge>__<generator or query_source>__q<n>-s<seed>-<hash>.json, the results repository's layout"""
     second = (
-        _short(experiment["generator_model"]) if experiment["arm"] == "synthetic" else f"{experiment['arm']}-queries"
+        _short(experiment["generator_model"])
+        if experiment["query_source"] == "synthetic"
+        else f"{experiment['query_source']}-queries"
     )
     name = f"{task_name}__{_short(experiment['judge_model'])}__{second}__q{experiment['n_queries']}-s{experiment['seed']}-{experiment['config_hash']}.json"
     return Path(out) / task_name / name
 
 
 def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
-    """Judge diagnostics from persisted verdicts, so cached and resumed runs report the truth."""
+    """Judge diagnostics from the verdicts, including any read back from the cache."""
     n = len(verdicts)
     identical = sum(v.raw == ["identical"] for v in verdicts)
     ties = sum(float(v.score_a) == 0.5 for v in verdicts)
@@ -72,6 +79,7 @@ def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
     return {
         "judge_calls": asks,
         "n_comparisons": n,
+        "n_shortened": sum(getattr(v, "doc_chars", None) is not None for v in verdicts),
         "commit_rate": (n - ties) / n if n else None,
         "tie_rate": ties / n if n else None,
         "a_first_rate": first / decisive if decisive else None,
@@ -80,17 +88,30 @@ def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
     }
 
 
+def grade_diagnostics(grades: list[Any]) -> dict[str, Any]:
+    n = len(grades)
+    failed = sum(not g.parsed_ok for g in grades)
+    ok = [g.grade for g in grades if g.parsed_ok]
+    n_queries = len({g.qid for g in grades})
+    return {
+        "n_grades": n,
+        "n_shortened": sum(getattr(g, "doc_chars", None) is not None for g in grades),
+        "pool_size_mean": n / n_queries if n_queries else None,
+        "grade_mean": sum(ok) / len(ok) if ok else None,
+        "parse_failure_rate": failed / n if n else None,
+    }
+
+
 def build_record(
     corpus,
     experiment,
     ratings,
-    verdicts,
+    diagnostics: dict,
     evaluation_time: float,
     revisions: dict[str, str | None],
     llms: dict | None = None,
     ndcg: dict[str, float] | None = None,
     labels: str | None = None,
-    diagnostics: dict | None = None,
 ) -> dict:
     dataset = getattr(corpus.metadata, "dataset", None) or {}
     return {
@@ -105,7 +126,7 @@ def build_record(
         "config": experiment,
         "llms": llms,  # what the judge and generator actually ran with; informational, not identity
         "labels": labels,  # what ndcg_at_10 below is scored against: "seed_documents", "dataset", or None
-        "diagnostics": diagnostics if diagnostics is not None else verdict_diagnostics(verdicts),
+        "diagnostics": diagnostics,
         "ratings": [
             {
                 "model": m.name,
@@ -121,7 +142,7 @@ def build_record(
             }
             for m in ratings
         ],
-    }  # agreement() adds "agreement"
+    }
 
 
 @dataclass
@@ -138,7 +159,9 @@ class Result:
     def to_disk(self, path: str | Path | None = None) -> Path:
         self.path = Path(path or self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.record, indent=2))
+        temporary = self.path.with_suffix(f".tmp{os.getpid()}")
+        temporary.write_text(json.dumps(self.record, indent=2))
+        temporary.replace(self.path)
         return self.path
 
     @property
@@ -146,7 +169,7 @@ class Result:
         return format_leaderboard(self.record["ratings"])
 
     def to_dataframe(self):
-        """One row per model: task, judge, generator, model, revision, rating, ci_low, ci_high, n_queries."""
+        """One row per model, with the task, judge, generator and query source."""
         import pandas as pd
 
         c = self.record["config"]
@@ -154,7 +177,7 @@ class Result:
             "task": self.record["task_name"],
             "judge": c["judge_model"],
             "generator": c["generator_model"],
-            "arm": c["arm"],
+            "query_source": c["query_source"],
             "n_queries": c["n_queries"],
         }
         return pd.DataFrame([{**head, **r} for r in self.record["ratings"]])
@@ -200,7 +223,6 @@ class Results:
 
 
 def load_results(root: str | Path) -> Results:
-    """All records under `root`: a results folder's or results repository's <task>/ folders, or an
-    older output folder's records/."""
-    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name in ("records", p.name.split("__")[0]))
+    """All records under `root`: a results folder's or results repository's <task>/ folders."""
+    paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name == p.name.split("__")[0])
     return Results([Result.from_disk(p) for p in paths])
