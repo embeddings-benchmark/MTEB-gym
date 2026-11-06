@@ -527,7 +527,7 @@ def test_a_pairwise_run_shows_the_generator_and_the_judge_the_pairwise_limit(tmp
         cache_folder=tmp_path / "cache",
         workers=1,
     ).record
-    assert rec["config"]["doc_chars"] == 4000 and rec["config"]["gen_doc_chars"] == 4000
+    assert rec["config"]["doc_chars"] == 4000 and rec["config"]["gen_doc_chars"] == 16000
     assert rec["config"]["task_instruction"] is None and rec["config"]["gen_filter"] is False
 
 
