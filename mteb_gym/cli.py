@@ -7,7 +7,7 @@ import json
 import logging
 import os
 
-from . import LLM, DecisionModel, MockLLM, predict, run, submit
+from . import load_model, predict, run, submit
 
 
 def _key(variable: str | None) -> str | None:
@@ -15,10 +15,7 @@ def _key(variable: str | None) -> str | None:
 
 
 def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None):
-    if model == "mock":
-        return MockLLM()
-    extra = json.loads(extra_body) if extra_body else None
-    return LLM(model, base_url=base_url, api_key=_key(key_variable), extra_body=extra)
+    return load_model(model, base_url, _key(key_variable), json.loads(extra_body) if extra_body else None)
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
@@ -82,11 +79,6 @@ def main(argv=None) -> None:
     run_ap.add_argument("--judge-url", default=None, help="base url for the judge endpoint")
     run_ap.add_argument("--judge-key-env", default=None, help="environment variable holding the judge's API key")
     run_ap.add_argument(
-        "--judge-decision",
-        action="store_true",
-        help="the judge is a decision model with a /v1/decide endpoint (e.g. autotrust/JEV-27B)",
-    )
-    run_ap.add_argument(
         "--judging",
         default="auto",
         choices=["auto", "pointwise", "pairwise"],
@@ -149,12 +141,7 @@ def main(argv=None) -> None:
         print(f"predictions -> {predict(args.corpus, args.model, **shared)}")
         return
 
-    if args.judge_decision:
-        if not args.judge_url:
-            ap.error("--judge-decision needs --judge-url")
-        judge = DecisionModel(args.judge, base_url=args.judge_url, api_key=_key(args.judge_key_env))
-    else:
-        judge = client(args.judge, args.judge_url, args.judge_extra_body, args.judge_key_env)
+    judge = client(args.judge, args.judge_url, args.judge_extra_body, args.judge_key_env)
     result = run(
         args.corpus,
         args.models,

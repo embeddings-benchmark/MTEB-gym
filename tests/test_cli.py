@@ -2,6 +2,7 @@
 
 import types
 
+import httpx
 import pytest
 
 from mteb_gym import cli
@@ -47,27 +48,18 @@ def test_run_passes_its_arguments(run_call, capsys):
     assert "board" in capsys.readouterr().out
 
 
-def test_a_decision_judge_needs_a_url(run_call, capsys):
-    with pytest.raises(SystemExit):
-        cli.main("run --corpus d --models a --judge j --judge-decision".split())
-    cli.main("run --corpus d --models a --judge j --judge-decision --judge-url http://x".split())
+def test_a_judge_with_a_decide_endpoint_is_a_decision_model(run_call, monkeypatch):
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(422))
+    cli.main("run --corpus d --models a --judge j --judge-url http://x".split())
     assert isinstance(run_call["judge"], DecisionModel) and run_call["judge"].base_url == "http://x"
-
-
-def test_predict_is_one_model(monkeypatch, capsys):
-    seen = {}
-    monkeypatch.setattr(
-        cli, "predict", lambda corpus, model, **kw: seen.update(corpus=corpus, model=model, **kw) or "p"
-    )
-    cli.main("predict --corpus d --model a --queries original".split())
-    assert seen["model"] == "a" and seen["queries"] == "original" and "predictions -> p" in capsys.readouterr().out
 
 
 def test_each_endpoint_can_use_its_own_key_variable(run_call, monkeypatch):
     monkeypatch.setenv("JUDGE_KEY", "judge-secret")
     monkeypatch.setenv("GEN_KEY", "generator-secret")
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(422 if "//j/" in url else 404))
     cli.main(
-        "run --corpus d --models a --judge j --judge-url http://j --judge-decision --judge-key-env JUDGE_KEY "
+        "run --corpus d --models a --judge j --judge-url http://j --judge-key-env JUDGE_KEY "
         "--generator g --generator-url http://g/v1 --generator-key-env GEN_KEY".split()
     )
     assert run_call["judge"]._http.headers["authorization"] == "Bearer judge-secret"

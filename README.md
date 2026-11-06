@@ -14,7 +14,7 @@
   <a href="#how-it-works">How it works</a> |
   <a href="#usage">Usage</a> |
   <a href="#output">Output</a> |
-  <a href="#serving-the-models">Serving the models</a> |
+  <a href="#choosing-the-judge-and-generator">Judge and generator</a> |
   <a href="#citing">Citing</a>
 </h4>
 
@@ -34,13 +34,15 @@ import mteb_gym as gym
 result = gym.run(
     corpus="path/to/docs",
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
-    generator=gym.LLM("deepseek-ai/DeepSeek-V4-Flash", base_url="http://localhost:8000/v1"),
-    judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8001"),
+    judge="autotrust/JEV-27B",
+    judge_url="http://localhost:8001",
+    generator="deepseek-ai/DeepSeek-V4-Flash",
+    generator_url="http://localhost:8000/v1",
 )
 print(result.leaderboard)
 ```
 
-This needs a generator and a judge running: see [Serving the models](#serving-the-models).
+The judge and the generator can be [any model](#choosing-the-judge-and-generator), served by you or through an API.
 
 ## How it works
 
@@ -192,64 +194,26 @@ mteb-gym submit --create-pr  # open a pull request on each
 
 </details>
 
-## Serving the models
+## Choosing the judge and generator
 
-- **Models to compare:** any model `mteb` can load.
-- **Generator:** any OpenAI-compatible chat model.
-- **Judge:** a decision model with a `/v1/decide` endpoint, or an LLM through `gym.LLM`.
-
-To use an API, set `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for other providers.
-
-<details>
-<summary>Serving with vLLM</summary>
-
-```bash
-vllm serve deepseek-ai/DeepSeek-V4-Flash --port 8000 --trust-remote-code \
-    --tokenizer-mode deepseek_v4 --reasoning-parser deepseek_v4
-
-hf download autotrust/JEV-27B --local-dir JEV-27B
-python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8001 \
-    --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-27B/adapter_vllm \
-    --logprobs-mode processed_logprobs
-```
-
-</details>
-
-<details>
-<summary>Using another decision model</summary>
-
-Pass any object with one method. It returns a probability for each option:
+Change a name to change a model. Give a URL for a model you serve yourself:
 
 ```python
-def decide(self, kind, state, question, options=None) -> dict[str, float]: ...
+gym.run(..., judge="gpt-5.4", generator="gpt-5.4-mini")  # with OPENAI_API_KEY set
+gym.run(..., judge="autotrust/JEV-27B", judge_url="http://localhost:8001")
 ```
 
-For `kind="score"` the options are the grades `"0"` to `"5"`. Pairwise judging uses `kind="choice"`, with `"System A"`, `"System B"` and `"Tie"`.
-
-</details>
+- **Generator:** any OpenAI-compatible chat model.
+- **Judge:** a chat model, or a decision model with a `/v1/decide` endpoint such as [JEV-27B](https://huggingface.co/autotrust/JEV-27B). A decision model is found by its endpoint.
+- **Models to compare:** any model `mteb` can load.
 
 ## Command line
 
 ```bash
-mteb-gym run --corpus path/to/docs \
-    --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 \
-    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1 \
-    --judge autotrust/JEV-27B --judge-url http://localhost:8001 --judge-decision
+mteb-gym run --corpus path/to/docs --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 \
+    --judge autotrust/JEV-27B --judge-url http://localhost:8001 \
+    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1
 ```
-
-<details>
-<summary>Many models on one GPU</summary>
-
-Run retrieval one model per process, so each returns its GPU memory. `run` then finds the files and only judges:
-
-```bash
-for m in "${MODELS[@]}"; do
-    mteb-gym predict --corpus NFCorpus --model "$m" --generator ...
-done
-mteb-gym run --corpus NFCorpus --models "${MODELS[@]}" --generator ... --judge ...
-```
-
-</details>
 
 ## Contributing
 

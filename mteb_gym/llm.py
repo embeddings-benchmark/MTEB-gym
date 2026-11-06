@@ -165,6 +165,21 @@ class DecisionModel:
         raise RuntimeError(f"{self.base_url}/v1/decide failed after {self.max_retries + 1} attempts: {error}")
 
 
+def load_model(model, url: str | None = None, api_key: str | None = None, extra_body: dict | None = None):
+    """A generator or judge by name: an API model, or a model served at `url`. A server with a /v1/decide endpoint is a
+    decision model. Anything that is not a name is returned as it is."""
+    if not isinstance(model, str):
+        return model
+    if model == "mock":
+        return MockLLM()
+    if url:
+        key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
+        probe = f"{url.rstrip('/').removesuffix('/v1')}/v1/decide"  # an empty question: only whether the route exists
+        if httpx.post(probe, json={}, headers={"Authorization": f"Bearer {key}"}, timeout=30).status_code != 404:
+            return DecisionModel(model, url, api_key=api_key)
+    return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
+
+
 def llm_settings(client) -> dict:
     """How a client is configured, for the record. The endpoint is left out: it can be private."""
     configured = {

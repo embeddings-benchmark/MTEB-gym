@@ -39,7 +39,7 @@ from .cache import (
     verdict_key,
 )
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
-from .llm import ChatClient, DecisionClient, llm_settings
+from .llm import ChatClient, DecisionClient, llm_settings, load_model
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
@@ -266,7 +266,8 @@ def predict(
     corpus: str | Path,
     model: str,
     *,
-    generator: ChatClient | None = None,
+    generator: str | ChatClient | None = None,
+    generator_url: str | None = None,
     queries: str | Path | list[str] = "synthetic",
     task_instruction: str | None = None,
     n_queries: int = 100,
@@ -296,6 +297,7 @@ def predict(
             "predict() needs the generator that run() will use: a generated query set is identified by it, "
             "and predictions are stored per query set. Pass generator=, or queries='original' / your own."
         )
+    generator = load_model(generator, generator_url)
     cache = resolve_cache_folder(cache_folder)
     corp = corpus_mod.load(corpus)
     gen = QueryGenerator(
@@ -324,9 +326,11 @@ def predict(
 def run(
     corpus: str | Path,
     models: list[str],
-    judge: ChatClient | DecisionClient,
-    generator: ChatClient | None = None,
+    judge: str | ChatClient | DecisionClient,
+    generator: str | ChatClient | None = None,
     *,
+    judge_url: str | None = None,
+    generator_url: str | None = None,
     queries: str | Path | list[str] = "synthetic",
     task_instruction: str | None = None,
     n_queries: int = 100,
@@ -348,9 +352,10 @@ def run(
     Args:
         corpus: An mteb retrieval task name, a folder of .txt/.md files, or a .jsonl with id and text.
         models: mteb model ids. They run through mteb itself.
-        judge: A decision model (mteb_gym.DecisionModel, e.g. JEV-27B) or an LLM client (mteb_gym.LLM or MockLLM). Either
-            judges both ways; see `judging`.
-        generator: An LLM client that writes the queries. Defaults to the judge.
+        judge: A model name. Either a chat model or a decision model, one with a /v1/decide endpoint.
+        generator: The name of a chat model that writes the queries. Defaults to the judge.
+        judge_url: Where the judge is served, if not an API. An OpenAI-compatible endpoint or a decision model's.
+        generator_url: Where the generator is served, if not an API.
         queries: "synthetic" (generated), "original" (the dataset's own queries), or your own as a
             .jsonl with id and text, a .txt with one query per line, or a list of strings.
         task_instruction: Optional sentence on what a good result is, given to the generator and the judge. Without it
@@ -385,6 +390,7 @@ def run(
     cache = resolve_cache_folder(cache_folder)
     if not models:
         raise ValueError("no models given")
+    judge, generator = load_model(judge, judge_url), load_model(generator, generator_url)
     judging = _resolve_judging(judging, judge, generator, queries)
     gen_client = generator if generator is not None else judge
     if generator is None and queries == "synthetic":
