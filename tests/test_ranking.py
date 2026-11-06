@@ -22,7 +22,7 @@ def retrieved(monkeypatch):
         word = WORD[path]
         return [Ranked(q, t, [f"{word} {q}"], [f"{word} {q}"]) for q, t in texts.items()]
 
-    monkeypatch.setattr("mteb_gym.retrieval.predict", lambda model, task, folder, batch_size: model)
+    monkeypatch.setattr("mteb_gym.retrieval.predict", lambda model, task, folder, **kw: model)
     monkeypatch.setattr("mteb_gym.retrieval.top_k", top_k)
 
 

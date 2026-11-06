@@ -571,3 +571,66 @@ def test_the_sentence_reaches_the_generator_and_the_judge(tmp_path):
     plain_generator, plain_judge, plain = go(None)
     assert not any("retrieval task" in s for s in plain_generator.systems + plain_judge.systems)
     assert rec["config"]["query_set"] != plain["config"]["query_set"]  # it changes what is generated
+
+
+def test_a_cap_is_part_of_what_a_run_identifies_and_the_embedding_cache_is_not(tmp_path):
+    __import__("mteb")
+    from mteb_gym import run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    shared = dict(
+        models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+        judge=MockLLM(),
+        queries=["statins and heart disease", "fiber and the gut"],
+        judging="pairwise",
+        output_folder=tmp_path / "out",
+        workers=1,
+    )
+    plain = run(docs, cache_folder=tmp_path / "plain", **shared).record
+    cached = run(docs, cache_folder=tmp_path / "cached", embedding_cache=tmp_path / "vectors", **shared).record
+    assert "max_seq_length" not in plain["config"]
+    assert cached["config"] == plain["config"]  # the same run: only where its vectors came from differs
+    assert [r["rating"] for r in cached["ratings"]] == pytest.approx([r["rating"] for r in plain["ratings"]])
+    assert (tmp_path / "vectors" / "sentence-transformers_all-MiniLM-L6-v2").is_dir()
+    assert not (tmp_path / "vectors" / "mteb_baseline-bm25s").exists()
+
+    capped = run(docs, cache_folder=tmp_path / "plain", max_seq_length=64, **shared).record
+    assert (
+        capped["config"]["max_seq_length"] == 64 and capped["config"]["config_hash"] != plain["config"]["config_hash"]
+    )
+    files = cache_files(capped, tmp_path / "plain")
+    assert all(p.exists() for p in files["predictions"] + files["judgments"])  # named from the record alone
+    assert all("-max64" in str(p.parent.parent) for p in files["predictions"])
+    assert not set(files["predictions"]) & set(cache_files(plain, tmp_path / "plain")["predictions"])
+    assert not set(files["judgments"]) & set(cache_files(plain, tmp_path / "plain")["judgments"])
+
+
+def test_run_and_predict_pass_the_cache_and_the_cap_on_to_retrieval(tmp_path, monkeypatch):
+    __import__("mteb")
+    from mteb_gym import predict, retrieval, run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(6).items():
+        (docs / f"{did}.txt").write_text(text)
+    real, seen = retrieval.predict, []
+
+    def spy(model, task, folder, **kw):
+        seen.append((kw["embedding_cache"], kw["max_seq_length"]))
+        return real(model, task, folder, batch_size=kw["batch_size"])
+
+    monkeypatch.setattr(retrieval, "predict", spy)
+    shared = dict(
+        queries=["statins and heart disease"],
+        cache_folder=tmp_path / "c",
+        embedding_cache="vectors",
+        max_seq_length=64,
+        workers=1,
+    )
+    path = predict(docs, "mteb/baseline-bm25s", **shared)
+    rec = run(docs, ["mteb/baseline-bm25s"], MockLLM(), judging="pointwise", output_folder=tmp_path / "out", **shared)
+    assert seen == [("vectors", 64), ("vectors", 64)]
+    assert "-max64" in path.parent.parent.name and cache_files(rec.record, tmp_path / "c")["predictions"] == [path]

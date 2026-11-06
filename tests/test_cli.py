@@ -24,7 +24,7 @@ def test_run_passes_its_arguments(run_call, capsys):
     cli.main(
         "run --corpus docs --models a b --judge mock --generator mock --task-instruction t --n-queries 7 "
         "--queries original --top-k 3 --doc-chars 9 --pairs-per-query 2 --judging pairwise --seed 5 "
-        "--batch-size 4 --workers 6".split()
+        "--batch-size 4 --workers 6 --embedding-cache vectors --max-seq-length 8192".split()
     )
     assert run_call["corpus"] == "docs" and run_call["models"] == ["a", "b"]
     assert isinstance(run_call["judge"], MockLLM) and isinstance(run_call["generator"], MockLLM)
@@ -40,6 +40,8 @@ def test_run_passes_its_arguments(run_call, capsys):
         filter_queries=False,
         batch_size=4,
         workers=6,
+        embedding_cache="vectors",
+        max_seq_length=8192,
     )
     assert {k: run_call[k] for k in expected} == expected
     assert "board" in capsys.readouterr().out
