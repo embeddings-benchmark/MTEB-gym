@@ -119,3 +119,29 @@ def test_an_llm_context_error_reads_as_too_long():
     llm.client = type("C", (), {"chat": type("H", (), {"completions": Completions()})()})()
     with pytest.raises(InputTooLong):
         llm.chat([{"role": "user", "content": "x"}])
+
+
+@pytest.mark.parametrize(("status", "kind"), [(404, LLM), (422, DecisionModel), (400, DecisionModel)])
+def test_a_served_model_is_told_apart_by_its_decide_endpoint(monkeypatch, status, kind):
+    from mteb_gym.llm import load_model
+
+    asked = {}
+
+    def post(url, **kw):
+        asked.update(url=url, **kw)
+        return httpx.Response(status)
+
+    monkeypatch.setattr(httpx, "post", post)
+    model = load_model("m", "http://server/v1", api_key="k")
+    assert isinstance(model, kind) and model.model == "m"
+    assert asked["url"] == "http://server/v1/decide" and asked["headers"]["Authorization"] == "Bearer k"
+
+
+def test_a_name_without_a_url_is_an_api_model_and_makes_no_call(monkeypatch):
+    from mteb_gym.llm import load_model
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("no server to ask"))
+    assert isinstance(load_model("m", api_key="k"), LLM)
+    existing = LLM("m", api_key="k")
+    assert load_model(existing) is existing
+    assert load_model(None) is None

@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .cache import cache_files
 from .judge import Grade, Verdict
-from .llm import LLM, ChatClient, DecisionClient, DecisionModel, MockLLM
+from .llm import LLM, ChatClient, DecisionClient, DecisionModel, MockLLM, load_model
 from .queries import Query
 from .rank import ModelRating
 from .results import Result, Results, load_results
@@ -24,6 +24,7 @@ __all__ = [
     "cache_files",
     "submit",
     "LLM",
+    "load_model",
     "DecisionModel",
     "MockLLM",
     "ChatClient",

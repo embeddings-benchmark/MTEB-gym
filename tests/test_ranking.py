@@ -53,12 +53,15 @@ class Comparer:
         return json.dumps({"winner": "A" if best in a else "B" if best in b else "tie"})
 
 
-@pytest.mark.parametrize("judge", [Decider(), Comparer()], ids=["pointwise", "pairwise"])
-def test_the_better_model_ranks_first(tmp_path, retrieved, judge):
+@pytest.mark.parametrize(
+    ("judge", "judging"), [(Decider(), "pointwise"), (Comparer(), "pairwise")], ids=["pointwise", "pairwise"]
+)
+def test_the_better_model_ranks_first(tmp_path, retrieved, judge, judging):
     result = run(
         docs(tmp_path),
         [BAD, GOOD, OK],
         judge,
+        judging=judging,
         queries=QUERIES,
         task_instruction="t",
         output_folder=tmp_path / "o",
@@ -100,6 +103,7 @@ def test_a_run_stops_if_failed_answers_leave_a_model_short(tmp_path, retrieved):
             [BAD, GOOD, OK],
             FailsOnOneModel(),
             queries=QUERIES,
+            judging="pairwise",
             task_instruction="t",
             output_folder=tmp_path / "o",
             cache_folder=tmp_path / "c",
@@ -119,6 +123,7 @@ def test_a_run_stops_if_every_model_retrieved_the_same_lists(tmp_path, retrieved
             [BAD, GOOD, OK],
             Comparer(),
             queries=QUERIES,
+            judging="pairwise",
             task_instruction="t",
             output_folder=tmp_path / "o",
             cache_folder=tmp_path / "c",
