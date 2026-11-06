@@ -284,9 +284,7 @@ def predict(
     One model per call, as `mteb run` takes one model, so a roster can be run one model per process
     and the GPU is returned to the operating system between them. `run()` then finds every
     prediction file already written and only judges. Arguments that decide the query set must match
-    the later `run()`, since predictions are stored per query set. That includes `doc_chars`: a pairwise `run()` shows
-    the generator fewer characters by default than this function does. So does `max_seq_length`: predictions are stored
-    per cap too.
+    the later `run()`, since predictions are stored per query set, and `max_seq_length`, since they are stored per cap.
 
     Returns:
         The path of mteb's prediction file.
@@ -360,8 +358,8 @@ def run(
             mteb_gym.TASK_INSTRUCTIONS has one for each of a set of MTEB tasks.
         n_queries: Queries to generate.
         top_k: Documents judged per query.
-        doc_chars: Characters of each document shown to the generator and the judge. Defaults to 16000, or to 4000 when
-            judging pairwise, since a comparison shows 2 * top_k documents, which costs far more per call.
+        doc_chars: Characters of each document shown to the generator and the judge. Defaults to 16000, with a pairwise
+            judge on 4000, since a comparison shows 2 * top_k documents, which costs far more per call.
         pairs_per_query: Pairwise judging: judge only this many random model pairs per query; all pairs by default.
         judging: "pointwise" grades every pooled document once (0-5) and ranks models by nDCG@top_k over the grades;
             "pairwise" compares the models' lists and ranks with Bradley-Terry. "auto": pointwise for a decision
@@ -398,6 +396,7 @@ def run(
         logger.info(
             "no task_instruction: natural queries and plain relevance; a sentence on what a good result is helps"
         )
+    gen_doc_chars = doc_chars or DOC_CHARS
     doc_chars = doc_chars or (PAIRWISE_DOC_CHARS if judging == "pairwise" else DOC_CHARS)
     gen = QueryGenerator(
         gen_client,
@@ -406,7 +405,7 @@ def run(
         seed=seed,
         filter_queries=filter_queries,
         workers=workers,
-        doc_chars=doc_chars,
+        doc_chars=gen_doc_chars,
     )
 
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
