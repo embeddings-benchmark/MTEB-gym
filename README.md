@@ -103,7 +103,7 @@ gym.run(..., embedding_cache="path/to/vectors")
 | `queries` | `"synthetic"` | `"synthetic"`, `"original"`, or your own |
 | `task_instruction` | `None` | One sentence on what a good result is |
 | `judging` | `"pointwise"` | `"pointwise"` or `"pairwise"` |
-| `pairs_per_query` | `None` | Pairwise: judge this many random model pairs per query, not all |
+| `pairs_per_query` | All pairs | Pairwise: judge this many random model pairs per query instead |
 | `n_queries` | `100` | Queries to generate or sample |
 | `top_k` | `10` | Documents judged per query |
 | `doc_chars` | `None` | Characters of each document shown: 16,000, with a pairwise judge on 4,000 |
@@ -219,8 +219,6 @@ make install
 make test
 make lint
 ```
-
-Tests need no API key or GPU.
 
 ## Citing
 
