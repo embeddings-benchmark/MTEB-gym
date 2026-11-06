@@ -1,9 +1,8 @@
 """Submit records to the results repository on GitHub, and the files behind them to the dataset on Hugging Face.
 
-As mteb's ResultCache.submit_results: the results repository is cloned into the cache, new records are
-committed there, and with create_pr=True the branch is pushed to the submitter's fork and a pull
-request opened. The query set, predictions and verdicts a record was computed from are too large
-for git; they go to the dataset as a pull request.
+The results repository is cloned into the cache and new records are committed there. With create_pr=True the branch is
+pushed to the submitter's fork and a pull request opened. The queries, predictions and judgments behind a record are
+too large for git, so they go to the dataset as a pull request. Runs on a local corpus are never submitted.
 """
 
 from __future__ import annotations
@@ -16,8 +15,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .cache import cache_files, resolve_cache_folder, texts_hash
 from .results import load_results
-from .run import cache_files, default_cache_folder
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,17 @@ DATASET = "mteb/gym-runs"
 
 
 def _git(*args: str, cwd: Path) -> str:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+    done = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if done.returncode:
+        raise RuntimeError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def _check_query_file(record: dict, path: Path) -> None:
+    """A generated query set's file is named before its queries exist: check it holds this record's queries."""
+    texts = {q["qid"]: q["text"] for q in json.loads(path.read_text())["queries"]}
+    if record["config"]["query_set"].rsplit("-", 1)[1] != texts_hash(texts):
+        raise ValueError(f"{path} does not hold the queries of {record['config']['query_set']}")
 
 
 def submit(
@@ -38,16 +47,17 @@ def submit(
     dataset: str = DATASET,
 ) -> dict:
     """Commit the records in `results_folder` that the results repository lacks, and with `create_pr`
-    open a pull request there and one on the dataset with their queries and verdicts. Without it,
+    open a pull request there and one on the dataset with their queries and judgments. Without it,
     the commit is prepared locally and nothing leaves this machine.
 
     Returns:
         The records committed, the dataset files they were computed from, the local clone and branch,
         and the pull request URLs when opened.
     """
-    cache = Path(cache_folder) if cache_folder is not None else default_cache_folder()
+    cache = resolve_cache_folder(cache_folder)
     clone = cache / "remote" / "gym-results"
     if clone.exists():
+        _git("remote", "set-url", "origin", repository, cwd=clone)
         _git("fetch", "--quiet", "origin", cwd=clone)
         _git("checkout", "--quiet", "--force", "-B", "main", "origin/main", cwd=clone)
         _git("clean", "--quiet", "-fd", cwd=clone)  # drop records a failed call copied in
@@ -57,8 +67,15 @@ def submit(
 
     new = []
     for result in load_results(results_folder).results:
+        if result.record["source"] != "mteb":
+            logger.warning("not submitting %s: it is a run on a local corpus", result.path)
+            continue
         target = clone / "results" / result.record["task_name"] / result.path.name
-        if target.exists() and filecmp.cmp(result.path, target, shallow=False):
+        if target.exists():  # published records are never overwritten
+            if not filecmp.cmp(result.path, target, shallow=False):
+                logger.warning(
+                    "not submitting %s: the results repository already has a different %s", result.path, target.name
+                )
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(result.path, target)
@@ -67,7 +84,12 @@ def submit(
         logger.info("nothing to submit: every record is already in the results repository")
         return {"records": [], "files": []}
 
-    # records of the same models and queries share prediction and verdict files
+    for record in new:
+        loaded = json.loads((clone / record).read_text())
+        for path in cache_files(loaded, cache)["queries"]:
+            if path.exists():
+                _check_query_file(loaded, path)
+    # records of the same models and queries share files
     files = sorted(
         {
             p
@@ -102,6 +124,17 @@ def submit(
 
     from huggingface_hub import CommitOperationAdd, HfApi
 
+    # The data goes first: a results pull request must not point at files that failed to upload.
+    title = f"Add {len(new)} records"
+    commit = HfApi().create_commit(
+        repo_id=dataset,
+        repo_type="dataset",
+        operations=[CommitOperationAdd(str(p.relative_to(cache)), p) for p in files],
+        commit_message=f"{title}: queries, predictions and judgments",
+        commit_description="\n".join(map(str, new)),
+        create_pr=True,
+    )
+    out["dataset_pr_url"] = commit.pr_url
     # Submitters need not have write access to the results repository, so the branch goes to their fork.
     if "fork" not in _git("remote", cwd=clone).split():
         subprocess.run(
@@ -111,7 +144,6 @@ def submit(
     user = subprocess.run(
         ["gh", "api", "user", "--jq", ".login"], check=True, capture_output=True, text=True
     ).stdout.strip()
-    title = f"Add {len(new)} records"
     body = "\n".join(f"- `{r}`" for r in new)
     upstream = repository.removeprefix("https://github.com/").removesuffix(".git")
     out["pr_url"] = subprocess.run(
@@ -135,13 +167,4 @@ def submit(
         capture_output=True,
         text=True,
     ).stdout.strip()
-    commit = HfApi().create_commit(
-        repo_id=dataset,
-        repo_type="dataset",
-        operations=[CommitOperationAdd(str(p.relative_to(cache)), p) for p in files],
-        commit_message=f"{title}: queries, predictions and verdicts",
-        commit_description=out["pr_url"],
-        create_pr=True,
-    )
-    out["dataset_pr_url"] = commit.pr_url
     return out

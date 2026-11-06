@@ -1,8 +1,8 @@
-"""What a good result is for each MTEB task the gym is evaluated on."""
+"""What a good result is, for a set of MTEB tasks: pass one as `task_instruction` to use it."""
 
 _STACKEXCHANGE = "Given a {} question, retrieve web documents that provide the information needed to answer it"
 
-TASK_DESCRIPTIONS = {
+TASK_INSTRUCTIONS = {
     "ArguAna": "Given an argument, retrieve its best counterargument",
     "ClimateFEVERHardNegatives": "Given a claim about climate change, retrieve Wikipedia passages that support or refute the claim",
     "CQADupstackGamingRetrieval": "Given a question from a gaming forum, retrieve earlier forum questions that ask the same thing",

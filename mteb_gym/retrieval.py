@@ -5,6 +5,7 @@ from __future__ import annotations
 import gc
 import json
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,25 +31,25 @@ def predict(model_name: str, task, folder: Path, *, batch_size: int = 32) -> Pat
     `folder`; skipped when the file already exists. Dense, sparse and
     late-interaction models all go through the same call."""
     path = folder / f"{task.metadata.name}_predictions.json"
-    if not path.exists():
-        import mteb
+    if path.exists():
+        return path
+    import mteb
+    import torch
 
+    folder.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=folder) as temporary:  # the file appears whole or not at all
         mteb.evaluate(
             mteb.get_model(model_name),
             task,
-            prediction_folder=folder,
+            prediction_folder=temporary,
             cache=None,
             encode_kwargs={"batch_size": batch_size},
             show_progress_bar=False,
         )
-        gc.collect()
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()  # free GPU memory between models
-        except ImportError:
-            pass
+        (Path(temporary) / path.name).replace(path)
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     return path
 
 
