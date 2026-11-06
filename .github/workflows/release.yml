@@ -5,13 +5,33 @@ on:
     types: [published]
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+      - run: make install
+      - run: make test
+      - name: Check the tag matches the version
+        run: test "${GITHUB_REF_NAME#v}" = "$(uv version --short)"
+      - run: uv build
+      - name: Check the built wheel installs and imports
+        run: uv run --isolated --no-project --with dist/*.whl python -c "import mteb_gym; print(mteb_gym.__version__)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
   pypi:
+    needs: build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write  # PyPI trusted publishing: no stored token
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv build
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1

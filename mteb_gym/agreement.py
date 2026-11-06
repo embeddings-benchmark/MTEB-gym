@@ -36,7 +36,7 @@ def fetch_truth(
     cache = mteb.ResultCache()
     try:
         cache.download_from_remote()
-    except Exception:  # offline: use the local copy
+    except Exception:  # offline
         logger.warning("could not refresh the MTEB results cache; using the local copy")
     official = official_scores(cache, task, models)
     scores: dict[str, float] = {}
@@ -66,9 +66,11 @@ def fetch_truth(
     return scores, source
 
 
-def _tau_ap(g: np.ndarray, t: np.ndarray) -> float:
+def _tau_ap(g: np.ndarray, t: np.ndarray) -> float | None:
     """AP rank correlation (Yilmaz et al. 2008): Kendall's tau weighted toward the
-    top of the reference ranking t. 1 = identical order, -1 = reversed."""
+    top of the reference ranking t. 1 = identical order, -1 = reversed. None if g is all tied."""
+    if len(set(g.tolist())) == 1:
+        return None
     g_ord = g[np.argsort(-t)]
     n = len(g_ord)
     total = sum(float(np.sum(g_ord[:i] > g_ord[i])) / i for i in range(1, n))
@@ -88,6 +90,8 @@ def correlate(
     t = np.array([ground_truth[m] for m in shared])
     rho, p_rho = spearmanr(g, t)
     tau, p_tau = kendalltau(g, t)
+    if np.isnan(rho) or np.isnan(tau):
+        return {"error": "the ratings or the reference are all tied", "shared": shared}
 
     rng = np.random.default_rng(seed)
     boots = []

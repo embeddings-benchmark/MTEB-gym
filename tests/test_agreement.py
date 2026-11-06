@@ -1,0 +1,137 @@
+import json
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from mteb_gym import Result, agreement, load_results
+
+
+def test_correlate():
+    g = {f"m{i}": float(i) for i in range(5)}
+    res = agreement.correlate(g, dict(g), bootstrap=50)
+    assert abs(res["spearman_rho"] - 1.0) < 1e-9
+    import numpy as np
+
+    truth = {f"m{i}": float(i) for i in range(25)}
+    top = list(range(15, 25))
+    np.random.default_rng(0).shuffle(top)
+    gym = {f"m{i}": float(v) for i, v in zip(range(15, 25), top)} | {f"m{i}": float(i) for i in range(15)}
+    out = agreement.correlate(gym, truth, bootstrap=0)
+    assert out["spearman_rho"] > 0.85 and abs(out["spearman_top10"]) < 0.6  # strong models shuffled among themselves
+    a = np.arange(10, dtype=float)
+    assert agreement._tau_ap(a, a) == 1.0 and agreement._tau_ap(-a, a) == -1.0
+
+
+def test_agreement():
+    original = agreement.fetch_truth
+    agreement.fetch_truth = lambda models, task, **kw: (
+        {"model_a": 30.0, "model_b": 20.0, "model_c": 10.0},
+        {m: {"model_revision": "r1", "official": True} for m in models},
+    )
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = {
+                "task_name": "NFCorpus",
+                "source": "mteb",
+                "config": {},
+                "diagnostics": {},
+                "ratings": [
+                    {"model": m, "rating": r} for m, r in (("model_a", 1100), ("model_b", 1000), ("model_c", 900))
+                ],
+            }
+            res = Result(rec, Path(tmp) / "NFCorpus" / "NFCorpus__judge__original-queries.json")
+            res.to_disk()
+            agr = res.agreement(bootstrap=100, seed=0)
+            assert agr["spearman_rho"] == 1.0 and agr["kendall_tau"] == 1.0
+            assert Result.from_disk(res.path).record["agreement"]["truth_source"] == {
+                m: {"model_revision": "r1", "official": True} for m in ("model_a", "model_b", "model_c")
+            }
+            assert load_results(tmp).agreement(bootstrap=10)[str(res.path)]["spearman_rho"] == 1.0
+            assert (
+                Result({"source": "local", "task_name": "x", "ratings": []})
+                .agreement()["error"]
+                .startswith("local corpus")
+            )
+    finally:
+        agreement.fetch_truth = original
+
+
+def test_official_scores_across_revisions():
+    """The results repository files many models' scores under "external", not under the revision
+    mteb pins; the lookup must find those, and prefer the pinned one when both exist."""
+    import mteb
+    from mteb.results import TaskResult
+
+    meta = mteb.get_model_meta("BAAI/bge-base-en-v1.5")
+
+    def cache_with(revisions):
+        tmp = tempfile.mkdtemp()
+        for revision, score in revisions:
+            folder = Path(tmp) / "results" / meta.model_name_as_path() / revision
+            folder.mkdir(parents=True)
+            (folder / "model_meta.json").write_text(json.dumps({"name": meta.name, "revision": revision}))
+            TaskResult(
+                task_name="NFCorpus",
+                dataset_revision="x",
+                mteb_version="2.20.10",
+                evaluation_time=1.0,
+                scores={"test": [{"main_score": score, "hf_subset": "default", "languages": ["eng-Latn"]}]},
+            ).to_disk(folder / "NFCorpus.json")
+        return mteb.ResultCache(cache_path=tmp)
+
+    external_only = cache_with([("external", 0.40)])
+    assert external_only.load_task_result("NFCorpus", meta) is None  # mteb's per-revision lookup: nothing
+    assert agreement.official_scores(external_only, "NFCorpus", [meta.name]) == {meta.name: (0.40, "external")}
+
+    both = cache_with([("external", 0.40), (meta.revision, 0.55)])
+    assert agreement.official_scores(both, "NFCorpus", [meta.name]) == {meta.name: (0.55, meta.revision)}
+
+    assert agreement.official_scores(external_only, "SciFact", [meta.name]) == {}
+
+
+def test_correlate_against_a_hand_worked_ranking():
+    gym = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0}
+    truth = {"a": 1.0, "b": 2.0, "c": 4.0, "d": 3.0}
+    out = agreement.correlate(gym, truth, bootstrap=0)
+    assert out["spearman_rho"] == pytest.approx(0.8)
+    assert out["kendall_tau"] == pytest.approx(4 / 6 - 2 / 6 + 1 / 3)
+    assert out["gym_ranking"] == ["d", "c", "b", "a"] and out["truth_ranking"] == ["c", "d", "b", "a"]
+
+
+def test_correlate_interval_follows_the_data():
+    same = {f"m{i}": float(i) for i in range(8)}
+    assert agreement.correlate(same, dict(same), bootstrap=50)["spearman_ci95"] == pytest.approx([1.0, 1.0])
+    noisy = {"a": 1.0, "b": 3.0, "c": 2.0, "d": 5.0, "e": 4.0, "f": 7.0, "g": 6.0, "h": 8.0}
+    out = agreement.correlate(
+        noisy, same | {"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0, "e": 4.0, "f": 5.0, "g": 6.0, "h": 7.0}, bootstrap=200
+    )
+    low, high = out["spearman_ci95"]
+    assert low < out["spearman_rho"] <= high and high - low > 0.05
+
+
+def test_tau_ap_counts_a_tie_as_no_agreement():
+    import numpy as np
+
+    assert agreement._tau_ap(np.array([2.0, 2.0, 1.0]), np.array([3.0, 2.0, 1.0])) == pytest.approx(0.0)
+
+
+def test_official_scores_are_on_the_hundred_scale(monkeypatch):
+    import mteb
+
+    monkeypatch.setattr(agreement, "official_scores", lambda cache, task, models: {"mteb/baseline-bm25s": (0.5, "r")})
+    monkeypatch.setattr(mteb.ResultCache, "download_from_remote", lambda self: None)
+    scores, source = agreement.fetch_truth(["mteb/baseline-bm25s"], "NFCorpus")
+    assert scores == {"mteb/baseline-bm25s": 50.0} and source["mteb/baseline-bm25s"]["official"] is True
+
+
+def test_the_no_judge_baseline_is_part_of_agreement(tmp_path, monkeypatch):
+    truth = {"a": 3.0, "b": 2.0, "c": 1.0}
+    monkeypatch.setattr(agreement, "fetch_truth", lambda m, t, **k: (truth, {}))
+    rows = [{"model": m, "rating": r, "ndcg_at_10": n} for m, r, n in (("a", 3, 0.1), ("b", 2, 0.2), ("c", 1, 0.3))]
+    rec = {"task_name": "t", "source": "mteb", "labels": "dataset", "config": {}, "diagnostics": {}, "ratings": rows}
+    out = Result(rec, tmp_path / "t" / "t__j__q.json").agreement(bootstrap=0)
+    assert out["spearman_rho"] == pytest.approx(1.0)
+    assert (
+        out["labels_baseline"]["spearman_rho"] == pytest.approx(-1.0) and out["labels_baseline"]["labels"] == "dataset"
+    )

@@ -11,31 +11,35 @@ from .corpus import Corpus
 from .queries import Query
 
 
-def labels(corpus: Corpus, queries: list[Query] | None) -> dict[str, dict[str, int]] | None:
-    """What a run can be scored against without a judge: the dataset's own qrels for its own
-    queries, each synthetic query's seed documents, nothing for queries you supplied."""
+def labels(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]) -> dict[str, dict[str, int]] | None:
+    """What a run can be scored against without a judge, on exactly the queries it judges: the dataset's own qrels for
+    its own queries, each synthetic query's seed documents, nothing for queries you supplied."""
     if queries is None:
-        return corpus.qrels
+        return {q: corpus.qrels[q] for q in texts}
     qrels = {q.qid: {d: 1 for d in q.seed_doc_ids} for q in queries if q.seed_doc_ids}
     return qrels or None
 
 
-def build(corpus: Corpus, queries: list[Query] | None):
-    """An mteb AbsTaskRetrieval over `corpus`. `queries=None` uses the task's own
-    queries and qrels."""
+def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
+    """An mteb AbsTaskRetrieval over `corpus` and the queries in `texts`. `queries=None` means they are the task's own,
+    with its own qrels and, where the task has them, its documents per query (`top_ranked`), which mteb applies. A
+    generated query or one you supply has no such list, so it searches the whole corpus."""
     from datasets import Dataset
     from mteb.abstasks.retrieval import AbsTaskRetrieval
 
     if queries is None:
-        if not corpus.queries or not corpus.qrels:
-            raise ValueError(f"{corpus.name} has no queries and labels of its own")
-        texts, qrels = corpus.queries, corpus.qrels
+        if not corpus.qrels:
+            raise ValueError(f"{corpus.name} has no labels of its own")
+        qrels = {q: corpus.qrels[q] for q in texts}
     else:
-        texts = {q.qid: q.text for q in queries}
         # mteb drops a query without a labelled document; the gym uses no labels, so a query
         # without seed documents (your own queries) gets a placeholder that only satisfies mteb
         placeholder = next(iter(corpus.docs))
         qrels = {q.qid: {d: 1 for d in q.seed_doc_ids} or {placeholder: 1} for q in queries}
+
+    allowed = None
+    if queries is None and corpus.top_ranked:
+        allowed = {q: corpus.top_ranked[q] for q in texts if q in corpus.top_ranked} or None
 
     ids = list(corpus.docs)
     data = {
@@ -46,7 +50,7 @@ def build(corpus: Corpus, queries: list[Query] | None):
                 ),
                 "queries": Dataset.from_dict({"id": list(texts), "text": list(texts.values())}),
                 "relevant_docs": qrels,
-                "top_ranked": None,
+                "top_ranked": allowed,
             }
         }
     }

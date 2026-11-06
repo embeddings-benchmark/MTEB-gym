@@ -55,7 +55,7 @@ mteb-gym run --corpus NFCorpus \
     --generator gpt-5.4-mini --judge autotrust/JEV-27B --judge-url http://localhost:8000 --judge-decision
 ```
 
-`gym.DecisionModel` talks to a server with JEV-27B's `/v1/decide` endpoint. Any other decision model works as the judge through an object with one method, `decide(kind, state, question, options=None)`, that returns a probability for each option; for `kind="score"` the options are the grades `"0"` to `"5"`.
+`gym.DecisionModel` talks to a server with JEV-27B's `/v1/decide` endpoint. Any other decision model works as the judge through an object with one method, `decide(kind, state, question, options=None)`, that returns a probability for each option; for `kind="score"` the options are the grades `"0"` to `"5"`, and pairwise judging uses `kind="choice"` with `"System A"`, `"System B"` and `"Tie"`.
 
 ## LLM judges
 
@@ -87,7 +87,6 @@ To check the install without an API key or GPU, use the mock LLM. It answers det
 ```python
 result = gym.run(
     corpus="NanoNFCorpusRetrieval",
-    task_description="Given a health or nutrition topic, retrieve medical research documents relevant to it",
     models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
     generator=gym.MockLLM(),
     judge=gym.MockLLM(),
@@ -101,9 +100,9 @@ result = gym.run(
 `gym.run` takes the corpus, the models, the judge and the generator, as in the Quickstart. The other options, with their defaults:
 
 - `queries="synthetic"`: `"original"` uses `n_queries` of the task's own queries, drawn with `seed`; your own go in as a `.jsonl` with `id` and `text`, a `.txt` with one per line, or a list of strings.
-- `task_description`: one sentence on what a good result is, given to the generator and the judge, for example `"Given a support ticket, retrieve the help article that resolves it"`. Required, except for the MTEB tasks in `mteb_gym/task_descriptions.py`.
-- `judging="auto"`: `"pointwise"` grades every retrieved document once and ranks by nDCG@`top_k`; `"pairwise"` compares the models' lists. Auto is pointwise for a decision model and pairwise for an LLM.
-- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=2000` characters of each shown to the judge, `pairs_per_query=None` to judge only that many random model pairs per query (pairwise), `seed=0`, `filter_queries=True` for the LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
+- `task_instruction=None`: an optional sentence on what a good result is, given to the generator and the judge. Without it the generator writes natural queries and the judge grades plain relevance. Recommended; for example `"Given a support ticket, retrieve the help article that resolves it"`. `gym.TASK_INSTRUCTIONS` has one for each of a set of MTEB tasks.
+- `judging="auto"`: `"pointwise"` grades every retrieved document once and ranks by nDCG@`top_k`; `"pairwise"` compares the models' lists. Either kind of judge does both; auto is pointwise for a decision model and pairwise for an LLM.
+- `n_queries=100`, `top_k=10` documents judged per query, `doc_chars=None` characters of each document shown to the generator and the judge (16000, or 4000 when judging pairwise, since a comparison shows every document of two lists), `pairs_per_query=None` to judge only that many random model pairs per query (pairwise), `seed=0`, `filter_queries=False`, `True` to add an LLM quality filter and deduplication, `output_folder="results"` for the records, `cache_folder=None` for everything a rerun reuses (`$MTEB_GYM_CACHE`, else `~/.cache/mteb_gym`), `batch_size=32`, `workers=8` concurrent LLM calls.
 
 `help(gym.run)` documents each one.
 
@@ -120,7 +119,7 @@ results/
   "task_name": "NFCorpus", "dataset": {"path": "...", "revision": "..."},
   "mteb_version": "...", "gym_version": "...", "gym_revision": "...", "evaluation_time": 812.4,
   "config": {"query_set": "...", "judge_model": "...", "generator_model": "...", "judge_system": "...",
-             "n_queries": 100, "top_k": 10, "doc_chars": 2000, "seed": 0,
+             "n_queries": 100, "top_k": 10, "doc_chars": 16000, "seed": 0,
              "models": ["..."], "model_revisions": {"...": "..."}, "config_hash": "..."},  // identity of the run
   "llms": {"judge": {"model": "...", "base_url": "..."}, "generator": {}},  // what the LLMs ran with
   "labels": "seed_documents",  // what ndcg_at_10 is scored against

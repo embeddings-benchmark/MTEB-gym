@@ -35,3 +35,21 @@ jobs:
           HF_HUB_DISABLE_PROGRESS_BARS: "1"
           TRANSFORMERS_VERBOSITY: error
         run: make test
+
+  latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.13"
+      - name: Test against the newest allowed dependencies
+        env:
+          TQDM_DISABLE: "1"
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+          TRANSFORMERS_VERBOSITY: error
+        run: |
+          uv venv
+          uv pip install -U . pytest
+          uv run --no-project pytest -q
