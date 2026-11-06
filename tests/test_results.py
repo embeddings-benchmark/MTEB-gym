@@ -111,3 +111,134 @@ def test_predictions_on_disk_are_not_computed_again(tmp_path, monkeypatch):
     monkeypatch.setattr(mteb, "evaluate", lambda *a, **k: pytest.fail("should not run"))
     task = types.SimpleNamespace(metadata=types.SimpleNamespace(name="t"))
     assert retrieval.predict("m", task, tmp_path) == tmp_path / "t_predictions.json"
+
+
+class _Task:
+    metadata = types.SimpleNamespace(name="t")
+
+
+def _patched(monkeypatch, tmp_path, model, meta_type=None):
+    """mteb with the model and a run that only writes the prediction file. Returns what mteb was asked to run."""
+    import mteb
+
+    ran = []
+
+    def evaluate(model, task, *, prediction_folder, **kw):
+        ran.append(model)
+        (Path(prediction_folder) / "t_predictions.json").write_text("{}")
+
+    monkeypatch.setattr(mteb, "get_model", lambda name: model)
+    monkeypatch.setattr(mteb, "evaluate", evaluate)
+    monkeypatch.setattr(mteb, "get_model_meta", lambda name: types.SimpleNamespace(model_type=meta_type))
+    return ran
+
+
+def _encoder(max_seq_length=32768):
+    return types.SimpleNamespace(model=types.SimpleNamespace(max_seq_length=max_seq_length), encode=lambda *a: None)
+
+
+def test_by_default_a_model_runs_as_mteb_loads_it(tmp_path, monkeypatch):
+    from mteb_gym import retrieval
+
+    model = _encoder()
+    ran = _patched(monkeypatch, tmp_path, model)
+    retrieval.predict("m", _Task, tmp_path / "p")
+    assert ran == [model] and model.model.max_seq_length == 32768
+
+
+@pytest.mark.parametrize(("own", "cap", "after"), [(32768, 8192, 8192), (512, 8192, 512), (8192, 8192, 8192)])
+def test_the_cap_only_lowers_a_length(tmp_path, monkeypatch, own, cap, after):
+    from mteb_gym import retrieval
+
+    model = _encoder(own)
+    _patched(monkeypatch, tmp_path, model)
+    retrieval.predict("m", _Task, tmp_path / "p", max_seq_length=cap)
+    assert model.model.max_seq_length == after
+
+
+def test_the_cap_leaves_a_static_model_and_one_without_a_length(tmp_path, monkeypatch):
+    from mteb_gym import retrieval
+
+    class StaticEmbedding:
+        max_seq_length = 1000000
+
+    static = types.SimpleNamespace(model=StaticEmbedding(), encode=lambda *a: None)
+    _patched(monkeypatch, tmp_path, static)
+    retrieval.predict("m", _Task, tmp_path / "static", max_seq_length=8192)
+    assert static.model.max_seq_length == 1000000
+    lexical = types.SimpleNamespace(encode=lambda *a: None)
+    _patched(monkeypatch, tmp_path, lexical)
+    retrieval.predict("m", _Task, tmp_path / "lexical", max_seq_length=8192)  # nothing to cap: it runs
+
+
+def test_the_embedding_cache_wraps_a_model_at_its_own_folder(tmp_path, monkeypatch):
+    from mteb.models.cache_wrappers import CachedEmbeddingWrapper
+
+    from mteb_gym import retrieval
+
+    ran = _patched(monkeypatch, tmp_path, _encoder())
+    retrieval.predict("org/my model", _Task, tmp_path / "p", embedding_cache=tmp_path / "vectors")
+    assert isinstance(ran[0], CachedEmbeddingWrapper) and ran[0].cache_path == tmp_path / "vectors" / "org_my_model"
+
+
+def test_models_without_one_vector_per_text_skip_the_embedding_cache(tmp_path, monkeypatch):
+    from mteb_gym import retrieval
+
+    class StaticEmbedding:
+        pass
+
+    def uncached(name, model, meta_type=None):
+        ran = _patched(monkeypatch, tmp_path, model, meta_type)
+        retrieval.predict(name, _Task, tmp_path / name, embedding_cache=tmp_path / "vectors")
+        return ran == [model]
+
+    assert uncached("mteb/baseline-bm25s", _encoder())
+    assert uncached("static", types.SimpleNamespace(model=StaticEmbedding(), encode=lambda *a: None))
+    assert uncached("colbert", _encoder(), ["late-interaction"])
+    assert uncached("no-encode", types.SimpleNamespace())
+    assert not (tmp_path / "vectors").exists()
+
+
+def test_vectors_of_one_cap_are_not_reused_under_another(tmp_path, monkeypatch):
+    from mteb_gym import retrieval
+
+    _patched(monkeypatch, tmp_path, _encoder())
+    run = lambda name, cap: retrieval.predict(  # noqa: E731
+        "m", _Task, tmp_path / name, embedding_cache=tmp_path / "vectors", max_seq_length=cap
+    )
+    run("first", 8192)
+    assert (tmp_path / "vectors" / "m" / "max_seq_length").read_text() == "8192"
+    run("same", 8192)
+    with pytest.raises(ValueError, match="max_seq_length=8192, not 512"):
+        run("other", 512)
+    with pytest.raises(ValueError, match="max_seq_length=8192, not None"):
+        run("uncapped", None)
+
+
+def test_vectors_made_before_the_record_are_taken_at_the_cap_asked_and_left_as_they_are(tmp_path, monkeypatch, caplog):
+    from mteb_gym import retrieval
+
+    _patched(monkeypatch, tmp_path, _encoder())
+    old = tmp_path / "vectors" / "m" / "SomeTask"
+    old.mkdir(parents=True)
+    retrieval.predict("m", _Task, tmp_path / "p", embedding_cache=tmp_path / "vectors", max_seq_length=8192)
+    assert "does not record its max_seq_length" in caplog.text
+    assert not (tmp_path / "vectors" / "m" / "max_seq_length").exists()
+
+
+def test_the_cache_reopens_its_own_vectors(tmp_path):
+    import numpy as np
+    from mteb.models.cache_wrappers.cache_backends.numpy_cache import NumpyCache
+
+    from mteb_gym import retrieval
+
+    model = types.SimpleNamespace(encode=lambda *a, **k: None)
+    backend = retrieval._cached(model, tmp_path).cache_backend
+    assert issubclass(backend, NumpyCache)
+    first = backend(tmp_path / "c")
+    first.add([{"text": "one"}, {"text": "two"}], np.array([[1.0, 2.0], [3.0, 4.0]], dtype="float32"))
+    first.save()
+    first.close()
+    second = backend(tmp_path / "c")
+    second.load()
+    assert second.get_vector({"text": "two"}).tolist() == [3.0, 4.0]

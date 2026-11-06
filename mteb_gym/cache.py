@@ -51,8 +51,16 @@ def texts_hash(texts: dict[str, str]) -> str:
     return sha(sorted(texts.items()))
 
 
-def prediction_folder(cache: Path, task: str, model: str, revision: str | None, query_set: str) -> Path:
-    return cache / "predictions" / task / f"{slug(model)}@{revision}" / query_set
+def capped(revision: str | None, max_seq_length: int | None) -> str | None:
+    """A model's identity in the caches: its revision, and its length cap when it has one, as a cap changes what it
+    retrieves."""
+    return revision if max_seq_length is None else f"{revision}-max{max_seq_length}"
+
+
+def prediction_folder(
+    cache: Path, task: str, model: str, revision: str | None, query_set: str, max_seq_length: int | None = None
+) -> Path:
+    return cache / "predictions" / task / f"{slug(model)}@{capped(revision, max_seq_length)}" / query_set
 
 
 def verdict_key(judge_id, system, top_k, doc_chars, query_set, a, rev_a, b, rev_b) -> str:
@@ -79,7 +87,7 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
     """The cached files a record was computed from, named from the record alone."""
     cache = resolve_cache_folder(cache_folder)
     cfg, task = record["config"], record["task_name"]
-    revs = cfg["model_revisions"]
+    revs, cap = cfg["model_revisions"], cfg.get("max_seq_length")
     if cfg["judging"] == "pointwise":
         key = grades_key(
             cfg["judge_model"], cfg["judge_system"], cfg["task_instruction"], cfg["doc_chars"], cfg["query_set"]
@@ -98,9 +106,9 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
                     cfg["doc_chars"],
                     cfg["query_set"],
                     a,
-                    revs[a],
+                    capped(revs[a], cap),
                     b,
-                    revs[b],
+                    capped(revs[b], cap),
                 ),
             )
             for a, b in itertools.combinations(cfg["models"], 2)
@@ -110,7 +118,8 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
         judgments = [p for p in judgments if p.exists()]
     queries = [cache / "queries" / task / f"{recipe}.json"] if cfg["query_source"] == "synthetic" else []
     predictions = [
-        prediction_folder(cache, task, m, revs[m], cfg["query_set"]) / f"{task}_predictions.json" for m in cfg["models"]
+        prediction_folder(cache, task, m, revs[m], cfg["query_set"], cap) / f"{task}_predictions.json"
+        for m in cfg["models"]
     ]
     return {"queries": queries, "predictions": predictions, "judgments": judgments}
 

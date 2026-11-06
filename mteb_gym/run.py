@@ -27,6 +27,7 @@ from . import corpus as corpus_mod
 from . import results, retrieval
 from . import task as task_mod
 from .cache import (
+    capped,
     grades_key,
     judge_pair_cached,
     judge_pool_cached,
@@ -273,6 +274,8 @@ def predict(
     seed: int = 0,
     filter_queries: bool = False,
     cache_folder: str | Path | None = None,
+    embedding_cache: str | Path | None = None,
+    max_seq_length: int | None = None,
     batch_size: int = 32,
     workers: int = 8,
 ) -> Path:
@@ -282,7 +285,8 @@ def predict(
     and the GPU is returned to the operating system between them. `run()` then finds every
     prediction file already written and only judges. Arguments that decide the query set must match
     the later `run()`, since predictions are stored per query set. That includes `doc_chars`: a pairwise `run()` shows
-    the generator fewer characters by default than this function does.
+    the generator fewer characters by default than this function does. So does `max_seq_length`: predictions are stored
+    per cap too.
 
     Returns:
         The path of mteb's prediction file.
@@ -308,8 +312,15 @@ def predict(
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
     revision = mteb.get_model_meta(model).revision
-    folder = prediction_folder(cache, corp.name, model, revision, qset.id)
-    return retrieval.predict(model, task_mod.build(corp, qset.queries, qset.texts), folder, batch_size=batch_size)
+    folder = prediction_folder(cache, corp.name, model, revision, qset.id, max_seq_length)
+    return retrieval.predict(
+        model,
+        task_mod.build(corp, qset.queries, qset.texts),
+        folder,
+        batch_size=batch_size,
+        embedding_cache=embedding_cache,
+        max_seq_length=max_seq_length,
+    )
 
 
 def run(
@@ -329,6 +340,8 @@ def run(
     filter_queries: bool = False,
     output_folder: str | Path = "results",
     cache_folder: str | Path | None = None,
+    embedding_cache: str | Path | None = None,
+    max_seq_length: int | None = None,
     batch_size: int = 32,
     workers: int = 8,
 ) -> Result:
@@ -358,6 +371,12 @@ def run(
         output_folder: Where the record is written, as <task>/<record>.json: the results repository's layout.
         cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
+        embedding_cache: A folder for mteb's embedding cache, so each corpus is encoded once per model. It only reuses
+            vectors, so it changes no query set, prediction folder or record. A folder holds vectors of one
+            `max_seq_length`.
+        max_seq_length: Cap the length of a SentenceTransformer that allows more; a static model and any other model are
+            unaffected. By default models run as mteb loads them. A cap changes what a model retrieves, so it is part of
+            the predictions' and verdicts' identity, and recorded in the record's config.
         batch_size: Encoding batch size.
         workers: Concurrent grades when judging pointwise, or model pairs when judging pairwise.
 
@@ -403,8 +422,10 @@ def run(
     ranked: dict[str, list[Ranked]] = {}
     ndcg: dict[str, float] = {}  # the baseline that needs no judge: nDCG@10 against the labels
     for m in models:
-        folder = prediction_folder(cache, corp.name, m, revisions[m], query_set)
-        pred = retrieval.predict(m, gym_task, folder, batch_size=batch_size)
+        folder = prediction_folder(cache, corp.name, m, revisions[m], query_set, max_seq_length)
+        pred = retrieval.predict(
+            m, gym_task, folder, batch_size=batch_size, embedding_cache=embedding_cache, max_seq_length=max_seq_length
+        )
         ranked[m] = retrieval.top_k(pred, corp, texts, top_k)
         if labels:
             ndcg[m] = retrieval.ndcg_at_10(pred, labels, corp.ignore_identical_ids)
@@ -414,7 +435,12 @@ def run(
         ratings, diagnostics, judge_system = _judge_pointwise(judge, instruction, ranked, judging_run)
     else:
         ratings, diagnostics, judge_system = _judge_pairwise(
-            judge, instruction, ranked, revisions, pairs_per_query, judging_run
+            judge,
+            instruction,
+            ranked,
+            {m: capped(r, max_seq_length) for m, r in revisions.items()},
+            pairs_per_query,
+            judging_run,
         )
     _check_judging(diagnostics, ratings, models)
     experiment = {
@@ -435,6 +461,7 @@ def run(
         **({f"gen_{k}": v for k, v in gen.params.items()} if query_source == "synthetic" else {}),
         "models": models,
         "model_revisions": revisions,
+        **({"max_seq_length": max_seq_length} if max_seq_length is not None else {}),
     }
     experiment["config_hash"] = results.config_hash(experiment)
     path = results.record_path(out, corp.name, experiment)

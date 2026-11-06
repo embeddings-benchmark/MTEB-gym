@@ -22,7 +22,7 @@ def client(model: str, base_url: str | None, extra_body: str | None = None, key_
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
-    """The arguments that decide the query set: `predict` and `run` must agree on them."""
+    """The arguments that decide the query set and how models run: `predict` and `run` must agree on them."""
     ap.add_argument("--corpus", required=True, help="mteb retrieval task name, or a directory / .jsonl of documents")
     ap.add_argument("--generator", default=None, help="query generator model id (default: the judge)")
     ap.add_argument("--generator-url", default=None)
@@ -53,6 +53,15 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
         "--cache-folder",
         default=None,
         help="queries, predictions and judgments (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
+    )
+    ap.add_argument(
+        "--embedding-cache", default=None, help="folder for mteb's embedding cache, to encode a corpus once"
+    )
+    ap.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="cap a SentenceTransformer's length (default: each model as mteb loads it)",
     )
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--workers", type=int, default=8)
@@ -130,6 +139,8 @@ def main(argv=None) -> None:
         filter_queries=args.filter,
         doc_chars=args.doc_chars,
         cache_folder=args.cache_folder,
+        embedding_cache=args.embedding_cache,
+        max_seq_length=args.max_seq_length,
         batch_size=args.batch_size,
         workers=args.workers,
     )
