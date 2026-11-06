@@ -79,6 +79,7 @@ def verdict_diagnostics(verdicts: list[Any]) -> dict[str, Any]:
     return {
         "judge_calls": asks,
         "n_comparisons": n,
+        "n_shortened": sum(getattr(v, "doc_chars", None) is not None for v in verdicts),
         "commit_rate": (n - ties) / n if n else None,
         "tie_rate": ties / n if n else None,
         "a_first_rate": first / decisive if decisive else None,
@@ -94,6 +95,7 @@ def grade_diagnostics(grades: list[Any]) -> dict[str, Any]:
     n_queries = len({g.qid for g in grades})
     return {
         "n_grades": n,
+        "n_shortened": sum(getattr(g, "doc_chars", None) is not None for g in grades),
         "pool_size_mean": n / n_queries if n_queries else None,
         "grade_mean": sum(ok) / len(ok) if ok else None,
         "parse_failure_rate": failed / n if n else None,

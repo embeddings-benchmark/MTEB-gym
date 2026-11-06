@@ -16,7 +16,7 @@ def fake_ranked(seed, queries, k=5):
 
 
 class Deciding:
-    """A decision-only client: decide() and no chat(), as DecisionModel; grades by word overlap with the query."""
+    """A decision-only client: decide() and no chat(), as DecisionModel; grades, and picks a list, by word overlap with the query."""
 
     model = "mock-decider"
 
@@ -25,6 +25,11 @@ class Deciding:
 
     def decide(self, kind, state, question, options=None):
         self.calls += 1
+        if kind == "choice":
+            query = state.split("Query: ", 1)[1].split("\n", 1)[0].lower().split()
+            a, b = state.split("System B results:", 1)
+            a, b = (sum(w in side.split("System A results:")[-1].lower() for w in query) for side in (a, b))
+            return dict(zip(options, (1.0, 0.0, 0.0) if a > b else (0.0, 1.0, 0.0) if b > a else (0.0, 0.0, 1.0)))
         query = state.split("Query: ", 1)[1].split("\n", 1)[0].lower().split()
         doc = state.split("Document: ", 1)[1].lower()
         g = min(5, sum(w in doc for w in query))

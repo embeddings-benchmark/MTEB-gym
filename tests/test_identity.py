@@ -109,7 +109,9 @@ def test_a_checkout_reports_its_commit(tmp_path, monkeypatch):
 
 
 def _corpus(**kw):
-    return types.SimpleNamespace(**{"name": "t", "id": "t@1", "docs": DOCS, "queries": {}, "qrels": {}, **kw})
+    return types.SimpleNamespace(
+        **{"name": "t", "id": "t@1", "docs": DOCS, "top_ranked": None, "queries": {}, "qrels": {}, **kw}
+    )
 
 
 DOCS = {f"d{i}": f"document {i}" for i in range(9)}
@@ -140,10 +142,9 @@ def test_a_generated_sets_id_depends_on_how_it_was_made(tmp_path):
 
 def test_a_changed_prompt_is_a_new_query_set(tmp_path, monkeypatch):
     base = _set_id(tmp_path)
-    monkeypatch.setattr("mteb_gym.queries._FILTER_SYSTEM", "another prompt {task}")
+    monkeypatch.setattr("mteb_gym.queries._FILTER_BODY", "another prompt")
     filter_changed = _set_id(tmp_path)
-    monkeypatch.setattr("mteb_gym.queries._GEN_DOC_CHARS", 1)
-    assert len({base, filter_changed, _set_id(tmp_path)}) == 3
+    assert len({base, filter_changed, _set_id(tmp_path, doc_chars=1)}) == 3
 
 
 def test_original_and_own_sets_are_identified_by_their_queries(tmp_path):

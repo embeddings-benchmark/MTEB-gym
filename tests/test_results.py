@@ -23,6 +23,7 @@ def test_record():
     assert d == {
         "judge_calls": 4,
         "n_comparisons": 3,
+        "n_shortened": 0,
         "commit_rate": 1 / 3,
         "tie_rate": 2 / 3,
         "a_first_rate": 0.5,

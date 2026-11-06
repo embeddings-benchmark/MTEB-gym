@@ -25,6 +25,7 @@ class Answers:
 
 
 def generator(client, **kw):
+    kw.setdefault("filter_queries", True)
     return QueryGenerator(client, task_instruction="Given a claim, find evidence", workers=1, seed=0, **kw)
 
 
@@ -153,3 +154,11 @@ def test_a_score_it_cannot_read_is_the_neutral_three():
     q = Query("q0", "a query", [])
     generator(NoScore())._llm_quality([q])
     assert q.quality == 3
+
+
+def test_the_generator_sees_only_its_document_limit_and_does_not_filter_by_default():
+    client = Answers()
+    gen = QueryGenerator(client, n_queries=1, workers=1, doc_chars=10)
+    gen.generate({"d": "first word second word"})
+    assert "first word" in client.calls[0][1]["content"] and "second" not in client.calls[0][1]["content"]
+    assert not gen.filter_queries and QueryGenerator(client).doc_chars == 16000

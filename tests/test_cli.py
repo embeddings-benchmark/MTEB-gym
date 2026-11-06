@@ -23,7 +23,7 @@ def run_call(monkeypatch, tmp_path):
 def test_run_passes_its_arguments(run_call, capsys):
     cli.main(
         "run --corpus docs --models a b --judge mock --generator mock --task-instruction t --n-queries 7 "
-        "--queries original --top-k 3 --doc-chars 9 --pairs-per-query 2 --judging pairwise --seed 5 --no-filter "
+        "--queries original --top-k 3 --doc-chars 9 --pairs-per-query 2 --judging pairwise --seed 5 "
         "--batch-size 4 --workers 6".split()
     )
     assert run_call["corpus"] == "docs" and run_call["models"] == ["a", "b"]

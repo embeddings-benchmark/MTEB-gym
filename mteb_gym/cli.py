@@ -36,11 +36,19 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--task-instruction",
         default=None,
-        help="one sentence on what a good result is; required, except for the MTEB tasks in mteb_gym/task_instructions.py",
+        help="optional sentence on what a good result is, given to the generator and the judge (recommended)",
+    )
+    ap.add_argument(
+        "--doc-chars",
+        type=int,
+        default=None,
+        help="characters of each document shown to the generator and the judge (default: 16000, or 4000 judging pairwise)",
     )
     ap.add_argument("--n-queries", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--no-filter", action="store_true")
+    ap.add_argument(
+        "--filter", action="store_true", help="add an LLM quality filter and deduplication of generated queries"
+    )
     ap.add_argument(
         "--cache-folder",
         default=None,
@@ -67,7 +75,7 @@ def main(argv=None) -> None:
     run_ap.add_argument(
         "--judge-decision",
         action="store_true",
-        help="the judge is a decision model with a /v1/decide endpoint (e.g. autotrust/JEV-27B); it grades each document",
+        help="the judge is a decision model with a /v1/decide endpoint (e.g. autotrust/JEV-27B)",
     )
     run_ap.add_argument(
         "--judging",
@@ -85,7 +93,6 @@ def main(argv=None) -> None:
         "--output-folder", default="results", help="records, as <task>/<record>.json: the results repository's layout"
     )
     run_ap.add_argument("--top-k", type=int, default=10)
-    run_ap.add_argument("--doc-chars", type=int, default=2000, help="characters of each document shown to the judge")
     run_ap.add_argument(
         "--pairs-per-query", type=int, default=None, help="judge only this many random model pairs per query"
     )
@@ -120,7 +127,8 @@ def main(argv=None) -> None:
         task_instruction=args.task_instruction,
         n_queries=args.n_queries,
         seed=args.seed,
-        filter_queries=not args.no_filter,
+        filter_queries=args.filter,
+        doc_chars=args.doc_chars,
         cache_folder=args.cache_folder,
         batch_size=args.batch_size,
         workers=args.workers,
@@ -142,7 +150,6 @@ def main(argv=None) -> None:
         judge,
         judging=args.judging,
         top_k=args.top_k,
-        doc_chars=args.doc_chars,
         pairs_per_query=args.pairs_per_query,
         output_folder=args.output_folder,
         **shared,

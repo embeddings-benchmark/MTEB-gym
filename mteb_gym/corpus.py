@@ -26,6 +26,7 @@ class Corpus:
     queries: dict[str, str] | None = None  # the task's own queries
     qrels: dict[str, dict[str, int]] | None = None  # the task's own relevance labels
     ignore_identical_ids: bool = False  # mteb's flag: a query that is itself a document, as in ArguAna
+    top_ranked: dict[str, list[str]] | None = None  # mteb's documents each of the task's own queries may retrieve
 
     @property
     def source(self) -> str:
@@ -53,6 +54,8 @@ def _load_task(name: str) -> Corpus:
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset
     filled = [name_ for name_, splits in subsets.items() if splits]
+    if "en" in filled:  # a multilingual task runs on its English subset, as an English corpus
+        filled = ["en"]
     if len(filled) > 1:
         raise ValueError(
             f"{name} has several subsets ({', '.join(sorted(filled))}); the gym runs on one corpus at a time"
@@ -60,8 +63,6 @@ def _load_task(name: str) -> Corpus:
     subset = filled[0]
     split = "test" if "test" in subsets[subset] else next(iter(subsets[subset]))
     data = subsets[subset][split]
-    if data.get("top_ranked"):
-        raise ValueError(f"{name} is a reranking task; the gym compares retrieval over the whole corpus")
     docs = {row["id"]: _text(row) for row in data["corpus"]}
 
     meta = task.metadata
@@ -77,6 +78,7 @@ def _load_task(name: str) -> Corpus:
         queries=queries,
         qrels=data.get("relevant_docs"),
         ignore_identical_ids=task.ignore_identical_ids,
+        top_ranked=dict(data["top_ranked"]) if data.get("top_ranked") else None,
     )
 
 

@@ -93,3 +93,13 @@ def test_an_answer_cut_off_by_the_token_limit_is_empty():
 
     llm.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create)))
     assert llm.chat([]) == ""
+
+
+def test_a_model_context_error_is_told_apart_from_other_bad_requests():
+    from mteb_gym.llm import InputTooLong
+
+    too_long = "This model's maximum context length is 32768 tokens. However, your prompt contains more."
+    with pytest.raises(InputTooLong):
+        decision_model(lambda r: httpx.Response(400, text=too_long)).decide("score", "s", "q")
+    with pytest.raises(httpx.HTTPStatusError):
+        decision_model(lambda r: httpx.Response(400, text="unknown kind")).decide("score", "s", "q")

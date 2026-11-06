@@ -10,6 +10,7 @@ from .rank import ModelRating
 from .results import Result, Results, load_results
 from .run import predict, run
 from .submit import submit
+from .task_instructions import TASK_INSTRUCTIONS
 
 try:
     __version__ = version("mteb-gym")
@@ -34,4 +35,5 @@ __all__ = [
     "Result",
     "Results",
     "load_results",
+    "TASK_INSTRUCTIONS",
 ]

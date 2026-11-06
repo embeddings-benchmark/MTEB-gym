@@ -20,6 +20,15 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
+class InputTooLong(Exception):
+    """The input does not fit the model's context."""
+
+
+def _too_long(status: int | None, message: str) -> bool:
+    message = message.lower()
+    return status == 400 and ("maximum context length" in message or "context_length_exceeded" in message)
+
+
 class ChatClient(Protocol):
     """What a generator or an LLM judge needs."""
 
@@ -106,6 +115,8 @@ class LLM:
                     return ""
                 return choice.message.content or ""
             except Exception as e:
+                if _too_long(getattr(e, "status_code", None), str(e)):
+                    raise InputTooLong(str(e)) from e
                 # A model may refuse a parameter with a 400 naming it: drop it, and run at its defaults.
                 rejected = [k for k in params if k in str(e) and k not in self._rejected]
                 if getattr(e, "status_code", None) != 400 or not rejected:
@@ -116,7 +127,7 @@ class LLM:
 
 class DecisionModel:
     """A decision model behind a `/v1/decide` endpoint. `decide("score", state, question)` returns a probability for
-    each grade "0" to "5", in one forward pass."""
+    each grade "0" to "5", and `decide("choice", state, question, options)` one for each option, in one forward pass."""
 
     def __init__(
         self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
@@ -142,6 +153,8 @@ class DecisionModel:
             if r.status_code >= 500 or r.status_code in (408, 429):
                 error = f"HTTP {r.status_code}: {r.text[:200]}"
                 continue
+            if _too_long(r.status_code, r.text):
+                raise InputTooLong(r.text[:200])
             r.raise_for_status()
             try:
                 out = r.json()

@@ -22,7 +22,8 @@ def labels(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]) -
 
 def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
     """An mteb AbsTaskRetrieval over `corpus` and the queries in `texts`. `queries=None` means they are the task's own,
-    with its own qrels."""
+    with its own qrels and, where the task has them, its documents per query (`top_ranked`), which mteb applies. A
+    generated query or one you supply has no such list, so it searches the whole corpus."""
     from datasets import Dataset
     from mteb.abstasks.retrieval import AbsTaskRetrieval
 
@@ -36,6 +37,10 @@ def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
         placeholder = next(iter(corpus.docs))
         qrels = {q.qid: {d: 1 for d in q.seed_doc_ids} or {placeholder: 1} for q in queries}
 
+    allowed = None
+    if queries is None and corpus.top_ranked:
+        allowed = {q: corpus.top_ranked[q] for q in texts if q in corpus.top_ranked} or None
+
     ids = list(corpus.docs)
     data = {
         "default": {
@@ -45,7 +50,7 @@ def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
                 ),
                 "queries": Dataset.from_dict({"id": list(texts), "text": list(texts.values())}),
                 "relevant_docs": qrels,
-                "top_ranked": None,
+                "top_ranked": allowed,
             }
         }
     }

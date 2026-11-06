@@ -1,7 +1,7 @@
 """
-Synthetic queries. The generator sees a few corpus documents and writes one query of the kind the task describes,
-answerable from the corpus but not a restatement of a shown document. Three filters, cheapest first: length, an LLM
-quality score (keep >= min_score), and near-duplicate removal by token overlap.
+Synthetic queries. The generator sees a few corpus documents and writes one query, answerable from the corpus but not a
+restatement of a shown document. A length check always applies. An optional filter adds an LLM quality score (keep >=
+min_score) and near-duplicate removal by token overlap.
 """
 
 from __future__ import annotations
@@ -26,26 +26,35 @@ class Query:
     quality: int | None = None  # LLM quality score 1-5, None if unfiltered
 
 
+DOC_CHARS = 16000  # characters of each document shown to the generator and, by default, to a pointwise judge
+
 _GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n"
-_GEN_TASK = "The retrieval task is: {task}\n"
 _GEN_BODY = (
-    "Given a few documents from a corpus, produce ONE query in the form the retrieval task names. A topic is a few "
-    "words, never a question or a sentence. A claim is a single declarative statement, never a question. A question is "
-    "a question. A problem, situation or case is a full account of it, as long as it needs, written the way its source "
-    "would state it. The query must be answerable using the corpus but must NOT restate any single shown document, and "
-    'must not mention the documents. Vary phrasing and specificity. Reply with strict JSON: {"query": "..."}'
+    "Given a few documents from a corpus, produce ONE natural query a real user might type that is answerable using "
+    "the corpus but is NOT a restatement of any single shown document. Vary phrasing and specificity. "
+    'Reply with strict JSON: {"query": "..."}'
+)
+
+_GEN_BODY_TASK = (
+    "Given a few documents from a corpus, produce ONE query of the kind the retrieval task describes. The query must "
+    "be answerable using the corpus but must NOT restate any single shown document, and must not mention the "
+    'documents. Vary phrasing and specificity. Reply with strict JSON: {"query": "..."}'
 )
 
 _GEN_USER = "Documents:\n{documents}\n\nWrite one query as JSON."
-_GEN_DOC_CHARS = 16000  # characters of each document shown to the generator
 
-_FILTER_SYSTEM = (
-    "You rate the quality of queries for benchmarking retrieval models. The retrieval task is: {task}\n"
-    "A 5 is a clear, specific query of the kind the task describes that could be answered from a corpus and would "
-    "separate good retrievers from bad ones. A 1 is vague, trivial, malformed, or refers to shown documents. "
-    'Reply with strict JSON: {{"score": 1-5, "reason": "..."}}'
+_FILTER_ROLE = "You rate the quality of search queries for benchmarking retrieval models.\n"
+_FILTER_BODY = (
+    "A 5 is a clear, specific, genuinely answerable information need that would separate good retrievers from bad "
+    "ones. A 1 is vague, trivial, malformed, or answerable by exact keyword match. "
+    'Reply with strict JSON: {"score": 1-5, "reason": "..."}'
 )
 _FILTER_USER = "Query: {query}\nReply as JSON."
+
+
+def task_line(instruction: str | None) -> str:
+    """The line of a system prompt that names the task; nothing when there is no task sentence."""
+    return f"The retrieval task is: {instruction}\n" if instruction else ""
 
 
 def extract_json(text: str) -> dict:
@@ -82,10 +91,10 @@ class QueryGenerator:
         self,
         client: ChatClient,
         *,
-        task_instruction: str,
+        task_instruction: str | None = None,
         n_queries: int = 100,
         seed: int = 0,
-        filter_queries: bool = True,
+        filter_queries: bool = False,
         workers: int = 16,
         docs_per_query: int = 3,
         overshoot: float = 1.6,
@@ -93,6 +102,7 @@ class QueryGenerator:
         max_chars: int = 4000,
         min_score: int = 3,
         dedup: float = 0.8,
+        doc_chars: int = DOC_CHARS,
     ):
         self.client = client
         self.task_instruction = task_instruction
@@ -105,7 +115,8 @@ class QueryGenerator:
         self.max_chars = max_chars
         self.min_score = min_score
         self.dedup = dedup
-        self.system = _GEN_ROLE + _GEN_TASK.format(task=task_instruction) + _GEN_BODY
+        self.doc_chars = doc_chars
+        self.system = _GEN_ROLE + (task_line(task_instruction) + _GEN_BODY_TASK if task_instruction else _GEN_BODY)
         self.workers = max(1, workers)
         self.n_generated: int | None = None  # before filtering
         self.settings: dict | None = None  # what the generator ran with
@@ -124,12 +135,17 @@ class QueryGenerator:
             "max_chars": self.max_chars,
             "min_score": self.min_score,
             "dedup": self.dedup,
+            "doc_chars": self.doc_chars,
         }
 
     @property
     def prompts(self) -> tuple:
         """What the generator and the filter are told: part of the query set's identity."""
-        return (self.system, _GEN_USER, _GEN_DOC_CHARS, _FILTER_SYSTEM, _FILTER_USER)
+        return (self.system, _GEN_USER, self._filter_system, _FILTER_USER)
+
+    @property
+    def _filter_system(self) -> str:
+        return _FILTER_ROLE + task_line(self.task_instruction) + _FILTER_BODY
 
     def run(self, docs: dict[str, str]) -> list[Query]:
         raw = self.generate(docs)
@@ -138,7 +154,7 @@ class QueryGenerator:
         return self.apply_filters(raw)
 
     def _one(self, doc_ids: list[str], docs: dict[str, str], idx: int) -> Query | None:
-        snippet = "\n\n".join(f"[{i + 1}] {docs[d][:_GEN_DOC_CHARS]}" for i, d in enumerate(doc_ids))
+        snippet = "\n\n".join(f"[{i + 1}] {docs[d][: self.doc_chars]}" for i, d in enumerate(doc_ids))
         msg = [
             {"role": "system", "content": self.system},
             {"role": "user", "content": _GEN_USER.format(documents=snippet)},
@@ -182,7 +198,7 @@ class QueryGenerator:
         def score(q: Query) -> int:
             """Set the query's quality; 1 if it had to be defaulted, else 0."""
             msg = [
-                {"role": "system", "content": _FILTER_SYSTEM.format(task=self.task_instruction)},
+                {"role": "system", "content": self._filter_system},
                 {"role": "user", "content": _FILTER_USER.format(query=q.text)},
             ]
             try:

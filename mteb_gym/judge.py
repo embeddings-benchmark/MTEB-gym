@@ -1,8 +1,8 @@
 """
 Judges. Pointwise: every pooled document is graded once, 0-5, and models are ranked by nDCG over the grades. Pairwise:
 each pair of result lists is judged in both presentation orders and scored fractionally, score_A = mean over the two
-orders of {win: 1, tie: 0.5, loss: 0}. Flipping cancels position bias in the score; the record reports it as
-a_first_rate (0.5 is unbiased).
+orders of {win: 1, tie: 0.5, loss: 0}, or of P(win) + P(tie) / 2 under a decision model. Flipping cancels position
+bias in the score; the record reports it as a_first_rate (0.5 is unbiased). A task sentence is optional: without one, the judge is asked about plain relevance.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from typing import TYPE_CHECKING
 import httpx
 from openai import APITimeoutError
 
-from .queries import extract_json
+from .llm import InputTooLong
+from .queries import DOC_CHARS, extract_json, task_line
 from .retrieval import Ranked
 
 if TYPE_CHECKING:
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _ROLE = "You compare two retrieval systems.\n"
-_TASK = "The retrieval task is: {task}\n"
 _BODY = (
     "Given a query and two ranked result sets (System A and System B), decide which set "
     "better satisfies the query, judging relevance, coverage of the information need, and "
@@ -49,8 +49,21 @@ def _reply(client: ChatClient, messages: list[dict]) -> str | None:
         return None
 
 
-def judge_system(instruction: str) -> str:
-    return _ROLE + _TASK.format(task=instruction) + _BODY + _TAIL
+PAIR_QUESTION = (
+    "Which result list better satisfies the query, judging relevance, coverage of the information need and ranking "
+    "quality?"
+)
+_PAIR_OPTIONS = ["System A", "System B", "Tie"]
+PAIRWISE_DOC_CHARS = 4000  # a pairwise judgment shows 2 * top_k documents, which must fit the judge's context
+
+
+def judge_system(instruction: str | None) -> str:
+    return _ROLE + task_line(instruction) + _BODY + _TAIL
+
+
+def _task_state(instruction: str | None) -> str:
+    """The line of a decision model's state that names the task; nothing when there is no task sentence."""
+    return f"Retrieval task: {instruction}\n" if instruction else ""
 
 
 _OUTCOME = {"A": 1.0, "tie": 0.5, "B": 0.0}
@@ -70,6 +83,13 @@ class Verdict:
     task: str = ""
     judge: str = ""
     query_set: str = ""
+    probabilities: list[dict[str, float]] | None = None  # per order; decision model only
+    doc_chars: int | None = None  # set when the documents had to be cut shorter than asked, to fit the judge's context
+
+
+def _shorter_cuts(doc_chars: int) -> tuple[int, ...]:
+    """The limit, then shorter ones to try when the input does not fit the judge's context."""
+    return (doc_chars, doc_chars // 2, doc_chars // 4, doc_chars // 8)
 
 
 def _cut(text: str, n: int) -> str:
@@ -101,25 +121,48 @@ def _parse(raw: str) -> tuple[str, str, bool]:
 
 
 class PairwiseJudge:
-    """Compares two models' result lists for a query, in both presentation orders."""
+    """Compares two models' result lists for a query, in both presentation orders. A decision model answers in one
+    forward pass with a probability for each outcome; a chat LLM writes a short reason and a winner."""
 
     EARLY_FAIL_WINDOW = 30
     MAX_EARLY_PARSE_FAIL = 0.5
 
-    def __init__(self, client: ChatClient, instruction: str, workers: int = 1, doc_chars: int = 2000):
+    def __init__(
+        self,
+        client: ChatClient | DecisionClient,
+        instruction: str | None = None,
+        workers: int = 1,
+        doc_chars: int = PAIRWISE_DOC_CHARS,
+    ):
         self.client = client
-        self.system = judge_system(instruction)
+        self.instruction = instruction
+        self.decision = is_decision_model(client)
+        # what the judge is told; part of the verdicts' cache identity
+        self.system = task_line(instruction) + PAIR_QUESTION if self.decision else judge_system(instruction)
         self.workers = max(1, workers)
         self.doc_chars = doc_chars  # characters of each document shown to the judge
 
-    def _ask(self, query: str, first: Ranked, second: Ranked) -> tuple[str, str, bool]:
+    def _lists(self, query: str, first: Ranked, second: Ranked, doc_chars: int) -> str:
+        return (
+            f"Query: {query}\n\nSystem A results:\n{_format(first, doc_chars)}\n\n"
+            f"System B results:\n{_format(second, doc_chars)}"
+        )
+
+    def _decide(
+        self, query: str, first: Ranked, second: Ranked, doc_chars: int
+    ) -> tuple[float, str, bool, dict[str, float] | None]:
+        state = _task_state(self.instruction) + self._lists(query, first, second, doc_chars)
+        p = self.client.decide("choice", state, PAIR_QUESTION, _PAIR_OPTIONS)
+        if not _valid_probabilities(p, _PAIR_OPTIONS):
+            return 0.5, "tie", False, None
+        a, b, tie = (p.get(o, 0.0) for o in _PAIR_OPTIONS)
+        winner = "A" if a >= max(b, tie) else "B" if b >= tie else "tie"
+        return a + tie / 2, winner, True, p
+
+    def _ask(self, query: str, first: Ranked, second: Ranked, doc_chars: int) -> tuple[str, str, bool]:
         msg = [
             {"role": "system", "content": self.system},
-            {
-                "role": "user",
-                "content": f"Query: {query}\n\nSystem A results:\n{_format(first, self.doc_chars)}\n\n"
-                f"System B results:\n{_format(second, self.doc_chars)}\n\nReply as JSON.",
-            },
+            {"role": "user", "content": f"{self._lists(query, first, second, doc_chars)}\n\nReply as JSON."},
         ]
         reply = _reply(self.client, msg)
         return ("tie", "", False) if reply is None else _parse(reply)
@@ -137,8 +180,32 @@ class PairwiseJudge:
                 raw=["identical"],
                 reasoning="identical result sets; tied without judging",
             )
-        w1, why1, ok1 = self._ask(ra.query, ra, rb)
-        w2, why2, ok2 = self._ask(ra.query, rb, ra)
+        ask = self._decide if self.decision else self._ask
+        # Both orders see the same cut: a list shown whole in one order and cut in the other would not be comparable.
+        for doc_chars in _shorter_cuts(self.doc_chars):
+            try:
+                one, two = ask(ra.query, ra, rb, doc_chars), ask(ra.query, rb, ra, doc_chars)
+                break
+            except InputTooLong:
+                continue
+        else:
+            logger.warning("a comparison does not fit the judge's context even when cut short; it is left out")
+            return Verdict(ra.qid, ra.query, model_a, model_b, 0.5, raw=["tie", "tie"], parsed_ok=[False, False])
+        shortened = doc_chars if doc_chars != self.doc_chars else None
+        if self.decision:
+            (s1, w1, ok1, p1), (s2, w2, ok2, p2) = one, two
+            return Verdict(
+                ra.qid,
+                ra.query,
+                model_a,
+                model_b,
+                (s1 + 1.0 - s2) / 2,
+                raw=[w1, w2],
+                parsed_ok=[ok1, ok2],
+                probabilities=[p1, p2] if p1 and p2 else None,
+                doc_chars=shortened,
+            )
+        (w1, why1, ok1), (w2, why2, ok2) = one, two
         score = (_OUTCOME[w1] + 1.0 - _OUTCOME[w2]) / 2
         return Verdict(
             ra.qid,
@@ -149,6 +216,7 @@ class PairwiseJudge:
             raw=[w1, w2],
             reasoning=" | ".join(w for w in (why1, why2) if w),
             parsed_ok=[ok1, ok2],
+            doc_chars=shortened,
         )
 
     def _early_failure_guard(self, n_done: int, n_failed: int) -> None:
@@ -192,10 +260,9 @@ class PairwiseJudge:
             return collect(pool.map(one, pairs))
 
 
-GRADE_QUESTION = (
-    "How relevant is the document to the query, for this retrieval task? 0 = not relevant at all, "
-    "5 = perfectly relevant: it fully satisfies the information need."
-)
+_GRADE_SCALE = "0 = not relevant at all, 5 = perfectly relevant: it fully satisfies the information need."
+GRADE_QUESTION = f"How relevant is the document to the query? {_GRADE_SCALE}"
+TASK_GRADE_QUESTION = f"How relevant is the document to the query, for this retrieval task? {_GRADE_SCALE}"
 _GRADE_ROLE = "You grade how relevant a document is to a search query.\n"
 _GRADE_TAIL = (
     "Given a query and one document, grade the document from 0 (not relevant at all) to 5 (perfectly relevant: it "
@@ -216,12 +283,16 @@ class Grade:
     task: str = ""
     judge: str = ""
     query_set: str = ""
+    doc_chars: int | None = None  # set when the document had to be cut shorter than asked, to fit the judge's context
 
 
-def _valid_probabilities(p: dict) -> bool:
+_GRADES = ["0", "1", "2", "3", "4", "5"]
+
+
+def _valid_probabilities(p: dict, options: list[str]) -> bool:
     return (
         bool(p)
-        and set(p) <= {"0", "1", "2", "3", "4", "5"}
+        and set(p) <= set(options)
         and all(isinstance(v, (int, float)) and math.isfinite(v) and v >= 0 for v in p.values())
         and math.isclose(sum(p.values()), 1.0, abs_tol=0.01)
     )
@@ -232,8 +303,8 @@ def is_decision_model(client) -> bool:
     return callable(getattr(client, "decide", None)) and not callable(getattr(client, "chat", None))
 
 
-def grade_state(query: str, document: str, instruction: str, doc_chars: int) -> str:
-    return f"Retrieval task: {instruction}\nQuery: {query}\nDocument: {_cut(document, doc_chars)}"
+def grade_state(query: str, document: str, instruction: str | None, doc_chars: int) -> str:
+    return f"{_task_state(instruction)}Query: {query}\nDocument: {_cut(document, doc_chars)}"
 
 
 class PointwiseJudge:
@@ -243,9 +314,9 @@ class PointwiseJudge:
     def __init__(
         self,
         client: ChatClient | DecisionClient,
-        instruction: str,
+        instruction: str | None = None,
         workers: int = 8,
-        doc_chars: int = 2000,
+        doc_chars: int = DOC_CHARS,
     ):
         self.client = client
         self.instruction = instruction
@@ -253,21 +324,31 @@ class PointwiseJudge:
         self.doc_chars = doc_chars
         self.decision = is_decision_model(client)
         # what the judge is told; part of the grades' cache identity
-        self.system = GRADE_QUESTION if self.decision else _GRADE_ROLE + _TASK.format(task=instruction) + _GRADE_TAIL
+        self.question = TASK_GRADE_QUESTION if instruction else GRADE_QUESTION
+        self.system = self.question if self.decision else _GRADE_ROLE + task_line(instruction) + _GRADE_TAIL
 
     def grade(self, qid: str, query: str, doc_id: str, document: str) -> Grade:
+        for doc_chars in _shorter_cuts(self.doc_chars):
+            try:
+                g = self._grade(qid, query, doc_id, document, doc_chars)
+            except InputTooLong:
+                continue
+            g.doc_chars = doc_chars if doc_chars != self.doc_chars else None
+            return g
+        logger.warning("a document does not fit the judge's context even when cut short; it is left out")
+        return Grade(qid, doc_id, 0.0, parsed_ok=False)
+
+    def _grade(self, qid: str, query: str, doc_id: str, document: str, doc_chars: int) -> Grade:
         if self.decision:
-            p = self.client.decide(
-                "score", grade_state(query, document, self.instruction, self.doc_chars), GRADE_QUESTION
-            )
-            if not _valid_probabilities(p):
+            p = self.client.decide("score", grade_state(query, document, self.instruction, doc_chars), self.question)
+            if not _valid_probabilities(p, _GRADES):
                 return Grade(qid, doc_id, 0.0, parsed_ok=False)
             return Grade(qid, doc_id, sum(int(k) * v for k, v in p.items()), probabilities=p)
         msg = [
             {"role": "system", "content": self.system},
             {
                 "role": "user",
-                "content": f"Query: {query}\n\nDocument:\n{_cut(document, self.doc_chars)}\n\nReply as JSON.",
+                "content": f"Query: {query}\n\nDocument:\n{_cut(document, doc_chars)}\n\nReply as JSON.",
             },
         ]
         reply = _reply(self.client, msg)

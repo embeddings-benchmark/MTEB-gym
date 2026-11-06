@@ -37,31 +37,18 @@ from .cache import (
     texts_hash,
     verdict_key,
 )
-from .judge import PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
+from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
 from .llm import ChatClient, DecisionClient, llm_settings
-from .queries import Query, QueryGenerator
+from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
 from .retrieval import Ranked, slug
-from .task_instructions import TASK_INSTRUCTIONS
 
 logger = logging.getLogger(__name__)
 
 MAX_JUDGE_FAILURE_RATE = 0.5
 MAX_QUERIES_LEFT_OUT = 0.1  # of a run's queries, for lack of a complete set of grades
 MIN_MODEL_COVERAGE = 0.5  # share of a model's comparisons that must have a usable answer
-
-
-def resolve_instruction(task_instruction: str | None, corpus) -> tuple[str, str]:
-    """The sentence the generator and the judge are given, and where it came from."""
-    if task_instruction:
-        return task_instruction, "config:task_instruction"
-    if corpus.name in TASK_INSTRUCTIONS:
-        return TASK_INSTRUCTIONS[corpus.name], "mteb_gym:task_instructions"
-    raise ValueError(
-        f"{corpus.name}: pass task_instruction, one sentence on what a good result is, for example "
-        "'Given a support ticket, retrieve the help article that resolves it'."
-    )
 
 
 def _read_query_set(path: Path) -> tuple[list[Query], int | None, dict | None]:
@@ -159,7 +146,8 @@ def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: 
         if not positives:
             raise ValueError(f"{corp.name} has no query with a relevant document")
         texts = sample_queries(positives, n_queries, seed)  # mteb drops a query without a relevant document
-        return QuerySet(f"{slug(corp.id)}-original-n{len(texts)}-s{seed}", texts, None, "original", None, None)
+        limited = "-top-ranked" if corp.top_ranked else ""  # what these queries may retrieve is part of their identity
+        return QuerySet(f"{slug(corp.id)}-original-n{len(texts)}-s{seed}{limited}", texts, None, "original", None, None)
     qs = own_queries(queries)
     texts = {q.qid: q.text for q in qs}
     return QuerySet(f"{slug(corp.id)}-own-{texts_hash(texts)}", texts, qs, "own", None, None)
@@ -196,8 +184,6 @@ def _resolve_judging(judging: str, judge, generator, queries) -> str:
         judging = "pointwise" if is_decision_model(judge) else "pairwise"
     if judging not in ("pointwise", "pairwise"):
         raise ValueError(f"judging must be 'auto', 'pointwise' or 'pairwise', not {judging!r}")
-    if is_decision_model(judge) and judging == "pairwise":
-        raise ValueError("a decision model judges pointwise; pass an LLM to judge pairwise")
     if is_decision_model(judge) and generator is None and queries == "synthetic":
         raise ValueError("a decision model cannot write queries: pass generator=, or queries='original' / your own")
     return judging
@@ -217,7 +203,7 @@ class _Judging:
 
 
 def _judge_pointwise(
-    judge, instruction: str, ranked: dict[str, list[Ranked]], run: _Judging
+    judge, instruction: str | None, ranked: dict[str, list[Ranked]], run: _Judging
 ) -> tuple[list[ModelRating], dict, str]:
     """Grade every pooled document once and rate each model by nDCG over the grades."""
     pj = PointwiseJudge(judge, instruction=instruction, workers=run.workers, doc_chars=run.doc_chars)
@@ -243,7 +229,7 @@ def _judge_pointwise(
 
 def _judge_pairwise(
     judge,
-    instruction: str,
+    instruction: str | None,
     ranked: dict[str, list[Ranked]],
     revisions: dict[str, str | None],
     pairs_per_query: int | None,
@@ -283,8 +269,9 @@ def predict(
     queries: str | Path | list[str] = "synthetic",
     task_instruction: str | None = None,
     n_queries: int = 100,
+    doc_chars: int | None = None,
     seed: int = 0,
-    filter_queries: bool = True,
+    filter_queries: bool = False,
     cache_folder: str | Path | None = None,
     batch_size: int = 32,
     workers: int = 8,
@@ -294,7 +281,8 @@ def predict(
     One model per call, as `mteb run` takes one model, so a roster can be run one model per process
     and the GPU is returned to the operating system between them. `run()` then finds every
     prediction file already written and only judges. Arguments that decide the query set must match
-    the later `run()`, since predictions are stored per query set.
+    the later `run()`, since predictions are stored per query set. That includes `doc_chars`: a pairwise `run()` shows
+    the generator fewer characters by default than this function does.
 
     Returns:
         The path of mteb's prediction file.
@@ -308,15 +296,14 @@ def predict(
         )
     cache = resolve_cache_folder(cache_folder)
     corp = corpus_mod.load(corpus)
-    instruction, _ = resolve_instruction(task_instruction, corp)
-    logger.info("task instruction: %s", instruction)
     gen = QueryGenerator(
         generator,
-        task_instruction=instruction,
+        task_instruction=task_instruction or None,
         n_queries=n_queries,
         seed=seed,
         filter_queries=filter_queries,
         workers=workers,
+        doc_chars=doc_chars or DOC_CHARS,
     )
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
@@ -335,11 +322,11 @@ def run(
     task_instruction: str | None = None,
     n_queries: int = 100,
     top_k: int = 10,
-    doc_chars: int = 2000,
+    doc_chars: int | None = None,
     pairs_per_query: int | None = None,
     judging: str = "auto",
     seed: int = 0,
-    filter_queries: bool = True,
+    filter_queries: bool = False,
     output_folder: str | Path = "results",
     cache_folder: str | Path | None = None,
     batch_size: int = 32,
@@ -350,22 +337,24 @@ def run(
     Args:
         corpus: An mteb retrieval task name, a folder of .txt/.md files, or a .jsonl with id and text.
         models: mteb model ids. They run through mteb itself.
-        judge: A decision model (mteb_gym.DecisionModel, e.g. JEV-27B), which grades each retrieved document, or an
-            LLM client (mteb_gym.LLM or MockLLM), which compares the retrieved lists pairwise.
+        judge: A decision model (mteb_gym.DecisionModel, e.g. JEV-27B) or an LLM client (mteb_gym.LLM or MockLLM). Either
+            judges both ways; see `judging`.
         generator: An LLM client that writes the queries. Defaults to the judge.
         queries: "synthetic" (generated), "original" (the dataset's own queries), or your own as a
             .jsonl with id and text, a .txt with one query per line, or a list of strings.
-        task_instruction: One sentence on what a good result is, given to generator and judge. Required, except for
-            the MTEB tasks in mteb_gym.task_instructions.
+        task_instruction: Optional sentence on what a good result is, given to the generator and the judge. Without it
+            the generator writes natural queries and the judge grades plain relevance. Recommended.
+            mteb_gym.TASK_INSTRUCTIONS has one for each of a set of MTEB tasks.
         n_queries: Queries to generate.
         top_k: Documents judged per query.
-        doc_chars: Characters of each document shown to the judge; longer documents are cut and marked.
+        doc_chars: Characters of each document shown to the generator and the judge. Defaults to 16000, or to 4000 when
+            judging pairwise, since a comparison shows 2 * top_k documents, which costs far more per call.
         pairs_per_query: Pairwise judging: judge only this many random model pairs per query; all pairs by default.
         judging: "pointwise" grades every pooled document once (0-5) and ranks models by nDCG@top_k over the grades;
             "pairwise" compares the models' lists and ranks with Bradley-Terry. "auto": pointwise for a decision
             model, pairwise for an LLM.
         seed: Seed for document sampling and the bootstrap.
-        filter_queries: LLM quality filter and deduplication of generated queries.
+        filter_queries: Add an LLM quality filter and deduplication of generated queries.
         output_folder: Where the record is written, as <task>/<record>.json: the results repository's layout.
         cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
@@ -386,8 +375,12 @@ def run(
         logger.warning("no generator given: the judge also writes the queries")
 
     corp = corpus_mod.load(corpus)
-    instruction, instruction_source = resolve_instruction(task_instruction, corp)
-    logger.info("task instruction: %s", instruction)
+    instruction = task_instruction or None
+    if instruction is None:
+        logger.info(
+            "no task_instruction: natural queries and plain relevance; a sentence on what a good result is helps"
+        )
+    doc_chars = doc_chars or (PAIRWISE_DOC_CHARS if judging == "pairwise" else DOC_CHARS)
     gen = QueryGenerator(
         gen_client,
         task_instruction=instruction,
@@ -395,6 +388,7 @@ def run(
         seed=seed,
         filter_queries=filter_queries,
         workers=workers,
+        doc_chars=doc_chars,
     )
 
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
@@ -430,7 +424,6 @@ def run(
         "judge_model": model_id(judge),
         "generator_model": model_id(gen_client) if query_source == "synthetic" else None,
         "task_instruction": instruction,
-        "task_instruction_source": instruction_source,
         "judge_system": judge_system,
         "n_queries_generated": qset.n_generated,
         "n_queries": len(texts),

@@ -121,8 +121,12 @@ def test_end_to_end_pointwise_decision_judge():
         assert len(files["judgments"]) == 1 and files["judgments"][0].exists()  # the grades file
         decider.calls = 0
         assert run(docs, **kw).record == rec and decider.calls == 0  # cached
-        with pytest.raises(ValueError, match="judges pointwise"):
-            run(docs, judging="pairwise", **kw)
+        pairwise = run(docs, judging="pairwise", **kw).record
+        assert pairwise["config"]["judging"] == "pairwise" and pairwise["ratings"] != rec["ratings"]
+        assert pairwise["diagnostics"]["parse_failure_rate"] == 0
+        assert pairwise["diagnostics"]["judge_calls"] == decider.calls > 0
+        decider.calls = 0
+        assert run(docs, judging="pairwise", **kw).record == pairwise and decider.calls == 0  # cached
 
 
 def test_predict_then_run_reuses_the_predictions():
@@ -139,6 +143,7 @@ def test_predict_then_run_reuses_the_predictions():
             (docs / f"{did}.txt").write_text(text)
         shared = dict(
             task_instruction="Given a topic, retrieve documents about it",
+            doc_chars=2000,
             n_queries=4,
             filter_queries=False,
             cache_folder=Path(tmp) / "cache",
@@ -156,7 +161,14 @@ def test_predict_then_run_reuses_the_predictions():
                 calls["n"] += 1
                 return super().chat(messages, **kw)
 
-        res = run(docs, models, judge=Counting(), generator=MockLLM(), output_folder=Path(tmp) / "out", **shared)
+        res = run(
+            docs,
+            models,
+            judge=Counting(),
+            generator=MockLLM(),
+            output_folder=Path(tmp) / "out",
+            **shared,
+        )
         assert len(res.record["ratings"]) == 2 and calls["n"] > 0  # judged
         found = set((Path(tmp) / "cache" / "predictions").rglob("*_predictions.json"))
         assert found == set(paths)  # the run wrote no new prediction files
@@ -179,7 +191,7 @@ def test_end_to_end_mteb_task():
         )
         cfg = res.record["config"]
         assert len(res.record["ratings"]) == 2 and cfg["n_queries"] >= 5  # the mock's queries survive filtering
-        assert cfg["task_instruction_source"] == "config:task_instruction" and "retrieve" in cfg["task_instruction"]
+        assert "retrieve" in cfg["task_instruction"]
         assert res.record["diagnostics"]["n_comparisons"] == cfg["n_queries"]
         assert res.record["source"] == "mteb" and "@" in res.record["corpus_id"] and cfg["query_set"]
 
@@ -297,7 +309,12 @@ def test_a_query_with_no_relevant_document_is_not_sampled(tmp_path, monkeypatch)
     from mteb_gym.run import resolve_queries
 
     corp = types.SimpleNamespace(
-        name="t", id="t@1", docs={}, queries={"q0": "a", "q1": "b"}, qrels={"q0": {"d": 1}, "q1": {"d": 0}}
+        top_ranked=None,
+        name="t",
+        id="t@1",
+        docs={},
+        queries={"q0": "a", "q1": "b"},
+        qrels={"q0": {"d": 1}, "q1": {"d": 0}},
     )
     gen = types.SimpleNamespace()
     assert list(resolve_queries(corp, tmp_path, "original", gen, 5, 0).texts) == ["q0"]
@@ -406,3 +423,149 @@ def test_each_models_no_judge_baseline_is_recorded(tmp_path):
     qrels = {q["qid"]: {d: 1 for d in q["seed_doc_ids"]} for q in queries}
     for rating, path in zip(res.record["ratings"], _prediction_of(res.record, tmp_path / "c"), strict=True):
         assert rating["ndcg_at_10"] == pytest.approx(retrieval.ndcg_at_10(path, qrels))
+
+
+def _excluding_corpus(tmp_path):
+    from mteb_gym import corpus as corpus_mod
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    texts = {
+        "copy": "statins heart disease statins heart disease",
+        "good": "statins and the heart",
+        "other": "gardening in the spring",
+        "more": "fibre and the gut",
+    }
+    for did, text in texts.items():
+        (docs / f"{did}.txt").write_text(text)
+    corp = corpus_mod.load(docs)
+    corp.queries = {"q": "statins heart disease"}
+    corp.qrels = {"q": {"good.txt": 1}}
+    corp.top_ranked = {"q": ["good.txt", "other.txt", "more.txt"]}
+    return corp
+
+
+def test_a_tasks_excluded_documents_stay_out_of_its_own_queries_results(tmp_path):
+    """Scored on `good.txt`: first of what `q` may retrieve, so nDCG@10 is 1. With `copy.txt` in the results it is second, and
+    nDCG@10 is 1 / log2(3) = 0.631."""
+    from mteb_gym import retrieval, task
+
+    corp = _excluding_corpus(tmp_path)
+    pred = retrieval.predict(
+        "mteb/baseline-bm25s", task.build(corp, None, corp.queries), tmp_path / "with", batch_size=2
+    )
+    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["good.txt"]
+    assert "copy.txt" not in retrieval.hits(pred)["q"]
+    assert retrieval.ndcg_at_10(pred, corp.qrels) == pytest.approx(1.0)
+    corp.top_ranked = None
+    pred = retrieval.predict(
+        "mteb/baseline-bm25s", task.build(corp, None, corp.queries), tmp_path / "without", batch_size=2
+    )
+    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["copy.txt"]
+    assert retrieval.ndcg_at_10(pred, corp.qrels) == pytest.approx(0.6309, abs=1e-3)
+
+
+def test_only_a_tasks_own_queries_are_limited_and_their_limit_is_part_of_their_identity(tmp_path):
+    from mteb_gym.queries import Query
+    from mteb_gym.run import resolve_queries
+    from mteb_gym.task import build
+
+    corp = _excluding_corpus(tmp_path)
+    own = build(corp, None, corp.queries)
+    own.load_data()
+    assert own.dataset["default"]["test"]["top_ranked"] == corp.top_ranked
+    new = build(corp, [Query("q", "statins", ["good.txt"])], {"q": "statins"})  # the same id, not the task's query
+    new.load_data()
+    assert new.dataset["default"]["test"]["top_ranked"] is None
+    limited = resolve_queries(corp, tmp_path, "original", None, 1, 0).id
+    corp.top_ranked = None
+    assert resolve_queries(corp, tmp_path, "original", None, 1, 0).id != limited
+
+
+def test_loading_a_task_keeps_its_documents_per_query(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import mteb
+
+    from mteb_gym import corpus as corpus_mod
+
+    data = {
+        "corpus": [{"id": "a", "title": "", "text": "x"}],
+        "queries": [{"id": "q", "text": "y"}],
+        "relevant_docs": {"q": {"a": 1}},
+        "top_ranked": {"q": ["a"]},
+    }
+    task = SimpleNamespace(
+        load_data=lambda: None,
+        convert_v1_dataset_format_to_v2=lambda num_proc: None,
+        dataset={"default": {"standard": data}},
+        metadata=MagicMock(dataset={"path": "p", "revision": "r"}, eval_langs=["eng"]),
+        ignore_identical_ids=False,
+    )
+    monkeypatch.setattr(mteb, "get_tasks", lambda tasks: [task])
+    assert corpus_mod.load("not-a-path-xyz").top_ranked == {"q": ["a"]}
+
+
+def test_a_pairwise_run_shows_the_generator_and_the_judge_the_pairwise_limit(tmp_path):
+    from mteb_gym import MockLLM, run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(8).items():
+        (docs / f"{did}.txt").write_text(text)
+    rec = run(
+        docs,
+        ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+        MockLLM(),
+        generator=MockLLM(),
+        n_queries=2,
+        judging="pairwise",
+        output_folder=tmp_path / "out",
+        cache_folder=tmp_path / "cache",
+        workers=1,
+    ).record
+    assert rec["config"]["doc_chars"] == 4000 and rec["config"]["gen_doc_chars"] == 4000
+    assert rec["config"]["task_instruction"] is None and rec["config"]["gen_filter"] is False
+
+
+def test_the_sentence_reaches_the_generator_and_the_judge(tmp_path):
+    from mteb_gym import run
+
+    class Recording(MockLLM):
+        def __init__(self):
+            super().__init__()
+            self.systems = []
+
+        def chat(self, messages, **kw):
+            self.systems.append(messages[0]["content"])
+            return super().chat(messages, **kw)
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+
+    def go(sentence):
+        generator, judge = Recording(), Recording()
+        rec = run(
+            docs,
+            ["mteb/baseline-bm25s"],
+            judge,
+            generator,
+            task_instruction=sentence,
+            n_queries=3,
+            judging="pointwise",
+            output_folder=tmp_path / "out",
+            cache_folder=tmp_path / f"cache-{sentence}",
+            workers=1,
+        ).record
+        return generator, judge, rec
+
+    generator, judge, rec = go("find refutations")
+    assert generator.systems and all("find refutations" in s for s in generator.systems)
+    assert judge.systems and all("find refutations" in s for s in judge.systems)
+    assert rec["config"]["task_instruction"] == "find refutations"
+    plain_generator, plain_judge, plain = go(None)
+    assert not any("retrieval task" in s for s in plain_generator.systems + plain_judge.systems)
+    assert rec["config"]["query_set"] != plain["config"]["query_set"]  # it changes what is generated
