@@ -3,9 +3,7 @@
 <h3 align="center">Evaluate embedding models on any corpus, without relevance labels</h3>
 
 <p align="center">
-  <a href="https://pypi.org/project/mteb-gym/"><img src="https://img.shields.io/pypi/v/mteb-gym.svg" alt="PyPI"></a>
   <a href="https://github.com/embeddings-benchmark/MTEB-gym/blob/main/LICENSE"><img src="https://img.shields.io/github/license/embeddings-benchmark/MTEB-gym.svg" alt="License"></a>
-  <a href="https://pepy.tech/project/mteb-gym"><img src="https://static.pepy.tech/badge/mteb-gym" alt="Downloads"></a>
 </p>
 
 <h4 align="center">
@@ -23,7 +21,7 @@ MTEB Gym ranks embedding models on your own documents. You don't need labels or 
 ## Installation
 
 ```bash
-pip install mteb-gym
+pip install git+https://github.com/embeddings-benchmark/MTEB-gym.git
 ```
 
 ## Quickstart
