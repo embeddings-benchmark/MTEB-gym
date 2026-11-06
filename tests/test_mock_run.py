@@ -471,9 +471,11 @@ def test_only_a_tasks_own_queries_are_limited_and_their_limit_is_part_of_their_i
     from mteb_gym.task import build
 
     corp = _excluding_corpus(tmp_path)
+    only_asked = corp.top_ranked
+    corp.top_ranked = {**only_asked, "not-asked": ["good.txt"]}  # the task's list covers queries this run does not ask
     own = build(corp, None, corp.queries)
     own.load_data()
-    assert own.dataset["default"]["test"]["top_ranked"] == corp.top_ranked
+    assert own.dataset["default"]["test"]["top_ranked"] == only_asked
     new = build(corp, [Query("q", "statins", ["good.txt"])], {"q": "statins"})  # the same id, not the task's query
     new.load_data()
     assert new.dataset["default"]["test"]["top_ranked"] is None

@@ -198,3 +198,40 @@ def test_seed_labels_keep_every_seed_document():
     assert task_mod.labels(types.SimpleNamespace(qrels={"q0": {"d": 1}, "q1": {"d": 1}}), None, {"q0": "a"}) == {
         "q0": {"d": 1}
     }
+
+
+def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
+    import mteb
+    from datasets import Dataset
+
+    from mteb_gym import corpus as corpus_mod
+
+    split = {
+        "corpus": Dataset.from_dict({"id": ["d1", "d2"], "title": ["", ""], "text": ["one", "two"]}),
+        "queries": Dataset.from_dict({"id": ["q1", "q2"], "text": ["first", "second"]}),
+        "relevant_docs": {"q1": {"d1": 1}, "q2": {"d2": 1}},
+        "top_ranked": {"q1": ["d1"], "q2": ["d2"]},
+    }
+
+    class Meta:
+        dataset = {"path": "p", "revision": "r"}
+        eval_langs = {"en": ["eng-Latn"], "es": ["spa-Latn"]}
+        prompt = None
+
+        def model_copy(self, update):
+            return self
+
+    class Task:
+        metadata = Meta()
+        ignore_identical_ids = False
+        dataset = {"en": {"all": split}, "es": {"all": {**split, "corpus": None}}}
+
+        def load_data(self):
+            pass
+
+        def convert_v1_dataset_format_to_v2(self, num_proc=None):
+            pass
+
+    monkeypatch.setattr(mteb, "get_tasks", lambda tasks: [Task()])
+    corpus = corpus_mod.load("NotAFolderOnDisk")
+    assert "/en/all" in corpus.id and set(corpus.docs) == {"d1", "d2"}

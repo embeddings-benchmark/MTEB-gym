@@ -103,3 +103,19 @@ def test_a_model_context_error_is_told_apart_from_other_bad_requests():
         decision_model(lambda r: httpx.Response(400, text=too_long)).decide("score", "s", "q")
     with pytest.raises(httpx.HTTPStatusError):
         decision_model(lambda r: httpx.Response(400, text="unknown kind")).decide("score", "s", "q")
+
+
+def test_an_llm_context_error_reads_as_too_long():
+    from mteb_gym.llm import InputTooLong
+
+    class Refused(Exception):
+        status_code = 400
+
+    class Completions:
+        def create(self, **kw):
+            raise Refused("This model's maximum context length is 32768 tokens.")
+
+    llm = LLM("m", base_url="http://server/v1", api_key="k")
+    llm.client = type("C", (), {"chat": type("H", (), {"completions": Completions()})()})()
+    with pytest.raises(InputTooLong):
+        llm.chat([{"role": "user", "content": "x"}])
