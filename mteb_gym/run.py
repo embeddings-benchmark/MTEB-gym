@@ -372,8 +372,7 @@ def run(
         cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
         embedding_cache: A folder for mteb's embedding cache, so each corpus is encoded once per model. It only reuses
-            vectors, so it changes no query set, prediction folder or record. A folder holds vectors of one
-            `max_seq_length`.
+            vectors, so it changes no query set, prediction folder or record.
         max_seq_length: Cap the length of a SentenceTransformer that allows more; a static model and any other model are
             unaffected. By default models run as mteb loads them. A cap changes what a model retrieves, so it is part of
             the predictions' and verdicts' identity, and recorded in the record's config.

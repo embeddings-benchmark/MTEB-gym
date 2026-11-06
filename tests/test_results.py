@@ -199,31 +199,19 @@ def test_models_without_one_vector_per_text_skip_the_embedding_cache(tmp_path, m
     assert not (tmp_path / "vectors").exists()
 
 
-def test_vectors_of_one_cap_are_not_reused_under_another(tmp_path, monkeypatch):
+def test_vectors_of_one_cap_are_kept_apart_from_another(tmp_path, monkeypatch):
     from mteb_gym import retrieval
 
-    _patched(monkeypatch, tmp_path, _encoder())
-    run = lambda name, cap: retrieval.predict(  # noqa: E731
-        "m", _Task, tmp_path / name, embedding_cache=tmp_path / "vectors", max_seq_length=cap
-    )
-    run("first", 8192)
-    assert (tmp_path / "vectors" / "m" / "max_seq_length").read_text() == "8192"
-    run("same", 8192)
-    with pytest.raises(ValueError, match="max_seq_length=8192, not 512"):
-        run("other", 512)
-    with pytest.raises(ValueError, match="max_seq_length=8192, not None"):
-        run("uncapped", None)
-
-
-def test_vectors_made_before_the_record_are_taken_at_the_cap_asked_and_left_as_they_are(tmp_path, monkeypatch, caplog):
-    from mteb_gym import retrieval
-
-    _patched(monkeypatch, tmp_path, _encoder())
-    old = tmp_path / "vectors" / "m" / "SomeTask"
-    old.mkdir(parents=True)
-    retrieval.predict("m", _Task, tmp_path / "p", embedding_cache=tmp_path / "vectors", max_seq_length=8192)
-    assert "does not record its max_seq_length" in caplog.text
-    assert not (tmp_path / "vectors" / "m" / "max_seq_length").exists()
+    folder = {}
+    for cap in (None, 8192, 512):
+        ran = _patched(monkeypatch, tmp_path, _encoder())
+        retrieval.predict("m", _Task, tmp_path / str(cap), embedding_cache=tmp_path / "vectors", max_seq_length=cap)
+        folder[cap] = ran[0].cache_path
+    assert folder == {
+        None: tmp_path / "vectors" / "m",
+        8192: tmp_path / "vectors" / "m-max8192",
+        512: tmp_path / "vectors" / "m-max512",
+    }
 
 
 def test_the_cache_reopens_its_own_vectors(tmp_path):

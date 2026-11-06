@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import gc
 import json
-import logging
 import os
 import re
 import tempfile
@@ -12,8 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .corpus import Corpus
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,21 +51,6 @@ def _cap_length(model, max_seq_length: int) -> None:
     encoder = getattr(model, "model", None)
     if getattr(encoder, "max_seq_length", 0) and encoder.max_seq_length > max_seq_length and not _is_static(encoder):
         encoder.max_seq_length = max_seq_length
-
-
-def _check_cap_of_vectors(folder: Path, max_seq_length: int | None) -> None:
-    """Vectors made under one cap must not be reused under another: a new folder records its cap. A folder made
-    without this record is taken to hold vectors of the cap asked for, and the run says so."""
-    record = folder / "max_seq_length"
-    asked = str(max_seq_length)
-    if record.exists():
-        if record.read_text() != asked:
-            raise ValueError(f"{folder} holds vectors made with max_seq_length={record.read_text()}, not {asked}")
-    elif folder.exists() and any(folder.iterdir()):
-        logger.warning("%s does not record its max_seq_length; taking it to be %s", folder, asked)
-    else:
-        folder.mkdir(parents=True, exist_ok=True)
-        record.write_text(asked)
 
 
 def _cached(model, folder: Path):
@@ -112,8 +94,8 @@ def predict(
     `folder`; skipped when the file already exists. Dense, sparse and
     late-interaction models all go through the same call.
 
-    `embedding_cache` keeps each model's vectors in mteb's cache at <embedding_cache>/<model>, so a corpus is encoded
-    once; it holds one vector per text, so lexical, static and late-interaction models run without it.
+    `embedding_cache` keeps each model's vectors in mteb's cache under <embedding_cache>, per model and cap, so a corpus
+    is encoded once; it holds one vector per text, so lexical, static and late-interaction models run without it.
     `max_seq_length` caps a SentenceTransformer's length; by default a model runs as mteb loads it."""
     path = folder / f"{task.metadata.name}_predictions.json"
     if path.exists():
@@ -126,9 +108,10 @@ def predict(
     if max_seq_length is not None:
         _cap_length(model, max_seq_length)
     if embedding_cache is not None and _cacheable(model_name, model):
-        vectors = Path(embedding_cache) / slug(model_name)
-        _check_cap_of_vectors(vectors, max_seq_length)
-        model = _cached(model, vectors)
+        cap = (
+            "" if max_seq_length is None else f"-max{max_seq_length}"
+        )  # vectors made under one cap stay apart from another's
+        model = _cached(model, Path(embedding_cache) / f"{slug(model_name)}{cap}")
     with tempfile.TemporaryDirectory(dir=folder) as temporary:  # the file appears whole or not at all
         mteb.evaluate(
             model,
