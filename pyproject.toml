@@ -1,20 +1,46 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mteb-gym"
 version = "0.3.0"
-description = "Label-free, LLM-judged model selection for embedding models, built on mteb"
+description = "Evaluate embedding models on any corpus, without relevance labels"
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = ["mteb[bm25s]>=2.0", "openai>=1.40"]  # mteb brings torch, sentence-transformers, datasets; openai for any /chat/completions endpoint
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "MTEB Contributors" }]
+keywords = ["embeddings", "retrieval", "evaluation", "benchmark", "mteb"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mteb[bm25s]>=2.20,<3",
+    "openai>=1.40",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2",
+    "huggingface_hub>=0.25",
+    "datasets>=2.19",
+]
 
 [project.optional-dependencies]
-colbert = ["mteb[pylate]>=2.0"]
+colbert = ["mteb[pylate]>=2.20,<3"]
+
+[project.urls]
+Homepage = "https://github.com/embeddings-benchmark/MTEB-gym"
+Repository = "https://github.com/embeddings-benchmark/MTEB-gym"
+Results = "https://github.com/embeddings-benchmark/gym-results"
 
 [project.scripts]
-mteb-gym = "mteb_gym.__main__:main"
+mteb-gym = "mteb_gym.cli:main"
 
 [dependency-groups]
 test = ["pytest>=8"]
@@ -23,12 +49,15 @@ dev = [{ include-group = "test" }, "ruff"]
 [tool.setuptools]
 packages = ["mteb_gym"]
 
+[tool.setuptools.package-data]
+mteb_gym = ["py.typed"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 120
 
 [tool.ruff.lint]

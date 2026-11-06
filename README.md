@@ -16,7 +16,7 @@
   <a href="#citing">Citing</a>
 </h4>
 
-MTEB Gym writes queries for your corpus, lets each embedding model retrieve for them, has a judge grade what they retrieved, and ranks the models. You don't need labels or queries of your own, only your documents and one sentence on what a good result is.
+MTEB Gym writes queries for your corpus, lets each embedding model retrieve for them, has a judge grade what they retrieved, and ranks the models. You don't need labels or queries of your own, only your documents.
 
 ## Installation
 
@@ -31,9 +31,9 @@ import mteb_gym as gym
 
 result = gym.run(
     corpus="path/to/docs",  # a folder of .txt/.md files, a .jsonl with id and text, or an MTEB task
-    task_description="Given a support ticket, retrieve the help article that resolves it",
+    task_instruction="Given a support ticket, retrieve the help article that resolves it",  # optional, recommended
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
-    generator=gym.LLM("Qwen/Qwen3-4B-Instruct-2507", base_url="http://localhost:8000/v1"),
+    generator=gym.LLM("deepseek-ai/DeepSeek-V4-Flash", base_url="http://localhost:8000/v1"),
     judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8001"),
 )
 print(result.leaderboard)
@@ -43,9 +43,9 @@ This expects the generator and the judge to be running, see [Models](#models). O
 
 ```bash
 mteb-gym run --corpus path/to/docs \
-    --task-description "Given a support ticket, retrieve the help article that resolves it" \
+    --task-instruction "Given a support ticket, retrieve the help article that resolves it" \
     --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 intfloat/e5-base-v2 \
-    --generator Qwen/Qwen3-4B-Instruct-2507 --generator-url http://localhost:8000/v1 \
+    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1 \
     --judge autotrust/JEV-27B --judge-url http://localhost:8001 --judge-decision
 ```
 
@@ -53,13 +53,13 @@ mteb-gym run --corpus path/to/docs \
 
 - **Models to compare:** any model id that `mteb` can load.
 - **Generator:** writes the queries. Any OpenAI-compatible chat model works, either from an API (set `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for other providers) or served with vLLM, SGLang or Ollama.
-- **Judge:** grades each retrieved document. Use a decision model behind a `/v1/decide` endpoint, or any object with a `decide(kind, state, question, options)` method. An LLM (`gym.LLM`) also works and compares the models' result lists pairwise, which is slower.
+- **Judge:** a decision model behind a `/v1/decide` endpoint, any object with a `decide(kind, state, question, options)` method, or an LLM (`gym.LLM`). By default a decision model grades each retrieved document, and an LLM compares the models' lists. `judging="pointwise"` or `"pairwise"` chooses either way for either kind; pairwise costs more.
 
 <details>
 <summary>Serving the generator and the judge with vLLM</summary>
 
 ```bash
-vllm serve Qwen/Qwen3-4B-Instruct-2507 --port 8000
+vllm serve deepseek-ai/DeepSeek-V4-Flash --port 8000 --trust-remote-code --tokenizer-mode deepseek_v4 --reasoning-parser deepseek_v4
 
 hf download autotrust/JEV-27B --local-dir JEV-27B
 python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8001 \
@@ -73,7 +73,8 @@ python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV
 
 | Topic | |
 |---|---|
-| **Options** | `help(gym.run)` lists them, such as `queries="original"` for an MTEB task's own queries, or your own queries as a list, `.txt` or `.jsonl` |
+| **Queries** | `queries="original"` uses an MTEB task's own queries; your own go in as a list, `.txt` or `.jsonl`. `help(gym.run)` lists every option |
+| **Encoding once** | `embedding_cache="path"` keeps each model's vectors, and `max_seq_length=8192` caps very long models. By default models run as `mteb` loads them |
 | **Outputs** | Each run writes a JSON record to `results/<task>/`. Read them back with `gym.load_results("results/").to_dataframe()` |
 | **Caching** | A rerun reuses its queries, retrievals and grades. Adding a model only grades the documents it adds |
 | **MTEB comparison** | For an MTEB task, `result.agreement()` compares the ranking with the official MTEB scores |
