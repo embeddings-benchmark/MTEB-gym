@@ -10,13 +10,16 @@
 
 <h4 align="center">
   <a href="#installation">Installation</a> |
-  <a href="#example-usage">Usage</a> |
-  <a href="#models">Models</a> |
-  <a href="#overview">Overview</a> |
+  <a href="#quickstart">Quickstart</a> |
+  <a href="#usage">Usage</a> |
+  <a href="#results">Results</a> |
+  <a href="#serving-the-models">Serving the models</a> |
   <a href="#citing">Citing</a>
 </h4>
 
-MTEB Gym writes queries for your corpus, lets each embedding model retrieve for them, has a judge grade what they retrieved, and ranks the models. You don't need labels or queries of your own, only your documents.
+MTEB Gym ranks embedding models on your own documents. You don't need labels or queries.
+
+It works in four steps: write queries for your documents, let each model retrieve, have a judge grade the results, and rank the models.
 
 ## Installation
 
@@ -24,14 +27,13 @@ MTEB Gym writes queries for your corpus, lets each embedding model retrieve for 
 pip install mteb-gym
 ```
 
-## Example Usage
+## Quickstart
 
 ```python
 import mteb_gym as gym
 
 result = gym.run(
-    corpus="path/to/docs",  # a folder of .txt/.md files, a .jsonl with id and text, or an MTEB task
-    task_instruction="Given a support ticket, retrieve the help article that resolves it",  # optional, recommended
+    corpus="path/to/docs",
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
     generator=gym.LLM("deepseek-ai/DeepSeek-V4-Flash", base_url="http://localhost:8000/v1"),
     judge=gym.DecisionModel("autotrust/JEV-27B", base_url="http://localhost:8001"),
@@ -39,47 +41,104 @@ result = gym.run(
 print(result.leaderboard)
 ```
 
-This expects the generator and the judge to be running, see [Models](#models). Or use the command line:
+This needs a generator and a judge running. See [Serving the models](#serving-the-models).
 
-```bash
-mteb-gym run --corpus path/to/docs \
-    --task-instruction "Given a support ticket, retrieve the help article that resolves it" \
-    --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 intfloat/e5-base-v2 \
-    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1 \
-    --judge autotrust/JEV-27B --judge-url http://localhost:8001 --judge-decision
+## Usage
+
+### Your documents
+
+`corpus` can be any of these:
+
+| Corpus | Example |
+|---|---|
+| A folder of `.txt` or `.md` files | `corpus="path/to/docs"` |
+| A `.jsonl` file with `id` and `text` | `corpus="docs.jsonl"` |
+| An MTEB task | `corpus="NFCorpus"` |
+
+### Describe the task
+
+Say what a good result is. It's optional, but recommended:
+
+```python
+gym.run(..., task_instruction="Given a support ticket, retrieve the help article that resolves it")
 ```
 
-## Models
+### Use your own queries
 
-- **Models to compare:** any model id that `mteb` can load.
-- **Generator:** writes the queries. Any OpenAI-compatible chat model works, either from an API (set `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for other providers) or served with vLLM, SGLang or Ollama.
-- **Judge:** a decision model behind a `/v1/decide` endpoint, any object with a `decide(kind, state, question, options)` method, or an LLM (`gym.LLM`). By default a decision model grades each retrieved document, and an LLM compares the models' lists. `judging="pointwise"` or `"pairwise"` chooses either way for either kind; pairwise costs more.
+If you have real queries, use them. You then need no generator:
 
-<details>
-<summary>Serving the generator and the judge with vLLM</summary>
+```python
+gym.run(..., queries="my_queries.jsonl")  # or a .txt file, or a list of strings
+gym.run(..., queries="original")  # an MTEB task's own queries
+```
+
+### Choose how to judge
+
+```python
+gym.run(..., judging="pointwise")  # grade each retrieved document
+gym.run(..., judging="pairwise", pairs_per_query=26)  # compare two models' lists: slower
+```
+
+### Encode once
+
+Keep each model's vectors, so a new run doesn't encode your documents again:
+
+```python
+gym.run(..., embedding_cache="path/to/vectors")
+```
+
+`help(gym.run)` lists every option.
+
+## Results
+
+Each run writes a record to `results/<task>/`. Read them back with:
+
+```python
+gym.load_results("results/").to_dataframe()
+```
+
+A rerun reuses its queries, retrieval and grades. Adding a model only grades the documents it adds.
+
+For an MTEB task, `result.agreement()` compares the ranking with the official MTEB scores.
+
+## Serving the models
+
+- **Models to compare:** any model `mteb` can load.
+- **Generator:** any OpenAI-compatible chat model.
+- **Judge:** a decision model with a `/v1/decide` endpoint, or an LLM through `gym.LLM`.
+
+For example, with vLLM:
 
 ```bash
-vllm serve deepseek-ai/DeepSeek-V4-Flash --port 8000 --trust-remote-code --tokenizer-mode deepseek_v4 --reasoning-parser deepseek_v4
+vllm serve deepseek-ai/DeepSeek-V4-Flash --port 8000 --trust-remote-code \
+    --tokenizer-mode deepseek_v4 --reasoning-parser deepseek_v4
 
 hf download autotrust/JEV-27B --local-dir JEV-27B
 python JEV-27B/serve_decide.py --model JEV-27B --served-model-name autotrust/JEV-27B --port 8001 \
     --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-27B/adapter_vllm \
-    --logprobs-mode processed_logprobs --max-model-len 32768
+    --logprobs-mode processed_logprobs
 ```
 
-</details>
+To use an API instead, set `OPENAI_API_KEY`, and `OPENAI_BASE_URL` for other providers.
 
-## Overview
+## Command line
 
-| Topic | |
-|---|---|
-| **Queries** | `queries="original"` uses an MTEB task's own queries; your own go in as a list, `.txt` or `.jsonl`. `help(gym.run)` lists every option |
-| **Encoding once** | `embedding_cache="path"` keeps each model's vectors, and `max_seq_length=8192` caps very long models. By default models run as `mteb` loads them |
-| **Outputs** | Each run writes a JSON record to `results/<task>/`. Read them back with `gym.load_results("results/").to_dataframe()` |
-| **Caching** | A rerun reuses its queries, retrievals and grades. Adding a model only grades the documents it adds |
-| **MTEB comparison** | For an MTEB task, `result.agreement()` compares the ranking with the official MTEB scores |
-| **Submitting** | `mteb-gym submit --create-pr` opens pull requests to the [results repository](https://github.com/embeddings-benchmark/gym-results) and the [runs dataset](https://huggingface.co/datasets/mteb/gym-runs) |
-| **Contributing** | `make install`, `make test` and `make lint`. Tests need no API key or GPU |
+```bash
+mteb-gym run --corpus path/to/docs \
+    --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 \
+    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1 \
+    --judge autotrust/JEV-27B --judge-url http://localhost:8001 --judge-decision
+```
+
+## Contributing
+
+```bash
+make install
+make test
+make lint
+```
+
+Tests need no API key or GPU.
 
 ## Citing
 
