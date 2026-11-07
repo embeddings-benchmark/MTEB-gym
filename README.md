@@ -39,7 +39,7 @@ result = gym.run(
 print(result.leaderboard)
 ```
 
-The judge and the generator both load from Hugging Face.
+The judge and the generator both load from Hugging Face. [Change them or serve them](#choosing-the-judge-and-generator) by changing a name.
 
 ## How it works
 
@@ -192,45 +192,74 @@ mteb-gym submit --create-pr  # open a pull request on each
 
 ## Choosing the judge and generator
 
-Change a name to change a model.
+Give a name. The library works out what kind of model it is and prints it when the run starts:
 
-| | Example |
-|---|---|
-| From Hugging Face | `judge="autotrust/JEV-9B"` |
-| Your own server (vLLM, SGLang or Ollama) | `generator="Qwen/Qwen3.5-4B", generator_url="http://localhost:8000/v1"` |
-| An API, with `OPENAI_API_KEY` set | `generator="gpt-5.4-mini"` |
+```text
+judge: autotrust/JEV-9B (decision model)
+generator: Qwen/Qwen3.5-4B (chat model)
+```
 
-- **Judge:** any decision model on Hugging Face in the format of [JEV-9B](https://huggingface.co/autotrust/JEV-9B) and [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
+- **Judge:** a decision model answers in one forward pass, in both judging modes. A chat model also works, and is slower.
 - **Generator:** a chat model.
 - **Models to compare:** any model `mteb` can load.
 
-### Serving a model
+### Where a model runs
 
-A server is the faster choice for larger models and large runs. A chat model can use any OpenAI-compatible server. With [vLLM](https://docs.vllm.ai):
+| | You write | Good for |
+|---|---|---|
+| **In your Python process** | `judge="autotrust/JEV-9B"` | Trying it, small runs |
+| **On your own server** | `judge="autotrust/JEV-9B", judge_url="http://localhost:8001/v1"` | Large runs, larger models |
+| **Through an API** | `generator="gpt-5.4-mini"`, with `OPENAI_API_KEY` set | Hosted chat models |
 
-```bash
-vllm serve Qwen/Qwen3.5-4B --gpu-memory-utilization 0.4 --port 8000
-```
+If a model doesn't fit or can't load in your process, the error gives the command to serve it.
+
+### Decision models
+
+| Model | In your process | On your own server |
+|---|---|---|
+| [`autotrust/JEV-9B`](https://huggingface.co/autotrust/JEV-9B), [`autotrust/JEV-27B`](https://huggingface.co/autotrust/JEV-27B), others in their format | Yes | vLLM, as below |
+| [`autotrust/JEV-35B`](https://huggingface.co/autotrust/JEV-35B) | Yes | vLLM, with the command its error gives |
+| [`autotrust/GEV-26B-Decide`](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
+| [`Mapika/decider-4b`](https://huggingface.co/Mapika/decider-4b) | With `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"` | No |
+| [`autotrust/AutoTrust-JEV-27B-v1.1`](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
+| [`LiquidAI/d1-3B`](https://huggingface.co/LiquidAI/d1-3B), [`StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`](https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610) | No | Its own server, as its model card describes |
+
+Another decision model must be on a server with `/v1/systemone`. Pass its name and URL if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
 
 ```python
-result = gym.run(
-    corpus="NFCorpus",
-    models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5"],
-    judge="autotrust/JEV-9B",
-    generator="Qwen/Qwen3.5-4B",
-    generator_url="http://localhost:8000/v1",
-)
+judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
 ```
 
-A decision model is served with vLLM. Download it and start vLLM with its decision module:
+As a last resort, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+
+```python
+class MyJudge:
+    model = "org/my-model"
+
+    def decide(self, kind, state, question, options=None):
+        # kind is "score", with grades 0 to 5, or "choice"; a probability per option
+        return {"0": 0.1, "1": 0.2, "2": 0.4, "3": 0.2, "4": 0.1, "5": 0.0}
+```
+
+### Serving a model
+
+Start the server, then pass its URL as `judge_url` or `generator_url`.
+
+A chat model can use any OpenAI-compatible server:
 
 ```bash
-hf download autotrust/JEV-9B --local-dir JEV-9B
-vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
-    --logprobs-mode processed_logprobs --gpu-memory-utilization 0.5 --port 8001
+vllm serve Qwen/Qwen3.5-4B --port 8000
 ```
 
-Then pass `judge_url="http://localhost:8001/v1"`.
+A decision model is served with [vLLM](https://docs.vllm.ai), with its decision module:
+
+```bash
+hf download autotrust/JEV-9B --revision 7ac669b8fb476ba926491e3d1c39f9330d68dbed --local-dir JEV-9B
+vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
+    --logprobs-mode processed_logprobs --port 8001
+```
+
+vLLM takes most of a GPU's memory. To share one with a second model, add `--gpu-memory-utilization` with `0.5` for the decision model or `0.4` for the chat model.
 
 ## Command line
 

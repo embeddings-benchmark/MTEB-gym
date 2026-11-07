@@ -5,7 +5,8 @@ import types
 import pytest
 
 from mteb_gym import cli
-from mteb_gym.llm import DecisionModel, MockLLM
+from mteb_gym.llm import MockLLM
+from mteb_gym.models.jev import JevServer as DecisionModel
 
 
 @pytest.fixture
