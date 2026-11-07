@@ -6,8 +6,8 @@ from typing import Protocol
 
 
 class DecisionClient(Protocol):
-    """A decision model: one forward pass, a probability per option. `kind` is "score", with grades "0" to "5", or
-    "choice", with `options`."""
+    """A decision model: a probability per option. `kind` is "score", for grades "0" to "5", or "choice", with
+    `options`."""
 
     model: str
 

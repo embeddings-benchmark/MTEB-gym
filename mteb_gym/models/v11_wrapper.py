@@ -1,4 +1,4 @@
-"""AutoTrust-JEV-27B-v1.1, on the server its model card describes: it needs a vLLM plugin, so it does not load here."""
+"""AutoTrust-JEV-27B-v1.1 on its own server. It needs a vLLM plugin, so it cannot load in this process."""
 
 from __future__ import annotations
 
@@ -27,10 +27,10 @@ class V11Model:
         served_name: str | None = None,
         max_retries: int = 6,
     ):
-        self.serve = f":\n{serve}" if serve else " as its model card describes."
+        self._how = f":\n{serve}" if serve else " as its model card describes."
         self.served_name = served_name or name
         if not url:
-            raise ValueError(f"{name} cannot be loaded directly. Serve it, then pass its URL{self.serve}")
+            raise ValueError(f"{name} cannot be loaded directly. Serve it, then pass its URL{self._how}")
         self.model = name
         self.revision = revision
         self.base_url = server_url(url)
@@ -47,7 +47,7 @@ class V11Model:
                 self._tokenizer = AutoTokenizer.from_pretrained(self.model, revision=self.revision)
                 served = {m["id"] for m in served_models(self._http, self.base_url)} & {self.served_name, self.model}
                 if not served:
-                    raise ValueError(f"{self.base_url} does not serve {self.served_name}. Serve it{self.serve}")
+                    raise ValueError(f"{self.base_url} does not serve {self.served_name}. Serve it{self._how}")
                 self._served_as = served.pop()
                 with open(fetch(self.model, "vllm_readout.json", self.revision)) as f:
                     self._readout = json.load(f)

@@ -1,4 +1,4 @@
-"""decider-ai's models, in this process through its own package. A long document is cut to what its reader takes."""
+"""decider-ai's models, loaded in this process through its package. Long documents are cut to fit."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class DeciderModel:
 def decider_loader(
     name: str, revision: str | None = None, url: str | None = None, api_key: str | None = None, serve: str | None = None
 ):
-    """Loaded here on first use, once per model. Its server grades on another level under the same name, so it has none."""
+    """Loaded in this process once per model. A URL is refused: its server grades differently under the same name."""
     if url:
         raise ValueError(f"{name} runs in this process through the decider-ai package. Leave out its URL.")
     return shared(DeciderModel, name, revision)

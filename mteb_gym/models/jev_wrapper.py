@@ -1,5 +1,4 @@
-"""Decision models in the format of JEV-9B and JEV-27B: a repo holding `judge_config.json`, or its `adapter_vllm/` part.
-Prompt, one forward pass, a probability per option, as their model cards do it: on a server, or in this process."""
+"""Decision models in the format of JEV-9B and JEV-27B, served with vLLM or loaded in this process."""
 
 from __future__ import annotations
 
@@ -22,31 +21,29 @@ def decision_head(name: str, revision: str | None) -> dict:
 
 
 def serve_command(name: str, head: dict, revision: str | None = None) -> str:
-    """How to serve a model of this format that is not listed, by what its decision head says about it."""
+    """How to serve an unlisted model of this format."""
     folder = name.split("/")[-1]
     at = f" --revision {revision}" if revision else ""
     download = f"hf download {name}{at} --local-dir {folder}\n"
-    if (
-        head.get("prefix_token") is not None
-    ):  # Gemma: vLLM needs the patch the repo holds for a LoRA on its tied lm_head
+    if head.get("prefix_token") is not None:  # Gemma models need the vLLM patch in their repo
         return (
             f"{download}# apply {folder}/patches/vllm-gemma4-lm-head-lora.patch to vLLM, then:\nbash {folder}/serve.sh"
         )
     flags = (
         f"--served-model-name {name} --max-model-len 65536 --max-num-seqs 64"
-        if head.get("merged")  # the decision model is in the weights: no module to add
+        if head.get("merged")  # a merged model needs no LoRA module
         else f"--enable-lora --max-lora-rank 32 --lora-modules jev-decision={folder}/adapter_vllm"
     )
     return f"{download}vllm serve {folder} {flags} --logprobs-mode processed_logprobs"
 
 
 def is_jev_repo(files: set[str]) -> bool:
-    """A cached repo may hold only part of what is on the Hub."""
+    """Whether a repo's files show this format. A cached repo may hold only some of them."""
     return bool(files & {"judge_config.json", "adapter_vllm/decision_head.json"})
 
 
 def decision_prompt(kind: str, state: str, question: str, options: list[str] | None) -> tuple[list[str], str]:
-    """The options of a decision and its prompt, as the model cards write them."""
+    """The options and the prompt, as the model cards write them."""
     options = options or GRADES
     lines = [f"{LETTERS[i]}) {o}" for i, o in enumerate(options)] if kind == "choice" else options
     text = f"[kind] {kind}\n[state] {state}\n[question] {question}\n[options]\n" + "\n".join(lines) + "\n[decision]:"
@@ -54,10 +51,8 @@ def decision_prompt(kind: str, state: str, question: str, options: list[str] | N
 
 
 class JevServer:
-    """A decision model on a server, by its model card's recipe: the server returns the log-probability of each option's
-    token, and the head's bias and the temperature are applied here. `decide("score", state, question)` returns a
-    probability for each grade "0" to "5", and `decide("choice", state, question, options)` one for each option, in one
-    forward pass. Nothing is fetched until the first decision, so judgments already cached need no server."""
+    """A model of this format on a vLLM server. The server returns each option's log-probability, and the head's bias
+    and the temperature are applied here. Nothing is fetched before the first decision."""
 
     how = "decision model"
 
@@ -80,7 +75,7 @@ class JevServer:
         self._head = None
 
     def _prepare(self) -> None:
-        """The two small files of the repo, and whether the server has what they describe."""
+        """Read the decision head and calibration, and check what the server serves."""
         with self._lock:
             if self._head is not None:
                 return
@@ -93,7 +88,7 @@ class JevServer:
             if self._served_as not in {m["id"] for m in served}:
                 raise ValueError(f"{self.base_url} does not serve {self._served_as}. Restart it:\n{self.serve}")
             names = " ".join(f"{m['id']} {m.get('root')}" for m in served)
-            # a renamed folder also lands here, so a warning and not an error
+            # a warning, not an error: the folder may have been renamed
             if self.model.split("/")[-1].lower() not in names.lower():
                 logger.warning("%s does not look like %s: it serves %s", self.base_url, self.model, names)
             self._head = head
@@ -124,7 +119,7 @@ class JevServer:
 
 
 class LocalDecisionModel:
-    """A decision model in this process, as its model card loads it."""
+    """A model of this format loaded in this process, as its model card loads it."""
 
     how = "decision model"
 
@@ -140,7 +135,7 @@ class LocalDecisionModel:
         self.revision = revision
         self.serve = serve
         self._has_adapter = has_adapter
-        self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
+        self._has_head = has_head  # a merged model has no head: its answer is read from the next-token logits
         self._lock = threading.Lock()
         self._net = None
 
@@ -213,7 +208,7 @@ def jev_loader(
     serve: str | None = None,
     files: set[str] | None = None,
 ):
-    """Served at `url`, or loaded here on first use, once per model."""
+    """The model served at `url`, or loaded in this process once per model."""
     if url:
         return JevServer(name, revision, url, api_key, serve)
     files = repo_files(name, revision) if files is None else files

@@ -1,4 +1,4 @@
-"""The decision models the library lists, collected from every module in `model_implementations`."""
+"""The listed decision models, collected from `model_implementations`."""
 
 from __future__ import annotations
 

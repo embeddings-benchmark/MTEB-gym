@@ -1,2 +1,2 @@
-"""The decision models that were tested, each as a `ModelMeta` at the revision it was tested at, in a file per family.
-They are not the set of what works: any model works whose format or server has a wrapper in `mteb_gym/models`."""
+"""The tested decision models, one `ModelMeta` each at the tested revision. Other models work too, if a wrapper in
+`mteb_gym/models` covers their format or server."""
