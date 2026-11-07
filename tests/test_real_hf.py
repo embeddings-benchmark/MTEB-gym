@@ -20,6 +20,11 @@ QUESTION = (
 )
 
 
+@pytest.fixture
+def no_hugging_face():
+    """These tests do ask it."""
+
+
 @pytest.mark.skipif(not STORED, reason="needs a GPU and stored grades")
 @pytest.mark.parametrize(
     ("name", "file"),

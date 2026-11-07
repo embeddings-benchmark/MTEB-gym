@@ -1,5 +1,5 @@
 """Clients: LLM for any OpenAI-compatible /chat/completions endpoint, DecisionModel for a decision model's /v1/decide
-endpoint, MockLLM for tests and dry runs. Answers are requested as JSON in the prompt and read from the text, so a model
+endpoint, ServedDecisionModel for one on a plain vLLM server, MockLLM for tests and dry runs. Answers are requested as JSON in the prompt and read from the text, so a model
 may reason before it answers. Sampling is the model's own unless the client is built with a temperature.
 
 An explicit base_url never receives OPENAI_API_KEY: pass api_key, or set MTEB_GYM_API_KEY."""
@@ -9,17 +9,32 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import time
 from typing import Protocol
 
 import httpx
+from huggingface_hub import hf_hub_download
 from openai import OpenAI
 
-from .local import load_local, repo_files
+from .local import decision_prompt, load_local, refuse_other_decision_formats, repo_files
 
 logger = logging.getLogger(__name__)
+
+_READ_ONE_TOKEN = {  # the full distribution of the next token: a model's generation defaults must not truncate it
+    "max_tokens": 1,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "min_p": 0.0,
+    "repetition_penalty": 1.0,
+    "add_special_tokens": False,
+    "return_tokens_as_token_ids": True,
+}
+_MODULE_FLAGS = "--enable-lora --max-lora-rank 32 --lora-modules jev-decision=<model folder>/adapter_vllm"
+_LOGPROBS_FLAG = "--logprobs-mode processed_logprobs"
 
 
 class InputTooLong(Exception):
@@ -92,6 +107,7 @@ class LLM:
         # "EMPTY" is the conventional key for local servers, which accept anything.
         self.client = OpenAI(base_url=base_url, api_key=key or "EMPTY", timeout=timeout, max_retries=max_retries)
         self.model = model
+        self.how = "chat model, served" if base_url else "chat model, through an API"
         self.temperature = temperature  # unset: the model's own default, e.g. its generation_config.json
         self.max_tokens = max_tokens  # no cap unless asked: a cap also counts a reasoning model's thinking
         self.extra_body = extra_body  # server knobs, e.g. {"chat_template_kwargs": {"enable_thinking": False}}
@@ -131,6 +147,8 @@ class DecisionModel:
     """A decision model behind a `/v1/decide` endpoint. `decide("score", state, question)` returns a probability for
     each grade "0" to "5", and `decide("choice", state, question, options)` one for each option, in one forward pass."""
 
+    how = "decision model, served"
+
     def __init__(
         self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
     ):
@@ -142,13 +160,17 @@ class DecisionModel:
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
         body = {"kind": kind, "state": state, "question": question, **({"options": options} if options else {})}
+        out = self._post("/v1/decide", body)
+        return dict(zip(out["options"], out["probabilities"], strict=True))
+
+    def _post(self, path: str, body: dict) -> dict:
         # a busy server queues requests, so the timeout is long and retries back off; a client error is final
         error = ""
         for attempt in range(self.max_retries + 1):
             if attempt:
                 time.sleep(min(60, 2 ** (attempt - 1)))
             try:
-                r = self._http.post(f"{self.base_url}/v1/decide", json=body)
+                r = self._http.post(f"{self.base_url}{path}", json=body)
             except httpx.TransportError as e:
                 error = repr(e)
                 continue
@@ -159,18 +181,60 @@ class DecisionModel:
                 raise InputTooLong(r.text[:200])
             r.raise_for_status()
             try:
-                out = r.json()
+                return r.json()
             except ValueError:
                 error = f"not JSON: {r.text[:200]}"
-                continue
-            return dict(zip(out["options"], out["probabilities"], strict=True))
-        raise RuntimeError(f"{self.base_url}/v1/decide failed after {self.max_retries + 1} attempts: {error}")
+        raise RuntimeError(f"{self.base_url}{path} failed after {self.max_retries + 1} attempts: {error}")
+
+
+class ServedDecisionModel(DecisionModel):
+    """A decision model on a plain vLLM server, by its model card's recipe: the server returns the log-probability of each
+    option's token, and the head's bias and the temperature are applied here. Reads two small files from the repo."""
+
+    how = "decision model, served through /v1/completions"
+
+    def __init__(self, model: str, base_url: str, api_key: str | None = None):
+        super().__init__(model, base_url, api_key=api_key)
+        with open(hf_hub_download(model, "adapter_vllm/decision_head.json")) as f:
+            self._head = json.load(f)
+        with open(hf_hub_download(model, "calibration.json")) as f:
+            self._temperature = json.load(f)["per_kind"]
+        merged = self._head.get("merged")  # the decision model is in the weights: no separate module on the server
+        self._served_as = model if merged else "jev-decision"
+        flags = f"--served-model-name {model}" if merged else _MODULE_FLAGS
+        r = self._http.get(f"{self.base_url}/v1/models")
+        r.raise_for_status()
+        if self._served_as not in {m["id"] for m in r.json()["data"]}:
+            raise ValueError(f"{base_url} does not serve {self._served_as}. Restart it with {flags} {_LOGPROBS_FLAG}")
+
+    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
+        options, text = decision_prompt(kind, state, question, options)
+        start = self._head["slots"]["ranges"][kind][0]
+        ids = self._head["verbalizer_ids"][start : start + len(options)]
+        out = self._post(
+            "/v1/completions",
+            {
+                "model": self._served_as,
+                "prompt": ("<bos>" if self._head.get("prefix_token") is not None else "") + text,
+                "logprobs": len(options),
+                "allowed_token_ids": ids,
+                **_READ_ONE_TOKEN,
+            },
+        )
+        found = {int(k.split(":")[1]): v for k, v in out["choices"][0]["logprobs"]["top_logprobs"][0].items()}
+        if not set(ids) <= set(found):
+            raise ValueError(f"{self.base_url} left out options' probabilities. Restart it with {_LOGPROBS_FLAG}")
+        bias = self._head["bias"][start : start + len(options)]
+        logits = [(found[i] + b) / self._temperature[kind] for i, b in zip(ids, bias, strict=True)]
+        largest = max(logits)
+        weights = [math.exp(z - largest) for z in logits]
+        return {o: w / sum(weights) for o, w in zip(options, weights, strict=True)}
 
 
 def load_model(model, url: str | None = None, api_key: str | None = None, extra_body: dict | None = None):
-    """A generator or judge by name. With `url`, the model served there: a server with a /v1/decide endpoint is a
-    decision model. Without it, a model on Hugging Face is loaded here on first use, and any other goes to the API.
-    Anything that is not a name is returned as it is."""
+    """A generator or judge by name. With `url`, the model served there: a decision model if the server has a /v1/decide
+    endpoint or the name's Hugging Face repo is one, otherwise a chat model. Without `url`, a model on Hugging Face is
+    loaded here on first use, and any other goes to the API. Anything that is not a name is returned as it is."""
     if not isinstance(model, str):
         return model
     if model == "mock":
@@ -180,6 +244,10 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
         probe = f"{url.rstrip('/').removesuffix('/v1')}/v1/decide"  # an empty question: only whether the route exists
         if httpx.post(probe, json={}, headers={"Authorization": f"Bearer {key}"}, timeout=30).status_code != 404:
             return DecisionModel(model, url, api_key=api_key)
+        files = repo_files(model) or set()
+        refuse_other_decision_formats(model, files)
+        if "judge_config.json" in files:
+            return ServedDecisionModel(model, url, api_key=api_key)
         return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
     if api_key or os.environ.get("OPENAI_BASE_URL"):
         return LLM(model, api_key=api_key, extra_body=extra_body)

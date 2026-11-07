@@ -179,6 +179,19 @@ def _check_coverage(verdicts: list[Verdict]) -> None:
         raise RuntimeError(f"most comparisons failed for {thin}: check the endpoint and its answers")
 
 
+def _load(role: str, model, url: str | None):
+    """A judge or generator by name, saying what it turned out to be."""
+    client = load_model(model, url)
+    if client is not None:
+        logger.info(
+            "%s: %s (%s)",
+            role,
+            model if isinstance(model, str) else model_id(client),
+            getattr(client, "how", "your own object"),
+        )
+    return client
+
+
 def _resolve_judging(judging: str, judge, generator, queries) -> str:
     """The judging mode, after checking the judge can do it."""
     if judging not in ("pointwise", "pairwise"):
@@ -297,7 +310,7 @@ def predict(
             "predict() needs the generator that run() will use: a generated query set is identified by it, "
             "and predictions are stored per query set. Pass generator=, or queries='original' / your own."
         )
-    generator = load_model(generator, generator_url)
+    generator = _load("generator", generator, generator_url)
     if is_decision_model(generator):
         raise ValueError("a decision model cannot write queries: choose a chat model as the generator")
     cache = resolve_cache_folder(cache_folder)
@@ -354,7 +367,7 @@ def run(
     Args:
         corpus: An mteb retrieval task name, a folder of .txt/.md files, or a .jsonl with id and text.
         models: mteb model ids. They run through mteb itself.
-        judge: A model name. Either a chat model or a decision model, one with a /v1/decide endpoint.
+        judge: A model name: a chat model or a decision model, loaded directly or served.
         generator: The name of a chat model that writes the queries. Defaults to the judge.
         judge_url: Where the judge is served, if not an API. An OpenAI-compatible endpoint or a decision model's.
         generator_url: Where the generator is served, if not an API.
@@ -391,7 +404,7 @@ def run(
     cache = resolve_cache_folder(cache_folder)
     if not models:
         raise ValueError("no models given")
-    judge, generator = load_model(judge, judge_url), load_model(generator, generator_url)
+    judge, generator = _load("judge", judge, judge_url), _load("generator", generator, generator_url)
     judging = _resolve_judging(judging, judge, generator, queries)
     gen_client = generator if generator is not None else judge
     if generator is None and queries == "synthetic":

@@ -174,11 +174,11 @@ def test_a_decision_model_on_hugging_face_is_told_by_its_files(hub):
     from mteb_gym.local import LocalChatModel, LocalDecisionModel
 
     hub["org/judge"], hub["org/merged"] = JEV, {"judge_config.json", "head.safetensors"}
-    hub["org/half"], hub["org/chat"] = {"judge_config.json"}, {"model.safetensors"}
+    hub["org/chat"] = {"model.safetensors"}
     judge, merged = load_model("org/judge"), load_model("org/merged")
     assert isinstance(judge, LocalDecisionModel) and judge._has_adapter and not merged._has_adapter
     assert is_decision_model(judge) and not is_decision_model(load_model("org/chat"))
-    assert isinstance(load_model("org/chat"), LocalChatModel) and isinstance(load_model("org/half"), LocalChatModel)
+    assert isinstance(load_model("org/chat"), LocalChatModel)
 
 
 def test_one_name_is_one_model(hub):
@@ -188,12 +188,10 @@ def test_one_name_is_one_model(hub):
     assert load_model("org/chat") is load_model("org/chat")
 
 
-def test_a_name_with_a_url_or_a_key_never_asks_hugging_face(monkeypatch, hub):
+def test_a_name_with_a_key_never_asks_hugging_face(monkeypatch, hub):
     from mteb_gym import llm
 
     monkeypatch.setattr(llm, "repo_files", lambda name: pytest.fail("no need to ask"))
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(404))
-    assert isinstance(llm.load_model("org/m", "http://server/v1"), LLM)
     assert isinstance(llm.load_model("org/m", api_key="k"), LLM)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://provider/v1")
     assert isinstance(llm.load_model("org/m"), LLM)
@@ -263,6 +261,7 @@ class _Net:
 
 class _Tokenizer:
     eos_token_id = 0
+    bos_token = "<bos>"
 
     def __init__(self):
         self.seen, self.template, self.decoded = [], {}, None
@@ -306,7 +305,7 @@ def fake_repo(monkeypatch, tmp_path):
     peft = NS(PeftModel=NS(from_pretrained=lambda base, name, subfolder: NS(merge_and_unload=merged)))
     monkeypatch.setattr(local, "_imports", lambda: (peft, transformers))
     monkeypatch.setattr(local, "hf_hub_download", lambda name, file: str(tmp_path / file))
-    return NS(tokenizer=tokenizer, net=net, built=built, kwargs=kwargs, transformers=transformers)
+    return NS(tokenizer=tokenizer, net=net, built=built, kwargs=kwargs, transformers=transformers, folder=tmp_path)
 
 
 def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(fake_repo):
@@ -413,3 +412,186 @@ def test_a_missing_extra_says_which_to_install(monkeypatch):
     monkeypatch.setitem(sys.modules, "peft", None)
     with pytest.raises(ImportError, match=r"mteb-gym\[local\]"):
         local._imports()
+
+
+def test_a_decision_model_with_a_prefix_and_a_softcap_applies_both(fake_repo):
+    from mteb_gym.local import LocalDecisionModel
+
+    config = {"slots": {"ranges": {"noul": [0, 2]}}, "softcap": 30.0, "readout": {"prefix_token": 2}}
+    (fake_repo.folder / "judge_config.json").write_text(json.dumps(config))
+    p = LocalDecisionModel("org/gemma", False).decide("noul", "s", "q")
+    assert fake_repo.tokenizer.seen[-1][0].startswith("<bos>[kind] noul")
+    # logits 0 and log 3, capped to 30 tanh(log 3 / 30), then halved by the temperature
+    odds = math.exp(30 * math.tanh(math.log(3) / 30) / 2)
+    assert p["true"] == pytest.approx(odds / (1 + odds))
+
+
+@pytest.fixture
+def server(monkeypatch, hub, tmp_path):
+    """A plain vLLM server and the repo's two small files. A completion gives each allowed token -1, except 109 at -2."""
+    from mteb_gym import llm
+
+    bias = [9.0] * 24
+    bias[0], bias[1], bias[8], bias[9] = 0.0, 1.0, math.log(2), 0.0
+    head = {
+        "bias": bias,
+        "verbalizer_ids": list(range(100, 124)),
+        "slots": {"ranges": {"noul": [0, 2], "choice": [8, 24]}},
+    }
+    s = NS(head=head, requests=[], models=["base", "jev-decision"], decide=404, logprobs=None)
+
+    def files(name, file):
+        path = tmp_path / file.replace("/", "_")
+        path.write_text(
+            json.dumps(s.head if file.endswith("decision_head.json") else {"per_kind": {"noul": 2.0, "choice": 1.0}})
+        )
+        return str(path)
+
+    def handle(request):
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": [{"id": m} for m in s.models]})
+        body = json.loads(request.content)
+        s.requests.append(body)
+        found = s.logprobs or {f"token_id:{t}": -2.0 if t == 109 else -1.0 for t in body["allowed_token_ids"]}
+        return httpx.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
+
+    client = httpx.Client
+    monkeypatch.setattr(llm, "hf_hub_download", files)
+    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(s.decide))
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
+    hub["org/jev"] = JEV | {"adapter_vllm/decision_head.json"}
+    hub["org/chat"] = {"model.safetensors"}
+    hub["org/v11"] = {"decision_config.json", "lm_head.safetensors"}
+    hub["org/decider"] = {"decider_config.json", "model.safetensors"}
+    return s
+
+
+def test_a_server_with_a_decide_endpoint_is_used_whatever_the_repo_holds(server):
+    from mteb_gym.llm import ServedDecisionModel, load_model
+
+    server.decide = 422
+    for name in ("org/jev", "org/v11", "org/decider", "org/chat", "not/on-the-hub"):
+        model = load_model(name, "http://server/v1")
+        assert type(model) is DecisionModel and not isinstance(model, ServedDecisionModel)
+
+
+def test_a_decision_repo_on_a_plain_server_follows_the_cards_recipe(server):
+    from mteb_gym.judge import is_decision_model
+    from mteb_gym.llm import ServedDecisionModel, load_model
+
+    model = load_model("org/jev", "http://server/v1")
+    assert isinstance(model, ServedDecisionModel) and is_decision_model(model)
+    # noul: (-1 + 0) / 2 and (-1 + 1) / 2, so 1 to e^(1/2)
+    root = math.exp(0.5)
+    assert model.decide("noul", "s", "q") == pytest.approx({"false": 1 / (1 + root), "true": root / (1 + root)})
+    assert server.requests[-1] == {
+        "model": "jev-decision",
+        "prompt": "[kind] noul\n[state] s\n[question] q\n[options]\nfalse\ntrue\n[decision]:",
+        "logprobs": 2,
+        "allowed_token_ids": [100, 101],
+        "max_tokens": 1,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "min_p": 0.0,
+        "repetition_penalty": 1.0,
+        "add_special_tokens": False,
+        "return_tokens_as_token_ids": True,
+    }
+    # choice starts at slot 8: -1 + log 2 and -2 + 0 at temperature 1, so 2e to 1
+    assert model.decide("choice", "s", "q", ["x", "y"]) == pytest.approx(
+        {"x": 2 * math.e / (2 * math.e + 1), "y": 1 / (2 * math.e + 1)}
+    )
+    assert server.requests[-1]["allowed_token_ids"] == [108, 109]
+    assert server.requests[-1]["prompt"].endswith("[options]\nA) x\nB) y\n[decision]:")
+
+
+def test_a_served_decision_model_has_the_identity_of_the_same_name_behind_decide(server):
+    from mteb_gym.cache import model_id
+    from mteb_gym.llm import load_model
+
+    assert (
+        model_id(load_model("org/jev", "http://server/v1"))
+        == model_id(DecisionModel("org/jev", "http://x"))
+        == "org/jev"
+    )
+
+
+def test_a_plain_server_without_the_decision_module_says_which_flags_to_add(server):
+    from mteb_gym.llm import load_model
+
+    server.models = ["base"]
+    with pytest.raises(
+        ValueError,
+        match=r"does not serve jev-decision.*--enable-lora .*--lora-modules jev-decision=.*processed_logprobs",
+    ):
+        load_model("org/jev", "http://server/v1")
+
+
+def test_a_merged_decision_model_is_asked_under_its_own_name(server):
+    from mteb_gym.llm import load_model
+
+    server.head["merged"] = True
+    server.models = ["other"]
+    with pytest.raises(ValueError, match=r"does not serve org/jev.*--served-model-name org/jev .*processed_logprobs"):
+        load_model("org/jev", "http://server/v1")
+    server.models = ["org/jev"]
+    load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
+    assert server.requests[-1]["model"] == "org/jev"
+
+
+def test_a_repo_that_names_a_prefix_token_has_the_prefix_in_its_prompt(server):
+    from mteb_gym.llm import load_model
+
+    server.head["prefix_token"] = 2
+    load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
+    assert server.requests[-1]["prompt"].startswith("<bos>[kind] noul")
+
+
+def test_probabilities_the_server_left_out_are_an_error_and_not_a_guess(server):
+    from mteb_gym.llm import load_model
+
+    server.logprobs = {"token_id:100": -1.0, "token_id:5": -0.5}
+    with pytest.raises(ValueError, match="processed_logprobs"):
+        load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
+
+
+@pytest.mark.parametrize("name", ["org/chat", "not/on-the-hub"])
+def test_a_plain_server_with_any_other_name_is_a_chat_model(server, name):
+    from mteb_gym.llm import load_model
+
+    assert isinstance(load_model(name, "http://server/v1"), LLM)
+
+
+@pytest.mark.parametrize("name", ["org/v11", "org/decider"])
+@pytest.mark.parametrize("url", ["http://server/v1", None])
+def test_a_decision_format_not_read_here_is_refused_and_not_used_for_chat(server, name, url):
+    from mteb_gym.llm import load_model
+
+    with pytest.raises(ValueError, match=rf"{name} is a decision model in a format not supported yet.*decide\(\)"):
+        load_model(name, url)
+
+
+def test_a_decision_repo_without_a_head_cannot_be_loaded_directly_and_is_not_a_chat_model(hub):
+    from mteb_gym.llm import load_model
+
+    hub["org/merged"] = {"judge_config.json", "adapter_vllm/decision_head.json"}
+    with pytest.raises(ValueError, match="org/merged has no head.safetensors.*Serve it and pass judge_url"):
+        load_model("org/merged")
+
+
+@pytest.mark.parametrize(
+    ("name", "url", "said"),
+    [
+        ("org/jev", None, "judge: org/jev (decision model, loaded directly)"),
+        ("org/chat", None, "judge: org/chat (chat model, loaded directly)"),
+        ("org/jev", "http://server/v1", "judge: org/jev (decision model, served through /v1/completions)"),
+        ("org/chat", "http://server/v1", "judge: org/chat (chat model, served)"),
+    ],
+)
+def test_a_run_says_what_each_name_turned_out_to_be(server, caplog, name, url, said):
+    from mteb_gym.run import _load
+
+    with caplog.at_level("INFO", logger="mteb_gym.run"):
+        _load("judge", name, url)
+    assert said in caplog.text
