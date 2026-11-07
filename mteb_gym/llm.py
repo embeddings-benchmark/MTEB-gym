@@ -117,7 +117,7 @@ class LLM:
 def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
     try:
         return "jev-decision" in {m["id"] for m in served_models(server_client(api_key), server_url(url))}
-    except ValueError:  # any other kind of server: not one
+    except ValueError:  # not a server with a decision module
         return False
 
 
