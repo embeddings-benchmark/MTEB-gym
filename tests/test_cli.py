@@ -2,7 +2,6 @@
 
 import types
 
-import httpx
 import pytest
 
 from mteb_gym import cli
@@ -48,8 +47,8 @@ def test_run_passes_its_arguments(run_call, capsys):
     assert "board" in capsys.readouterr().out
 
 
-def test_a_judge_with_a_decide_endpoint_is_a_decision_model(run_call, monkeypatch):
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(422))
+def test_a_judge_whose_repo_is_a_decision_model_is_one(run_call, monkeypatch):
+    monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {"judge_config.json"})
     cli.main("run --corpus d --models a --judge j --judge-url http://x".split())
     assert isinstance(run_call["judge"], DecisionModel) and run_call["judge"].base_url == "http://x"
 
@@ -57,7 +56,7 @@ def test_a_judge_with_a_decide_endpoint_is_a_decision_model(run_call, monkeypatc
 def test_each_endpoint_can_use_its_own_key_variable(run_call, monkeypatch):
     monkeypatch.setenv("JUDGE_KEY", "judge-secret")
     monkeypatch.setenv("GEN_KEY", "generator-secret")
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(422 if "//j/" in url else 404))
+    monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {"judge_config.json"} if name == "j" else None)
     cli.main(
         "run --corpus d --models a --judge j --judge-url http://j --judge-key-env JUDGE_KEY "
         "--generator g --generator-url http://g/v1 --generator-key-env GEN_KEY".split()

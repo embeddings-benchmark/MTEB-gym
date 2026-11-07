@@ -643,3 +643,75 @@ def test_run_and_predict_pass_the_cache_and_the_cap_on_to_retrieval(tmp_path, mo
     rec = run(docs, ["mteb/baseline-bm25s"], MockLLM(), judging="pointwise", output_folder=tmp_path / "out", **shared)
     assert seen == [("vectors", 64), ("vectors", 64)]
     assert "-max64" in path.parent.parent.name and cache_files(rec.record, tmp_path / "c")["predictions"] == [path]
+
+
+def test_a_decision_model_is_refused_as_a_generator(tmp_path):
+    from mteb_gym import predict, run
+
+    class Decides:
+        model = "d"
+
+        def decide(self, kind, state, question, options=None):
+            return {}
+
+    (tmp_path / "a.txt").write_text("text")
+    with pytest.raises(ValueError, match="cannot write queries"):
+        run(tmp_path, ["m"], MockLLM(), Decides(), output_folder=tmp_path / "o", cache_folder=tmp_path / "c")
+    with pytest.raises(ValueError, match="cannot write queries"):
+        predict(tmp_path, "m", generator=Decides(), cache_folder=tmp_path / "c")
+
+
+def test_a_run_prints_its_judge_and_generator_without_any_logging_set_up(tmp_path, capsys):
+    from mteb_gym import run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    run(
+        docs,
+        ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+        MockLLM(),
+        "mock",
+        n_queries=4,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    out = capsys.readouterr().out
+    assert "judge: mock (your own object)\n" in out and "generator: mock (mock model)\n" in out
+
+
+@pytest.mark.parametrize("judging", ["pointwise", "pairwise"])
+def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_download(tmp_path, monkeypatch, judging):
+    """The final build of a large run: the same record, from the cache, by a judge named the same that is never asked."""
+    import httpx
+
+    from mteb_gym import DecisionModel, run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    kw = dict(
+        models=["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"],
+        generator=MockLLM(),
+        task_instruction="Given a topic, retrieve documents about it",
+        n_queries=4,
+        judging=judging,
+        output_folder=tmp_path / "o",
+        cache_folder=tmp_path / "c",
+        workers=1,
+    )
+    judged = Deciding()
+    judged.model = "org/jev"
+    first = run(docs, judge=judged, **kw)
+    assert judged.calls > 0
+
+    def nothing_is_fetched(*a, **k):
+        pytest.fail("a cached run fetched something")
+
+    monkeypatch.setattr("mteb_gym.llm.hf_hub_download", nothing_is_fetched)
+    monkeypatch.setattr(httpx.Client, "send", nothing_is_fetched)
+    again = run(docs, judge=DecisionModel("org/jev", "http://unused/v1", api_key="k"), **kw)
+    assert again.record == first.record and again.path == first.path
