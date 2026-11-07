@@ -10,23 +10,44 @@ from functools import cache
 from pathlib import Path
 
 import httpx
-from huggingface_hub import HfApi, snapshot_download
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
 _MAX_NEW_TOKENS = 1024
 
 
-def repo_files(name: str) -> set[str] | None:
+def repo_files(name: str, revision: str | None = None) -> set[str] | None:
     """The files of a Hugging Face model, from the local cache if the Hub cannot tell, or None if neither has it."""
     try:
-        return {f.rfilename for f in HfApi().model_info(name).siblings}
+        return {f.rfilename for f in HfApi().model_info(name, revision=revision).siblings}
     except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
         pass
     try:
-        folder = Path(snapshot_download(name, local_files_only=True))
+        folder = Path(snapshot_download(name, revision=revision, local_files_only=True))
     except (LocalEntryNotFoundError, HFValidationError):
         return None
     return {str(path.relative_to(folder)) for path in folder.rglob("*") if path.is_file()}
+
+
+@contextmanager
+def _says_what_is_missing(name: str, revision: str | None):
+    try:
+        yield
+    except LocalEntryNotFoundError as e:
+        at = f" at revision {revision}" if revision else ""
+        raise ValueError(f"{name}{at} is not in the local cache and cannot be downloaded: {e}") from e
+
+
+def fetch(name: str, file: str, revision: str | None = None) -> str:
+    """The path of one file of a repo."""
+    with _says_what_is_missing(name, revision):
+        return hf_hub_download(name, file, revision=revision)
+
+
+def fetch_folder(name: str, revision: str | None = None, allow_patterns: str | None = None) -> str:
+    """The folder of a repo, or of the files of it that match."""
+    with _says_what_is_missing(name, revision):
+        return snapshot_download(name, revision=revision, allow_patterns=allow_patterns)
 
 
 @contextmanager

@@ -1,15 +1,14 @@
 """The decision models that work by name. One small file per family: an object with `.model` and
 `decide(kind, state, question, options=None)`, which returns a probability per option. To add one, write its file and list
-it here. A new model in the format of JEV-9B and JEV-27B needs no entry."""
+it in `known`. A new model in the format of JEV-9B and JEV-27B works without an entry, at its latest version."""
 
 from __future__ import annotations
 
 from . import decider, jev, v11
+from .known import KNOWN
 
-MODELS = {
-    "Mapika/decider-4b": decider.load,
-    "autotrust/AutoTrust-JEV-27B-v1.1": v11.load,
-}
+_FAMILIES = {"jev": jev, "decider": decider, "v11": v11}
+MODELS = {name: _FAMILIES[family].load for name, (family, _) in KNOWN.items()}
 
 
 def decision_model_in_repo(name: str, files: set[str], url: str | None, api_key: str | None):

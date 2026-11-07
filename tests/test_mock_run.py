@@ -711,7 +711,7 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
     def nothing_is_fetched(*a, **k):
         pytest.fail("a cached run fetched something")
 
-    monkeypatch.setattr("mteb_gym.models.jev.hf_hub_download", nothing_is_fetched)
+    monkeypatch.setattr("mteb_gym.local.hf_hub_download", nothing_is_fetched)
     monkeypatch.setattr(httpx.Client, "send", nothing_is_fetched)
     again = run(docs, judge=DecisionModel("org/jev", "http://unused/v1", api_key="k"), **kw)
     assert again.record == first.record and again.path == first.path

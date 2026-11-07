@@ -8,9 +8,10 @@ import os
 import threading
 
 import httpx
-from huggingface_hub import hf_hub_download
 
+from ..local import fetch
 from ..serving import READ_ONE_TOKEN, post_json
+from .known import pinned
 
 _GRADES = [str(i) for i in range(6)]
 _SYSTEM = (
@@ -20,7 +21,8 @@ _SYSTEM = (
 _SERVE = (
     'pip install vllm==0.31.0 transformers==5.17.0 "startlux-decide @ '
     'git+https://github.com/StartLuxLabs/StartLux-Decision@cb1d11f1ac9e9b43b95ef3a6468fa29b607c40fd"\n'
-    "hf download autotrust/AutoTrust-JEV-27B-v1.1 --local-dir AutoTrust-JEV-27B-v1.1\n"
+    f"hf download autotrust/AutoTrust-JEV-27B-v1.1 --revision {pinned('autotrust/AutoTrust-JEV-27B-v1.1')} "
+    "--local-dir AutoTrust-JEV-27B-v1.1\n"
     "bash AutoTrust-JEV-27B-v1.1/serve_vllm.sh AutoTrust-JEV-27B-v1.1"
 )
 
@@ -28,8 +30,11 @@ _SERVE = (
 class V11Model:
     how = "decision model"
 
-    def __init__(self, name: str, url: str, api_key: str | None = None, max_retries: int = 6):
+    def __init__(
+        self, name: str, url: str, api_key: str | None = None, max_retries: int = 6, revision: str | None = None
+    ):
         self.model = name
+        self.revision = revision or pinned(name)
         self.base_url = url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
         key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
@@ -42,11 +47,11 @@ class V11Model:
 
         with self._lock:
             if self._readout is None:
-                self._tokenizer = AutoTokenizer.from_pretrained(self.model)
+                self._tokenizer = AutoTokenizer.from_pretrained(self.model, revision=self.revision)
                 r = self._http.get(f"{self.base_url}/v1/models")
                 r.raise_for_status()
                 self._served_as = r.json()["data"][0]["id"]
-                with open(hf_hub_download(self.model, "vllm_readout.json")) as f:
+                with open(fetch(self.model, "vllm_readout.json", self.revision)) as f:
                     self._readout = json.load(f)
 
     def _prompt(self, state: str, question: str, options: list[str]) -> str:

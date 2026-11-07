@@ -10,24 +10,25 @@ import threading
 from pathlib import Path
 
 import httpx
-from huggingface_hub import hf_hub_download, snapshot_download
 
-from ..local import fits, shared, transformers_and_peft
+from ..local import fetch, fetch_folder, fits, repo_files, shared, transformers_and_peft
 from ..serving import READ_ONE_TOKEN, post_json
+from .known import pinned
 
 _LETTERS = "ABCDEFGHIJKLMNOP"
 _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 
 
-def _decision_head(name: str) -> dict:
-    with open(hf_hub_download(name, "adapter_vllm/decision_head.json")) as f:
+def _decision_head(name: str, revision: str | None) -> dict:
+    with open(fetch(name, "adapter_vllm/decision_head.json", revision)) as f:
         return json.load(f)
 
 
-def serve_command(name: str, head: dict) -> str:
+def serve_command(name: str, head: dict, revision: str | None = None) -> str:
     """How to serve a model of this format, by what its decision head says about it."""
     folder = name.split("/")[-1]
-    download = f"hf download {name} --local-dir {folder}\n"
+    at = f" --revision {revision}" if revision else ""
+    download = f"hf download {name}{at} --local-dir {folder}\n"
     if (
         head.get("prefix_token") is not None
     ):  # Gemma: vLLM needs the patch the repo holds for a LoRA on its tied lm_head
@@ -64,9 +65,16 @@ class DecisionModel:
     how = "decision model"
 
     def __init__(
-        self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
+        self,
+        model: str,
+        base_url: str,
+        api_key: str | None = None,
+        timeout: float = 600.0,
+        max_retries: int = 6,
+        revision: str | None = None,
     ):
         self.model = model
+        self.revision = revision or pinned(model)
         self.base_url = base_url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
         key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
@@ -79,11 +87,11 @@ class DecisionModel:
         with self._lock:
             if self._head is not None:
                 return
-            head = _decision_head(self.model)
-            with open(hf_hub_download(self.model, "calibration.json")) as f:
+            head = _decision_head(self.model, self.revision)
+            with open(fetch(self.model, "calibration.json", self.revision)) as f:
                 self._temperature = json.load(f)["per_kind"]
             self._served_as = self.model if head.get("merged") else "jev-decision"
-            self._serve = serve_command(self.model, head)
+            self._serve = serve_command(self.model, head, self.revision)
             r = self._http.get(f"{self.base_url}/v1/models")
             r.raise_for_status()
             if self._served_as not in {m["id"] for m in r.json()["data"]}:
@@ -122,8 +130,9 @@ class LocalDecisionModel:
 
     how = "decision model"
 
-    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True):
+    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True, revision: str | None = None):
         self.model = name
+        self.revision = revision or pinned(name)
         self._has_adapter = has_adapter
         self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
         self._lock = threading.Lock()
@@ -134,21 +143,23 @@ class LocalDecisionModel:
         from safetensors.torch import load_file
 
         peft, transformers = transformers_and_peft()
-        self._tokenizer = transformers.AutoTokenizer.from_pretrained(self.model)
+        self._tokenizer = transformers.AutoTokenizer.from_pretrained(self.model, revision=self.revision)
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        net = transformers.AutoModelForCausalLM.from_pretrained(self.model, dtype=torch.bfloat16, device_map=device)
+        net = transformers.AutoModelForCausalLM.from_pretrained(
+            self.model, revision=self.revision, dtype=torch.bfloat16, device_map=device
+        )
         if self._has_adapter:
-            adapter = Path(snapshot_download(self.model, allow_patterns="adapter/*")) / "adapter"
+            adapter = Path(fetch_folder(self.model, self.revision, "adapter/*")) / "adapter"
             net = peft.PeftModel.from_pretrained(net, str(adapter)).merge_and_unload()
-        with open(hf_hub_download(self.model, "judge_config.json")) as f:
+        with open(fetch(self.model, "judge_config.json", self.revision)) as f:
             config = json.load(f)
         if self._has_head:
-            head = load_file(hf_hub_download(self.model, "head.safetensors"))
+            head = load_file(fetch(self.model, "head.safetensors", self.revision))
             self._weight, self._bias = head["proj.weight"].to(net.device), head["proj.bias"].to(net.device)
         else:
-            head = _decision_head(self.model)
+            head = _decision_head(self.model, self.revision)
             if not head.get("merged"):
-                command = serve_command(self.model, head)
+                command = serve_command(self.model, head, self.revision)
                 raise ValueError(
                     f"{self.model} is missing head.safetensors. Download it, or serve the model:\n{command}"
                 )
@@ -158,7 +169,7 @@ class LocalDecisionModel:
         self._softcap = config.get("softcap")
         has_prefix = config.get("readout", {}).get("prefix_token") is not None
         self._prefix = self._tokenizer.bos_token if has_prefix else ""
-        with open(hf_hub_download(self.model, "calibration.json")) as f:
+        with open(fetch(self.model, "calibration.json", self.revision)) as f:
             self._temperature = json.load(f)["per_kind"]
         self._net = net.eval()
 
@@ -166,7 +177,12 @@ class LocalDecisionModel:
         import torch
 
         options, text = decision_prompt(kind, state, question, options)
-        with self._lock, fits(self.model, lambda: serve_command(self.model, _decision_head(self.model))):
+        with (
+            self._lock,
+            fits(
+                self.model, lambda: serve_command(self.model, _decision_head(self.model, self.revision), self.revision)
+            ),
+        ):
             if self._net is None:
                 self._load()
             ids = self._tokenizer(self._prefix + text, return_tensors="pt", add_special_tokens=False).to(
@@ -186,8 +202,11 @@ class LocalDecisionModel:
         return dict(zip(options, torch.softmax(logits[start : start + len(options)], 0).tolist(), strict=True))
 
 
-def load(name: str, url: str | None, api_key: str | None, files: set[str]):
+def load(name: str, url: str | None, api_key: str | None, files: set[str] | None = None):
     """Served at `url`, or loaded here on first use."""
     if url:
         return DecisionModel(name, url, api_key=api_key)
+    files = repo_files(name, pinned(name)) if files is None else files
+    if files is None:
+        raise ValueError(f"{name} at revision {pinned(name)} is not on Hugging Face or in its local cache.")
     return shared(LocalDecisionModel, name, "adapter/adapter_config.json" in files, "head.safetensors" in files)

@@ -214,7 +214,7 @@ def test_a_repos_files(monkeypatch):
     from mteb_gym import local
 
     info = NS(siblings=[NS(rfilename="a.safetensors"), NS(rfilename="README.md")])
-    monkeypatch.setattr(local.HfApi, "model_info", lambda self, name: info)
+    monkeypatch.setattr(local.HfApi, "model_info", lambda self, name, **kw: info)
     assert local.repo_files("org/m") == {"a.safetensors", "README.md"}
 
 
@@ -283,14 +283,14 @@ def fake_repo(monkeypatch, tmp_path):
         return net
 
     transformers = NS(
-        AutoTokenizer=NS(from_pretrained=lambda name: tokenizer),
+        AutoTokenizer=NS(from_pretrained=lambda name, **kw: tokenizer),
         AutoModelForCausalLM=NS(from_pretrained=lambda name, **kw: kwargs.update(kw) or built.append(name) or net),
     )
     peft = NS(PeftModel=NS(from_pretrained=lambda base, path: NS(merge_and_unload=merged)))
-    monkeypatch.setattr(jev, "snapshot_download", lambda name, allow_patterns: str(tmp_path))
+    monkeypatch.setattr(local, "snapshot_download", lambda name, **kw: str(tmp_path))
     monkeypatch.setattr(local, "transformers_and_peft", lambda: (peft, transformers))
     monkeypatch.setattr(jev, "transformers_and_peft", lambda: (peft, transformers))
-    monkeypatch.setattr(jev, "hf_hub_download", lambda name, file: str(tmp_path / file))
+    monkeypatch.setattr(local, "hf_hub_download", lambda name, file, **kw: str(tmp_path / file))
     return NS(tokenizer=tokenizer, net=net, built=built, kwargs=kwargs, transformers=transformers, folder=tmp_path)
 
 
@@ -419,7 +419,8 @@ def test_a_decision_model_with_a_prefix_and_a_softcap_applies_both(fake_repo):
 @pytest.fixture
 def server(monkeypatch, hub, tmp_path):
     """A plain vLLM server and the repo's two small files. A completion gives each allowed token -1, except 109 at -2."""
-    from mteb_gym.models import jev
+
+    from mteb_gym import local
 
     bias = [9.0] * 24
     bias[0], bias[1], bias[8], bias[9] = 0.0, 1.0, math.log(2), 0.0
@@ -430,7 +431,7 @@ def server(monkeypatch, hub, tmp_path):
     }
     s = NS(head=head, requests=[], http=[], downloads=[], models=["base", "jev-decision"], logprobs=None)
 
-    def files(name, file):
+    def files(name, file, **kw):
         s.downloads.append(file)
         path = tmp_path / file.replace("/", "_")
         path.write_text(
@@ -449,7 +450,7 @@ def server(monkeypatch, hub, tmp_path):
 
     client = httpx.Client
     monkeypatch.setattr(httpx, "get", lambda url, **kw: handle(httpx.Request("GET", url)))
-    monkeypatch.setattr(jev, "hf_hub_download", files)
+    monkeypatch.setattr(local, "hf_hub_download", files)
     monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
     hub["org/jev"] = JEV | {"adapter_vllm/decision_head.json"}
     hub["org/chat"] = {"model.safetensors"}
@@ -720,3 +721,28 @@ def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkey
 
     monkeypatch.setattr(httpx, "get", lambda url, **kw: reply)
     assert isinstance(load_model("name", "http://server/v1"), LLM)
+
+
+def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo, monkeypatch):
+    from mteb_gym import local
+    from mteb_gym.models.jev import LocalDecisionModel
+
+    reads, loads = [], []
+    original = local.hf_hub_download
+    monkeypatch.setattr(local, "hf_hub_download", lambda n, f, revision=None: reads.append(revision) or original(n, f))
+    monkeypatch.setattr(
+        local, "snapshot_download", lambda n, revision, allow_patterns: reads.append(revision) or str(fake_repo.folder)
+    )
+    transformers = fake_repo.transformers
+    tokenizer = transformers.AutoTokenizer.from_pretrained
+    net = transformers.AutoModelForCausalLM.from_pretrained
+    monkeypatch.setattr(
+        transformers.AutoTokenizer, "from_pretrained", lambda n, revision: loads.append(revision) or tokenizer(n)
+    )
+    monkeypatch.setattr(
+        transformers.AutoModelForCausalLM,
+        "from_pretrained",
+        lambda n, revision, **k: loads.append(revision) or net(n, **k),
+    )
+    LocalDecisionModel("org/judge", revision="abc").decide("noul", "s", "q")
+    assert set(reads) == {"abc"} and len(reads) == 4 and loads == ["abc", "abc"]  # adapter, config, head, calibration

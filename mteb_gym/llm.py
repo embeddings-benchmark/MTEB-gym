@@ -167,6 +167,7 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
 def llm_settings(client) -> dict:
     """How a client is configured, for the record. The endpoint is left out: it can be private."""
     configured = {
+        "revision": getattr(client, "revision", None),
         "temperature": getattr(client, "temperature", None),
         "max_completion_tokens": getattr(client, "max_tokens", None),
     }

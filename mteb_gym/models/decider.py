@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import threading
 
-from ..local import fits, shared
+from ..local import fetch_folder, fits, shared
+from .known import pinned
 
 _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 _MAX_TOKENS = 3072
@@ -13,8 +14,9 @@ _MAX_TOKENS = 3072
 class DeciderModel:
     how = "decision model"
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, revision: str | None = None):
         self.model = name
+        self.revision = revision or pinned(name)
         self._lock = threading.Lock()
         self._net = None
 
@@ -23,7 +25,7 @@ class DeciderModel:
             from decider.infer import Decider
         except ImportError as e:
             raise ImportError(f"{self.model} needs the `decider` extra: pip install 'mteb-gym[decider]' ({e})") from e
-        self._net = Decider(self.model)
+        self._net = Decider(fetch_folder(self.model, self.revision))
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
         options = _OPTIONS.get(kind, options)
