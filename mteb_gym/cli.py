@@ -33,7 +33,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
         "--task-instruction",
         default=None,
-        help="optional sentence on what a good result is, given to the generator and the judge (recommended)",
+        help="optional sentence describing the retrieval task, given to the generator and the judge (recommended)",
     )
     ap.add_argument(
         "--doc-chars",

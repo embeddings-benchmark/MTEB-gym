@@ -369,7 +369,7 @@ def run(
         generator_url: Where the generator is served, if not an API.
         queries: "synthetic" (generated), "original" (the dataset's own queries), or your own as a
             .jsonl with id and text, a .txt with one query per line, or a list of strings.
-        task_instruction: Optional sentence on what a good result is, given to the generator and the judge. Without it
+        task_instruction: Optional sentence describing the retrieval task, given to the generator and the judge. Without it
             the generator writes natural queries and the judge grades plain relevance. Recommended.
             mteb_gym.TASK_INSTRUCTIONS has one for each of a set of MTEB tasks.
         n_queries: Queries to generate.
@@ -410,7 +410,7 @@ def run(
     instruction = task_instruction or None
     if instruction is None:
         logger.info(
-            "no task_instruction: natural queries and plain relevance; a sentence on what a good result is helps"
+            "no task_instruction: natural queries and plain relevance; a sentence describing the retrieval task helps"
         )
     gen_doc_chars = doc_chars or DOC_CHARS
     doc_chars = doc_chars or (PAIRWISE_DOC_CHARS if judging == "pairwise" else DOC_CHARS)
