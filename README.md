@@ -72,7 +72,7 @@ Pointwise is the default. Set `judging="pairwise"` to compare lists. It costs mo
 
 ### Describe the task
 
-Say what a good result is. The generator and the judge both get it. It's optional, but recommended:
+Describe the retrieval task in one sentence. The generator and the judge both get it. It's optional, but recommended:
 
 ```python
 gym.run(..., task_instruction="Given a support ticket, retrieve the help article that resolves it")
@@ -100,7 +100,7 @@ gym.run(..., embedding_cache="path/to/vectors")
 | Option | Default | |
 |---|---|---|
 | `queries` | `"synthetic"` | `"synthetic"`, `"original"`, or your own |
-| `task_instruction` | `None` | One sentence on what a good result is |
+| `task_instruction` | `None` | One sentence describing the retrieval task |
 | `judging` | `"pointwise"` | `"pointwise"` or `"pairwise"` |
 | `pairs_per_query` | All pairs | Pairwise: judge this many random model pairs per query instead |
 | `n_queries` | `100` | Queries to generate or sample |
@@ -192,45 +192,66 @@ mteb-gym submit --create-pr  # open a pull request on each
 
 ## Choosing the judge and generator
 
-Give a name. The library works out what kind of model it is and prints it when the run starts:
+Give a name. The model loads from Hugging Face and runs in your Python process, and the run prints what it found:
 
 ```text
 judge: autotrust/JEV-9B (decision model)
 generator: Qwen/Qwen3.5-4B (chat model)
 ```
 
-- **Judge:** a decision model answers in one forward pass, in both judging modes. A chat model also works, and is slower.
-- **Generator:** a chat model.
-- **Models to compare:** any model `mteb` can load.
+**Judge.** A decision model answers in one forward pass, in both judging modes:
 
-### Where a model runs
+- `autotrust/JEV-9B`
+- `autotrust/JEV-27B`
+- `autotrust/JEV-35B`
+- `autotrust/GEV-26B-Decide`
+- `Mapika/decider-4b`, with the `decider` extra
 
-| | You write | Good for |
-|---|---|---|
-| **In your Python process** | `judge="autotrust/JEV-9B"` | Trying it, small runs |
-| **On your own server** | `judge="autotrust/JEV-9B", judge_url="http://localhost:8001/v1"` | Large runs, larger models |
-| **Through an API** | `generator="gpt-5.4-mini"`, with `OPENAI_API_KEY` set | Hosted chat models |
+A chat model also works, and is slower.
 
-If a model doesn't fit or can't load in your process, the error gives the command to serve it.
+**Generator.** Any chat model, such as `Qwen/Qwen3.5-4B`, or `gpt-5.4-mini` through an API with `OPENAI_API_KEY` set.
 
-### Decision models
+**Models to compare.** Any model `mteb` can load.
 
-| Model | In your process | On your own server |
-|---|---|---|
-| [`autotrust/JEV-9B`](https://huggingface.co/autotrust/JEV-9B), [`autotrust/JEV-27B`](https://huggingface.co/autotrust/JEV-27B), others in their format | Yes | vLLM, as below |
-| [`autotrust/JEV-35B`](https://huggingface.co/autotrust/JEV-35B) | Yes | vLLM, with the command its error gives |
-| [`autotrust/GEV-26B-Decide`](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
-| [`Mapika/decider-4b`](https://huggingface.co/Mapika/decider-4b) | With `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"` | No |
-| [`autotrust/AutoTrust-JEV-27B-v1.1`](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
-| [`LiquidAI/d1-3B`](https://huggingface.co/LiquidAI/d1-3B), [`StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`](https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610) | No | Its own server, as its model card describes |
+To use a model on your own server, add its URL. If a model doesn't fit in your process, the error gives the command to serve it.
 
-Another decision model must be on a server with `/v1/systemone`. Pass its name and URL if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
+```python
+gym.run(..., judge="autotrust/JEV-27B", judge_url="http://localhost:8001/v1")
+```
+
+<details>
+<summary>Serving with vLLM</summary>
+
+A chat model:
+
+```bash
+vllm serve Qwen/Qwen3.5-4B --port 8000
+```
+
+A decision model, with its decision module:
+
+```bash
+hf download autotrust/JEV-9B --revision 7ac669b8fb476ba926491e3d1c39f9330d68dbed --local-dir JEV-9B
+vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
+    --logprobs-mode processed_logprobs --port 8001
+```
+
+vLLM takes most of a GPU's memory. To share one with a second model, add `--gpu-memory-utilization` with `0.5` for the decision model or `0.4` for the chat model.
+
+</details>
+
+<details>
+<summary>Other decision models</summary>
+
+These run on a server, as their model cards describe: `LiquidAI/d1-3B`, `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` and `autotrust/AutoTrust-JEV-27B-v1.1`. Pass the name and `judge_url`.
+
+Any other decision model must be on a server with `/v1/systemone`. Pass its name and `judge_url` if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
 
 ```python
 judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
 ```
 
-As a last resort, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+To support a model that has no such server, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
 
 ```python
 class MyJudge:
@@ -241,25 +262,7 @@ class MyJudge:
         return {"0": 0.1, "1": 0.2, "2": 0.4, "3": 0.2, "4": 0.1, "5": 0.0}
 ```
 
-### Serving a model
-
-Start the server, then pass its URL as `judge_url` or `generator_url`.
-
-A chat model can use any OpenAI-compatible server:
-
-```bash
-vllm serve Qwen/Qwen3.5-4B --port 8000
-```
-
-A decision model is served with [vLLM](https://docs.vllm.ai), with its decision module:
-
-```bash
-hf download autotrust/JEV-9B --revision 7ac669b8fb476ba926491e3d1c39f9330d68dbed --local-dir JEV-9B
-vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
-    --logprobs-mode processed_logprobs --port 8001
-```
-
-vLLM takes most of a GPU's memory. To share one with a second model, add `--gpu-memory-utilization` with `0.5` for the decision model or `0.4` for the chat model.
+</details>
 
 ## Command line
 
