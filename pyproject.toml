@@ -34,6 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 colbert = ["mteb[pylate]>=2.20,<3"]
 local = ["transformers>=5,<6", "peft>=0.18", "accelerate>=1"]
+decider = ["decider-ai>=1.10,<2"]
 
 [project.urls]
 Homepage = "https://github.com/embeddings-benchmark/MTEB-gym"

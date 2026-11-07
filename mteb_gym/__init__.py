@@ -4,7 +4,8 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .cache import cache_files
 from .judge import Grade, Verdict
-from .llm import LLM, ChatClient, DecisionClient, DecisionModel, MockLLM, load_model
+from .llm import LLM, ChatClient, DecisionClient, MockLLM, load_model
+from .models.jev import DecisionModel
 from .queries import Query
 from .rank import ModelRating
 from .results import Result, Results, load_results

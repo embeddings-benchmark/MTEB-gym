@@ -9,42 +9,18 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import math
 import os
 import re
-import threading
-import time
 from typing import Protocol
 
 import httpx
-from huggingface_hub import hf_hub_download
 from openai import OpenAI
 
-from .local import decision_prompt, is_decision_repo, load_local, refuse_other_decision_formats, repo_files
+from .local import LocalChatModel, repo_files, shared
+from .models import MODELS, decision_model_in_repo
+from .serving import InputTooLong, _too_long
 
 logger = logging.getLogger(__name__)
-
-_READ_ONE_TOKEN = {  # the full distribution of the next token: a model's generation defaults must not truncate it
-    "max_tokens": 1,
-    "temperature": 1.0,
-    "top_p": 1.0,
-    "top_k": 0,
-    "min_p": 0.0,
-    "repetition_penalty": 1.0,
-    "add_special_tokens": False,
-    "return_tokens_as_token_ids": True,
-}
-_MODULE_FLAGS = "--enable-lora --max-lora-rank 32 --lora-modules jev-decision=<model folder>/adapter_vllm"
-_LOGPROBS_FLAG = "--logprobs-mode processed_logprobs"
-
-
-class InputTooLong(Exception):
-    """The input does not fit the model's context."""
-
-
-def _too_long(status: int | None, message: str) -> bool:
-    message = message.lower()
-    return status == 400 and ("maximum context length" in message or "context_length_exceeded" in message)
 
 
 class ChatClient(Protocol):
@@ -146,93 +122,6 @@ class LLM:
                 logger.warning("%s refuses %s; running it at the model's own defaults", self.model, ", ".join(rejected))
 
 
-class DecisionModel:
-    """A decision model on a server, by its model card's recipe: the server returns the log-probability of each option's
-    token, and the head's bias and the temperature are applied here. `decide("score", state, question)` returns a
-    probability for each grade "0" to "5", and `decide("choice", state, question, options)` one for each option, in one
-    forward pass. Nothing is fetched until the first decision, so judgments already cached need no server."""
-
-    how = "decision model"
-
-    def __init__(
-        self, model: str, base_url: str, api_key: str | None = None, timeout: float = 600.0, max_retries: int = 6
-    ):
-        self.model = model
-        self.base_url = base_url.rstrip("/").removesuffix("/v1")
-        self.max_retries = max_retries
-        key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
-        self._http = httpx.Client(timeout=timeout, headers={"Authorization": f"Bearer {key}"})
-        self._lock = threading.Lock()
-        self._head = None
-
-    def _prepare(self) -> None:
-        """The two small files of the repo, and whether the server has what they describe."""
-        with self._lock:
-            if self._head is not None:
-                return
-            with open(hf_hub_download(self.model, "adapter_vllm/decision_head.json")) as f:
-                head = json.load(f)
-            with open(hf_hub_download(self.model, "calibration.json")) as f:
-                self._temperature = json.load(f)["per_kind"]
-            merged = head.get("merged")  # the decision model is in the weights: no separate module on the server
-            self._served_as = self.model if merged else "jev-decision"
-            flags = f"--served-model-name {self.model}" if merged else _MODULE_FLAGS
-            r = self._http.get(f"{self.base_url}/v1/models")
-            r.raise_for_status()
-            if self._served_as not in {m["id"] for m in r.json()["data"]}:
-                raise ValueError(
-                    f"{self.base_url} does not serve {self._served_as}. Restart it with {flags} {_LOGPROBS_FLAG}"
-                )
-            self._head = head
-
-    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
-        self._prepare()
-        options, text = decision_prompt(kind, state, question, options)
-        start = self._head["slots"]["ranges"][kind][0]
-        ids = self._head["verbalizer_ids"][start : start + len(options)]
-        out = self._post(
-            "/v1/completions",
-            {
-                "model": self._served_as,
-                "prompt": ("<bos>" if self._head.get("prefix_token") is not None else "") + text,
-                "logprobs": len(options),
-                "allowed_token_ids": ids,
-                **_READ_ONE_TOKEN,
-            },
-        )
-        found = {int(k.split(":")[1]): v for k, v in out["choices"][0]["logprobs"]["top_logprobs"][0].items()}
-        if not set(ids) <= set(found):
-            raise ValueError(f"{self.base_url} left out options' probabilities. Restart it with {_LOGPROBS_FLAG}")
-        bias = self._head["bias"][start : start + len(options)]
-        logits = [(found[i] + b) / self._temperature[kind] for i, b in zip(ids, bias, strict=True)]
-        largest = max(logits)
-        weights = [math.exp(z - largest) for z in logits]
-        return {o: w / sum(weights) for o, w in zip(options, weights, strict=True)}
-
-    def _post(self, path: str, body: dict) -> dict:
-        # a busy server queues requests, so the timeout is long and retries back off; a client error is final
-        error = ""
-        for attempt in range(self.max_retries + 1):
-            if attempt:
-                time.sleep(min(60, 2 ** (attempt - 1)))
-            try:
-                r = self._http.post(f"{self.base_url}{path}", json=body)
-            except httpx.TransportError as e:
-                error = repr(e)
-                continue
-            if r.status_code >= 500 or r.status_code in (408, 429):
-                error = f"HTTP {r.status_code}: {r.text[:200]}"
-                continue
-            if _too_long(r.status_code, r.text):
-                raise InputTooLong(r.text[:200])
-            r.raise_for_status()
-            try:
-                return r.json()
-            except ValueError:
-                error = f"not JSON: {r.text[:200]}"
-        raise RuntimeError(f"{self.base_url}{path} failed after {self.max_retries + 1} attempts: {error}")
-
-
 def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
     key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
     models = f"{url.rstrip('/').removesuffix('/v1')}/v1/models"
@@ -244,31 +133,29 @@ def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
 
 
 def load_model(model, url: str | None = None, api_key: str | None = None, extra_body: dict | None = None):
-    """A generator or judge by name. With `url`, the model served there: a decision model if the name's Hugging Face repo
-    is one, otherwise a chat model. Without `url`, a model on Hugging Face is
-    loaded here on first use, and any other goes to the API. Anything that is not a name is returned as it is."""
+    """A generator or judge by name. A decision model is known by name (see `models`) or by the files of its Hugging Face
+    repo. Any other name with `url` is the chat model served there; without it, a model on Hugging Face is loaded here on
+    first use, and any other goes to the API. Anything that is not a name is returned as it is."""
     if not isinstance(model, str):
         return model
     if model == "mock":
         return MockLLM()
+    if model in MODELS:
+        return MODELS[model](model, url, api_key)
     if url:
         files = repo_files(model)
-        if files is None:
-            if _serves_a_decision_module(url, api_key):
-                raise ValueError(
-                    f"{url} serves a decision model, but {model!r} cannot be read as a Hugging Face repo. "
-                    "Use the model's repo name, such as autotrust/JEV-9B. If offline, it must be in the local cache."
-                )
-            return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
-        refuse_other_decision_formats(model, files)
-        if is_decision_repo(files):
-            return DecisionModel(model, url, api_key=api_key)
-        return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
+        if files is None and _serves_a_decision_module(url, api_key):
+            raise ValueError(
+                f"{url} serves a decision model, but {model!r} cannot be read as a Hugging Face repo. "
+                "Use the model's repo name, such as autotrust/JEV-9B. If offline, it must be in the local cache."
+            )
+        decision = decision_model_in_repo(model, files or set(), url, api_key)
+        return decision or LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
     if api_key or os.environ.get("OPENAI_BASE_URL"):
         return LLM(model, api_key=api_key, extra_body=extra_body)
     files = repo_files(model)
     if files is not None:
-        return load_local(model, files)
+        return decision_model_in_repo(model, files, None, None) or shared(LocalChatModel, model)
     if os.environ.get("OPENAI_API_KEY"):
         return LLM(model, extra_body=extra_body)
     raise ValueError(
