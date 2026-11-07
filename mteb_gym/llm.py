@@ -15,7 +15,7 @@ from typing import Protocol
 from openai import OpenAI
 
 from .local import LocalChatModel, repo_files, shared
-from .models import MODELS, decision_model_in_repo
+from .models import MODEL_REGISTRY, decision_model_in_repo
 from .serving import InputTooLong, _too_long, served_models, server_client, server_url
 
 logger = logging.getLogger(__name__)
@@ -135,8 +135,8 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
         return model
     if model == "mock":
         return MockLLM()
-    if model in MODELS:
-        return MODELS[model](model, url, api_key)
+    if model in MODEL_REGISTRY:
+        return MODEL_REGISTRY[model].load_model(url, api_key)
     files = repo_files(model)
     decision = decision_model_in_repo(model, files or set(), url, api_key)
     if decision:

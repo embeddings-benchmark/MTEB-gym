@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ..local import fetch, fetch_folder, fits, repo_files, shared, transformers_and_peft
 from ..serving import GRADES, READ_ONE_TOKEN, post_json, served_models, server_client, server_url, softmax
-from .known import pinned
+from .model_meta import ModelMeta
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +62,11 @@ class JevServer:
 
     how = "decision model"
 
-    def __init__(self, model: str, base_url: str, api_key: str | None = None, max_retries: int = 6):
+    def __init__(
+        self, model: str, base_url: str, api_key: str | None = None, max_retries: int = 6, revision: str | None = None
+    ):
         self.model = model
-        self.revision = pinned(model)
+        self.revision = revision
         self.base_url = server_url(base_url)
         self.max_retries = max_retries
         self._http = server_client(api_key)
@@ -120,9 +122,9 @@ class LocalDecisionModel:
 
     how = "decision model"
 
-    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True):
+    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True, revision: str | None = None):
         self.model = name
-        self.revision = pinned(name)
+        self.revision = revision
         self._has_adapter = has_adapter
         self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
         self._lock = threading.Lock()
@@ -192,11 +194,18 @@ class LocalDecisionModel:
         return dict(zip(options, torch.softmax(logits[start : start + len(options)], 0).tolist(), strict=True))
 
 
-def load(name: str, url: str | None, api_key: str | None, files: set[str] | None = None):
+def load(name: str, url: str | None, api_key: str | None, files: set[str] | None = None, revision: str | None = None):
     """Served at `url`, or loaded here on first use."""
     if url:
-        return JevServer(name, url, api_key=api_key)
-    files = repo_files(name, pinned(name)) if files is None else files
+        return JevServer(name, url, api_key=api_key, revision=revision)
+    files = repo_files(name, revision) if files is None else files
     if files is None:
-        raise ValueError(f"{name} at revision {pinned(name)} is not on Hugging Face or in its local cache.")
-    return shared(LocalDecisionModel, name, "adapter/adapter_config.json" in files, "head.safetensors" in files)
+        raise ValueError(f"{name} at revision {revision} is not on Hugging Face or in its local cache.")
+    adapter, head = "adapter/adapter_config.json" in files, "head.safetensors" in files
+    return shared(LocalDecisionModel, name, adapter, head, revision)
+
+
+jev_9b = ModelMeta(loader=load, name="autotrust/JEV-9B", revision="7ac669b8fb476ba926491e3d1c39f9330d68dbed")
+jev_27b = ModelMeta(loader=load, name="autotrust/JEV-27B", revision="14b425269ed24452e0a5ad5a8f3e51d139647a88")
+jev_35b = ModelMeta(loader=load, name="autotrust/JEV-35B", revision="a5d0d580bb9324f0f4c07dcba5c5ca91e813e7c9")
+gev_26b = ModelMeta(loader=load, name="autotrust/GEV-26B-Decide", revision="eea849038e792cd09aa731d59d586f0eaf2c18f6")
