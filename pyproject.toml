@@ -49,7 +49,7 @@ test = ["pytest>=8"]
 dev = [{ include-group = "test" }, "ruff"]
 
 [tool.setuptools]
-packages = ["mteb_gym"]
+packages = ["mteb_gym", "mteb_gym.models"]
 
 [tool.setuptools.package-data]
 mteb_gym = ["py.typed"]

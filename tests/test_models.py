@@ -3,6 +3,8 @@
 import json
 import math
 import sys
+import tomllib
+from pathlib import Path
 from types import ModuleType
 from types import SimpleNamespace as NS
 
@@ -548,3 +550,11 @@ def test_a_pin_is_used_or_absent():
 def test_the_library_no_longer_asks_noul():
     with pytest.raises(KeyError):
         systemone.SystemOne("org/m", "http://x").decide("noul", "s", "q")
+
+
+def test_every_package_folder_is_in_the_built_package():
+    """Tests run from the source folder, so a folder left out of the package only fails once installed."""
+    root = Path(__file__).parent.parent
+    folders = {str(p.parent.relative_to(root)).replace("/", ".") for p in (root / "mteb_gym").rglob("__init__.py")}
+    listed = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["setuptools"]["packages"]
+    assert folders == set(listed)
