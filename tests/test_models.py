@@ -384,3 +384,17 @@ def test_system_one_is_not_public():
     import mteb_gym
 
     assert not hasattr(mteb_gym, "SystemOne") and "SystemOne" not in mteb_gym.__all__
+
+
+@pytest.mark.parametrize(
+    ("name", "command"),
+    [
+        ("LiquidAI/d1-3B", "vllm serve LiquidAI/d1-3B --logprobs-mode raw_logprobs"),
+        ("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610", "strands-decider serve StrandsAgents/"),
+    ],
+)
+def test_a_listed_server_model_says_how_to_serve_it_and_takes_a_url(name, command):
+    with pytest.raises(ValueError, match="cannot be loaded directly") as e:
+        load_model(name)
+    assert command in str(e.value) and "judge_url" in str(e.value)
+    assert isinstance(load_model(name, "http://server/v1"), systemone.SystemOne)

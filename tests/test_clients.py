@@ -570,7 +570,6 @@ def test_a_plain_server_with_any_other_name_is_a_chat_model(server, name):
     assert isinstance(load_model(name, "http://server/v1"), LLM)
 
 
-@pytest.mark.parametrize("name", ["org/v11", "org/decider"])
 def test_a_decision_repo_without_a_head_loads_as_a_decision_model_and_not_a_chat_model(hub):
     from mteb_gym.llm import load_model
     from mteb_gym.models.jev import LocalDecisionModel

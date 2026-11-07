@@ -10,7 +10,16 @@ import httpx
 from ..serving import post_json
 
 _GRADES = [str(i) for i in range(6)]
-_SERVE: dict[str, str] = {}  # the command for a listed model, once tested
+_SERVE = {
+    "LiquidAI/d1-3B": (
+        'pip install "vllm>=0.32"\n'
+        "vllm serve LiquidAI/d1-3B --logprobs-mode raw_logprobs --gpu-memory-utilization 0.6 --port 8000"
+    ),
+    "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610": (
+        "pip install strands-decider\n"
+        "strands-decider serve StrandsAgents/strands-decider-2B-qwen3.5-v1-2610 --port 8000"
+    ),
+}
 
 
 class SystemOne:
@@ -40,6 +49,6 @@ class SystemOne:
 
 def load(name: str, url: str | None, api_key: str | None):
     if not url:
-        how = f"\n{_SERVE[name]}" if name in _SERVE else " as its model card describes."
+        how = f":\n{_SERVE[name]}" if name in _SERVE else " as its model card describes."
         raise ValueError(f"{name} cannot be loaded directly. Pass judge_url after serving it{how}")
     return SystemOne(name, url, api_key=api_key)

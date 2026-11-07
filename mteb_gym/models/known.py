@@ -9,6 +9,8 @@ KNOWN = {
     "autotrust/GEV-26B-Decide": ("jev", "eea849038e792cd09aa731d59d586f0eaf2c18f6"),
     "Mapika/decider-4b": ("decider", "585473dec4fa93f0325c2bf02dda7273b61f44c1"),
     "autotrust/AutoTrust-JEV-27B-v1.1": ("v11", "ae156900e9f338e423042b89e25d0fd8093064d4"),
+    "LiquidAI/d1-3B": ("systemone", "051bcc464b01b9f92942b364d9586b0ef5912432"),
+    "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610": ("systemone", "216d1ccb46a9e9b036eb9187b248db98480f77d4"),
 }
 
 

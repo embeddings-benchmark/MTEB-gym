@@ -221,6 +221,7 @@ If a model doesn't fit or can't load in your process, the error gives the comman
 | [GEV-26B](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
 | [decider-4b](https://huggingface.co/Mapika/decider-4b) | Yes, with `pip install "mteb-gym[decider]"` | Its own server, as its model card describes |
 | [JEV-27B v1.1](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
+| [d1-3B](https://huggingface.co/LiquidAI/d1-3B), [strands-decider-2B](https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610) | No | Its own server, as its model card describes |
 
 For another decision model, serve it on a server with `/v1/systemone`, as its model card describes. Pass its name and URL if its repo marks it as one, or say so:
 
