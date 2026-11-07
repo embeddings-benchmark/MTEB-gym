@@ -30,15 +30,16 @@ pip install "mteb-gym[local] @ git+https://github.com/embeddings-benchmark/MTEB-
 import mteb_gym as gym
 
 result = gym.run(
-    corpus="path/to/docs",
+    corpus="NFCorpus",  # an MTEB task, or "path/to/docs" for your own documents
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
     judge="autotrust/JEV-9B",
     generator="Qwen/Qwen3.5-4B",
+    judging="pointwise",  # or "pairwise" to compare whole result lists
 )
 print(result.leaderboard)
 ```
 
-This downloads both from Hugging Face and needs about 25 GB of GPU memory. Larger models are stronger: see [Choosing the judge and generator](#choosing-the-judge-and-generator).
+The judge and the generator both load from Hugging Face.
 
 ## How it works
 
