@@ -197,7 +197,7 @@ Change a name to change a model.
 | | Example |
 |---|---|
 | From Hugging Face | `judge="autotrust/JEV-9B"` |
-| Your own server (vLLM, SGLang or Ollama) | `judge="autotrust/JEV-27B", judge_url="http://localhost:8001/v1"` |
+| Your own server (vLLM, SGLang or Ollama) | `generator="Qwen/Qwen3.5-4B", generator_url="http://localhost:8000/v1"` |
 | An API, with `OPENAI_API_KEY` set | `generator="gpt-5.4-mini"` |
 
 - **Judge:** any decision model on Hugging Face in the format of [JEV-9B](https://huggingface.co/autotrust/JEV-9B) and [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
@@ -206,10 +206,10 @@ Change a name to change a model.
 
 ### Serving a model
 
-A server is the faster choice for larger models and large runs. Any OpenAI-compatible server works. With [vLLM](https://docs.vllm.ai):
+A server is the faster choice for larger models and large runs. A chat model can use any OpenAI-compatible server. With [vLLM](https://docs.vllm.ai):
 
 ```bash
-vllm serve Qwen/Qwen3.5-4B --port 8000
+vllm serve Qwen/Qwen3.5-4B --gpu-memory-utilization 0.4 --port 8000
 ```
 
 ```python
@@ -222,12 +222,12 @@ result = gym.run(
 )
 ```
 
-To serve a decision model as the judge, download it and start vLLM with its decision module:
+A decision model is served with vLLM. Download it and start vLLM with its decision module:
 
 ```bash
 hf download autotrust/JEV-9B --local-dir JEV-9B
 vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
-    --logprobs-mode processed_logprobs --port 8001
+    --logprobs-mode processed_logprobs --gpu-memory-utilization 0.5 --port 8001
 ```
 
 Then pass `judge_url="http://localhost:8001/v1"`.

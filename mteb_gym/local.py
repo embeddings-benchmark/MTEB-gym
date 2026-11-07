@@ -9,10 +9,11 @@ import json
 import threading
 from contextlib import contextmanager
 from functools import cache
+from pathlib import Path
 
 import httpx
-from huggingface_hub import HfApi, hf_hub_download
-from huggingface_hub.errors import HFValidationError, RepositoryNotFoundError
+from huggingface_hub import HfApi, hf_hub_download, snapshot_download
+from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
 _LETTERS = "ABCDEFGHIJKLMNOP"
 _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
@@ -20,11 +21,21 @@ _MAX_NEW_TOKENS = 1024
 
 
 def repo_files(name: str) -> set[str] | None:
-    """The files of a Hugging Face model, or None if no such model can be reached."""
+    """The files of a Hugging Face model, from the local cache if the Hub cannot tell, or None if neither has it."""
     try:
         return {f.rfilename for f in HfApi().model_info(name).siblings}
     except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
+        pass
+    try:
+        folder = Path(snapshot_download(name, local_files_only=True))
+    except (LocalEntryNotFoundError, HFValidationError):
         return None
+    return {str(path.relative_to(folder)) for path in folder.rglob("*") if path.is_file()}
+
+
+def is_decision_repo(files: set[str]) -> bool:
+    """A cached repo may hold only part of what is on the Hub."""
+    return bool(files & {"judge_config.json", "adapter_vllm/decision_head.json"})
 
 
 @contextmanager
@@ -70,7 +81,7 @@ def _imports():
 class LocalDecisionModel:
     """A decision model in this process, as its model card loads it."""
 
-    how = "decision model, loaded directly"
+    how = "decision model"
 
     def __init__(self, name: str, has_adapter: bool = True):
         self.model = name
@@ -87,7 +98,8 @@ class LocalDecisionModel:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         net = transformers.AutoModelForCausalLM.from_pretrained(self.model, dtype=torch.bfloat16, device_map=device)
         if self._has_adapter:
-            net = peft.PeftModel.from_pretrained(net, self.model, subfolder="adapter").merge_and_unload()
+            adapter = Path(snapshot_download(self.model, allow_patterns="adapter/*")) / "adapter"
+            net = peft.PeftModel.from_pretrained(net, str(adapter)).merge_and_unload()
         head = load_file(hf_hub_download(self.model, "head.safetensors"))
         self._weight, self._bias = head["proj.weight"].to(net.device), head["proj.bias"].to(net.device)
         with open(hf_hub_download(self.model, "judge_config.json")) as f:
@@ -123,7 +135,7 @@ class LocalDecisionModel:
 class LocalChatModel:
     """A chat model in this process, at the model's own generation settings, with reasoning off."""
 
-    how = "chat model, loaded directly"
+    how = "chat model"
 
     def __init__(self, name: str):
         self.model = name
@@ -169,7 +181,7 @@ def _shared(cls, name: str, *args):
 def load_local(name: str, files: set[str]):
     """The model holding `files`, which is loaded only when first asked something."""
     refuse_other_decision_formats(name, files)
-    if "judge_config.json" in files:
+    if is_decision_repo(files):
         if "head.safetensors" not in files:
             raise ValueError(
                 f"{name} has no head.safetensors, so it cannot be loaded directly. Serve it and pass judge_url."

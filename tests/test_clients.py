@@ -13,21 +13,16 @@ from mteb_gym.llm import LLM, DecisionModel, llm_settings
 
 
 def decision_model(handler, **kw):
+    """A decision model that has read its repo: `noul`, tokens 100 and 101, no bias, temperature 1."""
     model = DecisionModel("m", "http://server/v1", max_retries=2, **kw)
     model._http = httpx.Client(transport=httpx.MockTransport(handler), headers=model._http.headers)
+    model._head = {"bias": [0.0, 0.0], "verbalizer_ids": [100, 101], "slots": {"ranges": {"noul": [0, 2]}}}
+    model._temperature, model._served_as = {"noul": 1.0}, "jev-decision"
     return model
 
 
-def test_decide_pairs_each_option_with_its_probability():
-    seen = {}
-
-    def handler(request):
-        seen["url"] = str(request.url)
-        seen["body"] = request.content
-        return httpx.Response(200, json={"options": ["0", "1"], "probabilities": [0.25, 0.75]})
-
-    assert decision_model(handler).decide("score", "state", "question") == {"0": 0.25, "1": 0.75}
-    assert seen["url"] == "http://server/v1/decide" and b'"kind":"score"' in seen["body"].replace(b" ", b"")
+EVEN = {"choices": [{"logprobs": {"top_logprobs": [{"token_id:100": -1.0, "token_id:101": -1.0}]}}]}
+HALF = {"false": 0.5, "true": 0.5}
 
 
 def test_decide_retries_server_errors_then_gives_up(monkeypatch):
@@ -38,11 +33,11 @@ def test_decide_retries_server_errors_then_gives_up(monkeypatch):
         calls.append(1)
         if len(calls) < 3:
             return httpx.Response(503, text="busy")
-        return httpx.Response(200, json={"options": ["1"], "probabilities": [1.0]})
+        return httpx.Response(200, json=EVEN)
 
-    assert decision_model(fails_twice).decide("score", "s", "q") == {"1": 1.0} and len(calls) == 3
+    assert decision_model(fails_twice).decide("noul", "s", "q") == HALF and len(calls) == 3
     with pytest.raises(RuntimeError, match="after 3 attempts"):
-        decision_model(lambda r: httpx.Response(500, text="down")).decide("score", "s", "q")
+        decision_model(lambda r: httpx.Response(500, text="down")).decide("noul", "s", "q")
 
 
 def test_decide_does_not_retry_a_client_error():
@@ -53,7 +48,7 @@ def test_decide_does_not_retry_a_client_error():
         return httpx.Response(401, request=request)
 
     with pytest.raises(httpx.HTTPStatusError):
-        decision_model(rejected).decide("score", "s", "q")
+        decision_model(rejected).decide("noul", "s", "q")
     assert len(calls) == 1
 
 
@@ -76,14 +71,14 @@ def test_the_record_leaves_out_a_private_endpoint():
 @pytest.mark.parametrize("status", [408, 429])
 def test_decide_waits_out_a_busy_server(monkeypatch, status):
     monkeypatch.setattr("mteb_gym.llm.time.sleep", lambda s: None)
-    answers = iter([httpx.Response(status), httpx.Response(200, json={"options": ["1"], "probabilities": [1.0]})])
-    assert decision_model(lambda r: next(answers)).decide("score", "s", "q") == {"1": 1.0}
+    answers = iter([httpx.Response(status), httpx.Response(200, json=EVEN)])
+    assert decision_model(lambda r: next(answers)).decide("noul", "s", "q") == HALF
 
 
 def test_decide_reports_a_reply_that_is_not_json(monkeypatch):
     monkeypatch.setattr("mteb_gym.llm.time.sleep", lambda s: None)
     with pytest.raises(RuntimeError, match="not JSON"):
-        decision_model(lambda r: httpx.Response(200, text="<html>")).decide("score", "s", "q")
+        decision_model(lambda r: httpx.Response(200, text="<html>")).decide("noul", "s", "q")
 
 
 def test_an_answer_cut_off_by_the_token_limit_is_empty():
@@ -104,9 +99,9 @@ def test_a_model_context_error_is_told_apart_from_other_bad_requests():
 
     too_long = "This model's maximum context length is 32768 tokens. However, your prompt contains more."
     with pytest.raises(InputTooLong):
-        decision_model(lambda r: httpx.Response(400, text=too_long)).decide("score", "s", "q")
+        decision_model(lambda r: httpx.Response(400, text=too_long)).decide("noul", "s", "q")
     with pytest.raises(httpx.HTTPStatusError):
-        decision_model(lambda r: httpx.Response(400, text="unknown kind")).decide("score", "s", "q")
+        decision_model(lambda r: httpx.Response(400, text="unknown kind")).decide("noul", "s", "q")
 
 
 def test_an_llm_context_error_reads_as_too_long():
@@ -123,22 +118,6 @@ def test_an_llm_context_error_reads_as_too_long():
     llm.client = type("C", (), {"chat": type("H", (), {"completions": Completions()})()})()
     with pytest.raises(InputTooLong):
         llm.chat([{"role": "user", "content": "x"}])
-
-
-@pytest.mark.parametrize(("status", "kind"), [(404, LLM), (422, DecisionModel), (400, DecisionModel)])
-def test_a_served_model_is_told_apart_by_its_decide_endpoint(monkeypatch, status, kind):
-    from mteb_gym.llm import load_model
-
-    asked = {}
-
-    def post(url, **kw):
-        asked.update(url=url, **kw)
-        return httpx.Response(status)
-
-    monkeypatch.setattr(httpx, "post", post)
-    model = load_model("m", "http://server/v1", api_key="k")
-    assert isinstance(model, kind) and model.model == "m"
-    assert asked["url"] == "http://server/v1/decide" and asked["headers"]["Authorization"] == "Bearer k"
 
 
 def test_a_name_without_a_url_is_an_api_model_and_makes_no_call(monkeypatch):
@@ -302,7 +281,8 @@ def fake_repo(monkeypatch, tmp_path):
         AutoTokenizer=NS(from_pretrained=lambda name: tokenizer),
         AutoModelForCausalLM=NS(from_pretrained=lambda name, **kw: kwargs.update(kw) or built.append(name) or net),
     )
-    peft = NS(PeftModel=NS(from_pretrained=lambda base, name, subfolder: NS(merge_and_unload=merged)))
+    peft = NS(PeftModel=NS(from_pretrained=lambda base, path: NS(merge_and_unload=merged)))
+    monkeypatch.setattr(local, "snapshot_download", lambda name, allow_patterns: str(tmp_path))
     monkeypatch.setattr(local, "_imports", lambda: (peft, transformers))
     monkeypatch.setattr(local, "hf_hub_download", lambda name, file: str(tmp_path / file))
     return NS(tokenizer=tokenizer, net=net, built=built, kwargs=kwargs, transformers=transformers, folder=tmp_path)
@@ -438,9 +418,10 @@ def server(monkeypatch, hub, tmp_path):
         "verbalizer_ids": list(range(100, 124)),
         "slots": {"ranges": {"noul": [0, 2], "choice": [8, 24]}},
     }
-    s = NS(head=head, requests=[], models=["base", "jev-decision"], decide=404, logprobs=None)
+    s = NS(head=head, requests=[], http=[], downloads=[], models=["base", "jev-decision"], logprobs=None)
 
     def files(name, file):
+        s.downloads.append(file)
         path = tmp_path / file.replace("/", "_")
         path.write_text(
             json.dumps(s.head if file.endswith("decision_head.json") else {"per_kind": {"noul": 2.0, "choice": 1.0}})
@@ -448,6 +429,7 @@ def server(monkeypatch, hub, tmp_path):
         return str(path)
 
     def handle(request):
+        s.http.append(request)
         if request.url.path == "/v1/models":
             return httpx.Response(200, json={"data": [{"id": m} for m in s.models]})
         body = json.loads(request.content)
@@ -456,8 +438,8 @@ def server(monkeypatch, hub, tmp_path):
         return httpx.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
 
     client = httpx.Client
+    monkeypatch.setattr(httpx, "get", lambda url, **kw: handle(httpx.Request("GET", url)))
     monkeypatch.setattr(llm, "hf_hub_download", files)
-    monkeypatch.setattr(httpx, "post", lambda url, **kw: httpx.Response(s.decide))
     monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
     hub["org/jev"] = JEV | {"adapter_vllm/decision_head.json"}
     hub["org/chat"] = {"model.safetensors"}
@@ -466,21 +448,24 @@ def server(monkeypatch, hub, tmp_path):
     return s
 
 
-def test_a_server_with_a_decide_endpoint_is_used_whatever_the_repo_holds(server):
-    from mteb_gym.llm import ServedDecisionModel, load_model
+def test_a_served_decision_model_fetches_nothing_until_it_is_asked_and_then_once(server):
+    from mteb_gym.llm import load_model
 
-    server.decide = 422
-    for name in ("org/jev", "org/v11", "org/decider", "org/chat", "not/on-the-hub"):
-        model = load_model(name, "http://server/v1")
-        assert type(model) is DecisionModel and not isinstance(model, ServedDecisionModel)
+    model = load_model("org/jev", "http://server/v1", api_key="k")
+    assert server.downloads == [] and server.http == []
+    model.decide("noul", "s", "q")
+    model.decide("noul", "s", "q")
+    assert server.downloads == ["adapter_vllm/decision_head.json", "calibration.json"]
+    assert [r.url.path for r in server.http] == ["/v1/models", "/v1/completions", "/v1/completions"]
+    assert server.http[0].headers["authorization"] == "Bearer k"
 
 
 def test_a_decision_repo_on_a_plain_server_follows_the_cards_recipe(server):
     from mteb_gym.judge import is_decision_model
-    from mteb_gym.llm import ServedDecisionModel, load_model
+    from mteb_gym.llm import load_model
 
     model = load_model("org/jev", "http://server/v1")
-    assert isinstance(model, ServedDecisionModel) and is_decision_model(model)
+    assert isinstance(model, DecisionModel) and is_decision_model(model)
     # noul: (-1 + 0) / 2 and (-1 + 1) / 2, so 1 to e^(1/2)
     root = math.exp(0.5)
     assert model.decide("noul", "s", "q") == pytest.approx({"false": 1 / (1 + root), "true": root / (1 + root)})
@@ -506,15 +491,13 @@ def test_a_decision_repo_on_a_plain_server_follows_the_cards_recipe(server):
     assert server.requests[-1]["prompt"].endswith("[options]\nA) x\nB) y\n[decision]:")
 
 
-def test_a_served_decision_model_has_the_identity_of_the_same_name_behind_decide(server):
+def test_a_served_decision_model_is_identified_by_its_name_alone(server):
     from mteb_gym.cache import model_id
-    from mteb_gym.llm import load_model
+    from mteb_gym.llm import llm_settings, load_model
 
-    assert (
-        model_id(load_model("org/jev", "http://server/v1"))
-        == model_id(DecisionModel("org/jev", "http://x"))
-        == "org/jev"
-    )
+    model = load_model("org/jev", "http://server/v1")
+    assert model_id(model) == "org/jev"
+    assert llm_settings(model) == {"model": "org/jev", "served_model": None}  # what a record holds
 
 
 def test_a_plain_server_without_the_decision_module_says_which_flags_to_add(server):
@@ -525,7 +508,7 @@ def test_a_plain_server_without_the_decision_module_says_which_flags_to_add(serv
         ValueError,
         match=r"does not serve jev-decision.*--enable-lora .*--lora-modules jev-decision=.*processed_logprobs",
     ):
-        load_model("org/jev", "http://server/v1")
+        load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
 
 
 def test_a_merged_decision_model_is_asked_under_its_own_name(server):
@@ -534,7 +517,7 @@ def test_a_merged_decision_model_is_asked_under_its_own_name(server):
     server.head["merged"] = True
     server.models = ["other"]
     with pytest.raises(ValueError, match=r"does not serve org/jev.*--served-model-name org/jev .*processed_logprobs"):
-        load_model("org/jev", "http://server/v1")
+        load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
     server.models = ["org/jev"]
     load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
     assert server.requests[-1]["model"] == "org/jev"
@@ -560,6 +543,7 @@ def test_probabilities_the_server_left_out_are_an_error_and_not_a_guess(server):
 def test_a_plain_server_with_any_other_name_is_a_chat_model(server, name):
     from mteb_gym.llm import load_model
 
+    server.models = ["base"]
     assert isinstance(load_model(name, "http://server/v1"), LLM)
 
 
@@ -583,15 +567,97 @@ def test_a_decision_repo_without_a_head_cannot_be_loaded_directly_and_is_not_a_c
 @pytest.mark.parametrize(
     ("name", "url", "said"),
     [
-        ("org/jev", None, "judge: org/jev (decision model, loaded directly)"),
-        ("org/chat", None, "judge: org/chat (chat model, loaded directly)"),
-        ("org/jev", "http://server/v1", "judge: org/jev (decision model, served through /v1/completions)"),
-        ("org/chat", "http://server/v1", "judge: org/chat (chat model, served)"),
+        ("org/jev", None, "judge: org/jev (decision model)\n"),
+        ("org/chat", None, "judge: org/chat (chat model)\n"),
+        ("org/jev", "http://server/v1", "judge: org/jev (decision model)\n"),
+        ("org/chat", "http://server/v1", "judge: org/chat (chat model)\n"),
     ],
 )
-def test_a_run_says_what_each_name_turned_out_to_be(server, caplog, name, url, said):
+def test_a_run_says_what_each_name_turned_out_to_be(server, capsys, name, url, said):
     from mteb_gym.run import _load
 
-    with caplog.at_level("INFO", logger="mteb_gym.run"):
-        _load("judge", name, url)
-    assert said in caplog.text
+    _load("judge", name, url)
+    assert said in capsys.readouterr().out
+
+
+@pytest.fixture
+def offline_cache(monkeypatch, tmp_path):
+    """No Hub to ask, and a local cache that holds one decision model and one chat model."""
+    import huggingface_hub.constants as constants
+
+    from mteb_gym import llm, local
+
+    def offline(*a, **k):
+        raise errors.OfflineModeIsEnabled("offline")
+
+    monkeypatch.setattr(local.HfApi, "model_info", offline)
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path))
+    monkeypatch.setattr(llm, "repo_files", local.repo_files)
+    for name, files in {
+        "org--jev": ["judge_config.json", "adapter_vllm/decision_head.json"],
+        "org--chat": ["config.json"],
+    }.items():
+        folder = tmp_path / f"models--{name}"
+        (folder / "refs").mkdir(parents=True)
+        (folder / "refs" / "main").write_text("abc")
+        for file in files:
+            (folder / "snapshots" / "abc" / file).parent.mkdir(parents=True, exist_ok=True)
+            (folder / "snapshots" / "abc" / file).write_text("{}")
+
+
+def test_offline_a_repo_in_the_local_cache_is_read_from_it(server, offline_cache):
+    from mteb_gym.local import repo_files
+
+    assert repo_files("org/jev") == {"judge_config.json", "adapter_vllm/decision_head.json"}
+    assert repo_files("org/chat") == {"config.json"}
+    assert repo_files("org/absent") is None
+    assert repo_files("not a repo name") is None
+
+
+def test_offline_a_cached_decision_repo_is_still_a_decision_model(server, offline_cache):
+    from mteb_gym.llm import load_model
+    from mteb_gym.local import LocalChatModel
+
+    assert isinstance(load_model("org/jev", "http://server/v1"), DecisionModel)
+    assert isinstance(load_model("org/chat", "http://server/v1"), LLM)
+    assert isinstance(load_model("org/chat"), LocalChatModel)
+
+
+def test_a_partly_cached_decision_repo_is_never_a_chat_model(hub):
+    from mteb_gym.llm import load_model
+
+    hub["org/part"] = {"adapter_vllm/decision_head.json", "calibration.json"}
+    assert isinstance(load_model("org/part", "http://server/v1"), DecisionModel)
+    with pytest.raises(ValueError, match="cannot be loaded directly"):
+        load_model("org/part")
+
+
+def test_offline_a_repo_not_in_the_cache_says_so(monkeypatch, offline_cache):
+    from mteb_gym.llm import load_model
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    with pytest.raises(ValueError, match="'org/absent' was not found on Hugging Face or in its local cache"):
+        load_model("org/absent")
+
+
+@pytest.mark.parametrize("name", ["JEV-9B", "org/absent"])
+def test_a_name_that_is_no_repo_on_a_server_with_the_decision_module_is_refused(server, name):
+    from mteb_gym.llm import load_model
+
+    with pytest.raises(ValueError, match=rf"serves a decision model, but '{name}' cannot be read.*repo name"):
+        load_model(name, "http://server/v1")
+    server.models = ["base"]
+    assert isinstance(load_model(name, "http://server/v1"), LLM)  # no module: nothing says it is a decision model
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [httpx.Response(404), httpx.Response(200, text="<html>"), httpx.Response(200, json={"models": []})],
+    ids=["no route", "not json", "other shape"],
+)
+def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkeypatch, reply):
+    from mteb_gym.llm import load_model
+
+    monkeypatch.setattr(httpx, "get", lambda url, **kw: reply)
+    assert isinstance(load_model("name", "http://server/v1"), LLM)
