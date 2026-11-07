@@ -274,6 +274,8 @@ def fake_repo(monkeypatch, tmp_path):
     )
     (tmp_path / "judge_config.json").write_text(json.dumps({"slots": {"ranges": {"noul": [0, 2], "choice": [2, 5]}}}))
     (tmp_path / "calibration.json").write_text(json.dumps({"per_kind": {"noul": 2.0, "choice": 1.0}}))
+    (tmp_path / "adapter_vllm").mkdir()
+    (tmp_path / "adapter_vllm/decision_head.json").write_text(json.dumps({"bias": [0.0] * 5}))
     tokenizer, net, built, kwargs = _Tokenizer(), _Net(), [], {}
 
     def merged():
@@ -520,6 +522,15 @@ def test_a_plain_server_without_the_decision_module_says_which_flags_to_add(serv
         load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
 
 
+def test_a_gemma_decision_model_says_vllm_needs_the_patch_in_its_repo(server):
+    from mteb_gym.llm import load_model
+
+    server.head["prefix_token"] = 2
+    server.models = ["base"]
+    with pytest.raises(ValueError, match=r"(?s)patches/vllm-gemma4-lm-head-lora.patch.*bash jev/serve.sh"):
+        load_model("org/jev", "http://server/v1").decide("noul", "s", "q")
+
+
 def test_a_merged_decision_model_is_asked_under_its_own_name(server):
     from mteb_gym.llm import load_model
 
@@ -581,7 +592,6 @@ def test_a_decision_in_the_weights_is_read_from_the_next_token(fake_repo, monkey
 
     config = {"slots": {"ranges": {"noul": [0, 2], "choice": [2, 5]}}, "verbalizer_ids": [10, 11, 12, 13, 14]}
     (fake_repo.folder / "judge_config.json").write_text(json.dumps(config))
-    (fake_repo.folder / "adapter_vllm").mkdir()
     (fake_repo.folder / "adapter_vllm/decision_head.json").write_text(
         json.dumps({"merged": True, "bias": [0.0, 1.0, 1.0, 0.0, 9.0]})
     )
@@ -676,7 +686,6 @@ def test_a_partly_cached_decision_repo_is_never_a_chat_model(hub):
 def test_a_repo_missing_its_head_without_being_merged_says_so_and_does_not_read_the_next_token(fake_repo):
     from mteb_gym.models.jev import LocalDecisionModel
 
-    (fake_repo.folder / "adapter_vllm").mkdir()
     (fake_repo.folder / "adapter_vllm/decision_head.json").write_text(json.dumps({"bias": [0.0] * 5}))
     with pytest.raises(ValueError, match="(?s)org/part is missing head.safetensors.*vllm serve part"):
         LocalDecisionModel("org/part", False, False).decide("noul", "s", "q")

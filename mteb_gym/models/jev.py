@@ -19,15 +19,27 @@ _LETTERS = "ABCDEFGHIJKLMNOP"
 _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 
 
-def serve_command(name: str, merged: bool = False) -> str:
-    """How to serve a model of this format. A merged one holds its decision model in its weights, with no module to add."""
+def _decision_head(name: str) -> dict:
+    with open(hf_hub_download(name, "adapter_vllm/decision_head.json")) as f:
+        return json.load(f)
+
+
+def serve_command(name: str, head: dict) -> str:
+    """How to serve a model of this format, by what its decision head says about it."""
     folder = name.split("/")[-1]
+    download = f"hf download {name} --local-dir {folder}\n"
+    if (
+        head.get("prefix_token") is not None
+    ):  # Gemma: vLLM needs the patch the repo holds for a LoRA on its tied lm_head
+        return (
+            f"{download}# apply {folder}/patches/vllm-gemma4-lm-head-lora.patch to vLLM, then:\nbash {folder}/serve.sh"
+        )
     flags = (
         f"--served-model-name {name} --max-model-len 65536 --max-num-seqs 64"
-        if merged
+        if head.get("merged")  # the decision model is in the weights: no module to add
         else f"--enable-lora --max-lora-rank 32 --lora-modules jev-decision={folder}/adapter_vllm"
     )
-    return f"hf download {name} --local-dir {folder}\nvllm serve {folder} {flags} --logprobs-mode processed_logprobs"
+    return f"{download}vllm serve {folder} {flags} --logprobs-mode processed_logprobs"
 
 
 def is_jev_repo(files: set[str]) -> bool:
@@ -67,13 +79,11 @@ class DecisionModel:
         with self._lock:
             if self._head is not None:
                 return
-            with open(hf_hub_download(self.model, "adapter_vllm/decision_head.json")) as f:
-                head = json.load(f)
+            head = _decision_head(self.model)
             with open(hf_hub_download(self.model, "calibration.json")) as f:
                 self._temperature = json.load(f)["per_kind"]
-            merged = head.get("merged")  # the decision model is in the weights: no separate module on the server
-            self._served_as = self.model if merged else "jev-decision"
-            self._serve = serve_command(self.model, merged)
+            self._served_as = self.model if head.get("merged") else "jev-decision"
+            self._serve = serve_command(self.model, head)
             r = self._http.get(f"{self.base_url}/v1/models")
             r.raise_for_status()
             if self._served_as not in {m["id"] for m in r.json()["data"]}:
@@ -116,7 +126,6 @@ class LocalDecisionModel:
         self.model = name
         self._has_adapter = has_adapter
         self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
-        self._serve = serve_command(name, not has_head)
         self._lock = threading.Lock()
         self._net = None
 
@@ -137,11 +146,11 @@ class LocalDecisionModel:
             head = load_file(hf_hub_download(self.model, "head.safetensors"))
             self._weight, self._bias = head["proj.weight"].to(net.device), head["proj.bias"].to(net.device)
         else:
-            with open(hf_hub_download(self.model, "adapter_vllm/decision_head.json")) as f:
-                head = json.load(f)
+            head = _decision_head(self.model)
             if not head.get("merged"):
+                command = serve_command(self.model, head)
                 raise ValueError(
-                    f"{self.model} is missing head.safetensors. Download it, or serve the model:\n{self._serve}"
+                    f"{self.model} is missing head.safetensors. Download it, or serve the model:\n{command}"
                 )
             self._bias = torch.tensor(head["bias"], device=net.device)
             self._tokens = config["verbalizer_ids"]
@@ -157,7 +166,7 @@ class LocalDecisionModel:
         import torch
 
         options, text = decision_prompt(kind, state, question, options)
-        with self._lock, fits(self.model, self._serve):
+        with self._lock, fits(self.model, lambda: serve_command(self.model, _decision_head(self.model))):
             if self._net is None:
                 self._load()
             ids = self._tokenizer(self._prefix + text, return_tensors="pt", add_special_tokens=False).to(

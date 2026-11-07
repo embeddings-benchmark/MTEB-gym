@@ -30,14 +30,14 @@ def repo_files(name: str) -> set[str] | None:
 
 
 @contextmanager
-def fits(name: str, serve: str | None = None):
-    """An out-of-memory error from a model loaded here says what to do about it."""
+def fits(name: str, serve=None):
+    """An out-of-memory error from a model loaded here says what to do about it: `serve` gives the command."""
     import torch
 
     try:
         yield
     except torch.cuda.OutOfMemoryError as e:
-        advice = f"Serve it, then pass judge_url or generator_url:\n{serve}" if serve else "It needs a larger GPU."
+        advice = f"Serve it, then pass judge_url or generator_url:\n{serve()}" if serve else "It needs a larger GPU."
         raise torch.cuda.OutOfMemoryError(f"{name} does not fit in GPU memory. {advice}") from e
 
 
@@ -75,7 +75,7 @@ class LocalChatModel:
     def chat(self, messages: list[dict]) -> str:
         import torch
 
-        with self._lock, fits(self.model, f"vllm serve {self.model}"):
+        with self._lock, fits(self.model, lambda: f"vllm serve {self.model}"):
             if self._net is None:
                 self._load()
             text = self._tokenizer.apply_chat_template(
