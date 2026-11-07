@@ -24,7 +24,9 @@ class InputTooLong(Exception):
 
 def _too_long(status: int | None, message: str) -> bool:
     message = message.lower()
-    return status == 400 and ("maximum context length" in message or "context_length_exceeded" in message)
+    return status == 413 or (
+        status == 400 and ("maximum context length" in message or "context_length_exceeded" in message)
+    )
 
 
 def post_json(http: httpx.Client, url: str, body: dict, max_retries: int) -> dict:
@@ -38,7 +40,7 @@ def post_json(http: httpx.Client, url: str, body: dict, max_retries: int) -> dic
         except httpx.TransportError as e:
             error = repr(e)
             continue
-        if r.status_code >= 500 or r.status_code in (408, 429):
+        if (r.status_code >= 500 and r.status_code != 501) or r.status_code in (408, 429):
             error = f"HTTP {r.status_code}: {r.text[:200]}"
             continue
         if _too_long(r.status_code, r.text):

@@ -1,5 +1,4 @@
-"""Clients: LLM for any OpenAI-compatible /chat/completions endpoint, DecisionModel for a decision model on a
-server, MockLLM for tests and dry runs. Answers are requested as JSON in the prompt and read from the text, so a model
+"""Clients: LLM for any OpenAI-compatible /chat/completions endpoint, MockLLM for tests and dry runs. Answers are requested as JSON in the prompt and read from the text, so a model
 may reason before it answers. Sampling is the model's own unless the client is built with a temperature.
 
 An explicit base_url never receives OPENAI_API_KEY: pass api_key, or set MTEB_GYM_API_KEY."""

@@ -30,11 +30,9 @@ _SERVE = (
 class V11Model:
     how = "decision model"
 
-    def __init__(
-        self, name: str, url: str, api_key: str | None = None, max_retries: int = 6, revision: str | None = None
-    ):
+    def __init__(self, name: str, url: str, api_key: str | None = None, max_retries: int = 6):
         self.model = name
-        self.revision = revision or pinned(name)
+        self.revision = pinned(name)
         self.base_url = url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
         key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"

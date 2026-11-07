@@ -219,10 +219,16 @@ If a model doesn't fit or can't load in your process, the error gives the comman
 |---|---|---|
 | [JEV-9B](https://huggingface.co/autotrust/JEV-9B), [JEV-27B](https://huggingface.co/autotrust/JEV-27B), [JEV-35B](https://huggingface.co/autotrust/JEV-35B), and others in their format | Yes | vLLM, as below |
 | [GEV-26B](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
-| [decider-4b](https://huggingface.co/Mapika/decider-4b) | Yes, with `pip install "mteb-gym[decider]"` | No |
+| [decider-4b](https://huggingface.co/Mapika/decider-4b) | Yes, with `pip install "mteb-gym[decider]"` | Its own server, as its model card describes |
 | [JEV-27B v1.1](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
 
-For any other decision model, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+For another decision model, serve it on a server with `/v1/systemone`, as its model card describes. Pass its name and URL if its repo marks it as one, or say so:
+
+```python
+judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
+```
+
+As a last resort, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
 
 ```python
 class MyJudge:

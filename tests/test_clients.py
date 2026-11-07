@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from mteb_gym.llm import LLM, llm_settings
-from mteb_gym.models.jev import DecisionModel
+from mteb_gym.models.jev import JevServer as DecisionModel
 
 
 def decision_model(handler, **kw):
@@ -571,14 +571,6 @@ def test_a_plain_server_with_any_other_name_is_a_chat_model(server, name):
 
 
 @pytest.mark.parametrize("name", ["org/v11", "org/decider"])
-@pytest.mark.parametrize("url", ["http://server/v1", None])
-def test_a_decision_format_not_read_here_is_refused_and_not_used_for_chat(server, name, url):
-    from mteb_gym.llm import load_model
-
-    with pytest.raises(ValueError, match=rf"{name} is a decision model in a format not supported yet.*decide\(\)"):
-        load_model(name, url)
-
-
 def test_a_decision_repo_without_a_head_loads_as_a_decision_model_and_not_a_chat_model(hub):
     from mteb_gym.llm import load_model
     from mteb_gym.models.jev import LocalDecisionModel
@@ -725,6 +717,7 @@ def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkey
 
 def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo, monkeypatch):
     from mteb_gym import local
+    from mteb_gym.models import known
     from mteb_gym.models.jev import LocalDecisionModel
 
     reads, loads = [], []
@@ -744,5 +737,6 @@ def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo
         "from_pretrained",
         lambda n, revision, **k: loads.append(revision) or net(n, **k),
     )
-    LocalDecisionModel("org/judge", revision="abc").decide("noul", "s", "q")
-    assert set(reads) == {"abc"} and len(reads) == 4 and loads == ["abc", "abc"]  # adapter, config, head, calibration
+    LocalDecisionModel("autotrust/JEV-9B").decide("noul", "s", "q")
+    pin = known.pinned("autotrust/JEV-9B")
+    assert set(reads) == {pin} and len(reads) == 4 and loads == [pin, pin]  # adapter, config, head, calibration

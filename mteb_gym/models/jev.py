@@ -56,7 +56,7 @@ def decision_prompt(kind: str, state: str, question: str, options: list[str] | N
     return options, text
 
 
-class DecisionModel:
+class JevServer:
     """A decision model on a server, by its model card's recipe: the server returns the log-probability of each option's
     token, and the head's bias and the temperature are applied here. `decide("score", state, question)` returns a
     probability for each grade "0" to "5", and `decide("choice", state, question, options)` one for each option, in one
@@ -71,10 +71,9 @@ class DecisionModel:
         api_key: str | None = None,
         timeout: float = 600.0,
         max_retries: int = 6,
-        revision: str | None = None,
     ):
         self.model = model
-        self.revision = revision or pinned(model)
+        self.revision = pinned(model)
         self.base_url = base_url.rstrip("/").removesuffix("/v1")
         self.max_retries = max_retries
         key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
@@ -130,9 +129,9 @@ class LocalDecisionModel:
 
     how = "decision model"
 
-    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True, revision: str | None = None):
+    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True):
         self.model = name
-        self.revision = revision or pinned(name)
+        self.revision = pinned(name)
         self._has_adapter = has_adapter
         self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
         self._lock = threading.Lock()
@@ -205,7 +204,7 @@ class LocalDecisionModel:
 def load(name: str, url: str | None, api_key: str | None, files: set[str] | None = None):
     """Served at `url`, or loaded here on first use."""
     if url:
-        return DecisionModel(name, url, api_key=api_key)
+        return JevServer(name, url, api_key=api_key)
     files = repo_files(name, pinned(name)) if files is None else files
     if files is None:
         raise ValueError(f"{name} at revision {pinned(name)} is not on Hugging Face or in its local cache.")

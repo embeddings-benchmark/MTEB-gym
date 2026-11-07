@@ -687,7 +687,8 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
     """The final build of a large run: the same record, from the cache, by a judge named the same that is never asked."""
     import httpx
 
-    from mteb_gym import DecisionModel, run
+    from mteb_gym import run
+    from mteb_gym.models.jev import JevServer as DecisionModel
 
     docs = tmp_path / "docs"
     docs.mkdir()

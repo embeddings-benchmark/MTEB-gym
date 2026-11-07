@@ -11,7 +11,7 @@ import pytest
 
 from mteb_gym.judge import is_decision_model
 from mteb_gym.llm import load_model
-from mteb_gym.models import MODELS, decider, known, v11
+from mteb_gym.models import MODELS, decider, known, systemone, v11
 
 DECIDER, V11 = "Mapika/decider-4b", "autotrust/AutoTrust-JEV-27B-v1.1"
 
@@ -68,9 +68,9 @@ def test_decider_without_its_package_says_which_extra(monkeypatch):
         decider.DeciderModel(DECIDER).decide("score", "s", "q")
 
 
-def test_decider_with_a_url_says_it_runs_in_this_process():
-    with pytest.raises(ValueError, match="runs in this process"):
-        load_model(DECIDER, "http://server/v1")
+def test_decider_with_a_url_is_its_server():
+    model = load_model(DECIDER, "http://server/v1")
+    assert isinstance(model, systemone.SystemOne) and model.model == DECIDER
 
 
 def test_v11_without_a_url_says_how_to_serve_it():
@@ -205,24 +205,20 @@ def test_a_known_served_model_reads_its_files_at_its_revision(repo_reads):
     assert repo_reads == [("adapter_vllm/decision_head.json", PIN9), ("calibration.json", PIN9)] * 2
 
 
-def test_a_model_not_listed_is_at_its_latest_and_a_revision_can_be_given(repo_reads):
-    from mteb_gym import DecisionModel
+def test_a_model_not_listed_is_at_its_latest():
+    from mteb_gym.models.jev import JevServer
 
-    assert DecisionModel("org/new", "http://server/v1").revision is None
-    assert DecisionModel(JEV9, "http://server/v1", revision="abc").revision == "abc"
-    assert DecisionModel("org/new", "http://server/v1", revision="abc").revision == "abc"
+    assert JevServer("org/new", "http://server/v1").revision is None
 
 
 def test_the_revision_is_in_the_record_and_in_no_identity(tmp_path):
     from mteb_gym import DecisionModel
-    from mteb_gym.cache import grades_key, model_id
+    from mteb_gym.cache import model_id
     from mteb_gym.llm import LLM, llm_settings
 
-    pinned_model, other = DecisionModel(JEV9, "http://x"), DecisionModel(JEV9, "http://x", revision="other")
+    pinned_model = DecisionModel(JEV9, "http://x")
     assert llm_settings(pinned_model)["revision"] == PIN9
-    assert llm_settings(other)["revision"] == "other"
-    assert model_id(pinned_model) == model_id(other) == JEV9
-    assert grades_key(model_id(pinned_model), "s", "i", 16000, "q") == grades_key(model_id(other), "s", "i", 16000, "q")
+    assert model_id(pinned_model) == JEV9  # as the ids of cached grades and record files were built
     assert "revision" not in llm_settings(LLM("m", api_key="k"))
 
 
@@ -285,3 +281,106 @@ def test_the_command_to_serve_a_listed_model_downloads_its_revision():
 
     assert f"hf download {JEV9} --revision {PIN9} --local-dir JEV-9B" in jev.serve_command(JEV9, {}, PIN9)
     assert known.pinned(V11) in v11._SERVE
+
+
+GRADES = [str(i) for i in range(6)]
+
+
+@pytest.fixture
+def s1_server(monkeypatch):
+    """A /v1/systemone server, answering in the shape of vLLM's or decider's. Returns what it was asked."""
+    seen = NS(bodies=[], paths=[], status=200, noul=0.25, probe_fails=True)
+
+    def handle(request):
+        seen.paths.append(request.url.path)
+        if seen.status != 200:
+            return httpx.Response(seen.status, text="no")
+        body = json.loads(request.content)
+        seen.bodies.append(body)
+        q = body["questions"]["q"]
+        if q["type"] == "noul":
+            return httpx.Response(200, json={"answers": {"q": {"type": "noul", "noul": seen.noul}}})
+        names = [str(i) for i in range(len(q["criteria"]))] if q["type"] == "score" else list(q["criteria"])
+        n = len(names)
+        probabilities = {name: (i + 1) / (n * (n + 1) / 2) for i, name in enumerate(names)}
+        return httpx.Response(200, json={"answers": {"q": {"type": q["type"], "probabilities": probabilities}}})
+
+    client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
+    monkeypatch.setattr("mteb_gym.serving.time.sleep", lambda s: None)
+    return seen
+
+
+def test_system_one_score_and_choice_in_our_option_order(s1_server):
+    model = systemone.SystemOne("org/m", "http://server/v1", api_key="k")
+    assert is_decision_model(model) and model.how == "decision model"
+    assert model.decide("score", "the state", "the question") == pytest.approx({str(i): (i + 1) / 21 for i in range(6)})
+    assert s1_server.paths == ["/v1/systemone"]
+    assert s1_server.bodies[0] == {
+        "model": "org/m",
+        "state": "the state",
+        "questions": {"q": {"type": "score", "instructions": "the question", "criteria": GRADES}},
+    }
+    answer = model.decide("choice", "s", "q", ["b", "a"])
+    assert list(answer) == ["b", "a"] and answer == pytest.approx({"b": 1 / 3, "a": 2 / 3})
+    assert s1_server.bodies[1]["questions"]["q"] == {
+        "type": "choice",
+        "instructions": "q",
+        "criteria": {"b": None, "a": None},
+    }
+
+
+def test_system_one_noul_is_the_probability_of_true(s1_server):
+    model = systemone.SystemOne("org/m", "http://server")
+    assert model.decide("noul", "s", "q") == pytest.approx({"false": 0.75, "true": 0.25})
+    assert s1_server.bodies[0]["questions"]["q"] == {"type": "noul", "instructions": "q"}
+
+
+@pytest.mark.parametrize("status", [404, 501])
+def test_a_server_without_the_route_says_so_at_once(s1_server, status):
+    s1_server.status = status
+    with pytest.raises(ValueError, match="does not answer decisions for org/m on /v1/systemone"):
+        systemone.SystemOne("org/m", "http://server").decide("score", "s", "q")
+    assert len(s1_server.paths) == 1  # no retries
+
+
+def test_an_input_over_the_limit_can_be_shortened(s1_server):
+    from mteb_gym.serving import InputTooLong
+
+    s1_server.status = 413
+    with pytest.raises(InputTooLong):
+        systemone.SystemOne("org/m", "http://server").decide("score", "s", "q")
+
+
+def test_decision_model_picks_by_what_it_knows(monkeypatch, s1_server):
+    from mteb_gym import DecisionModel
+    from mteb_gym.models.jev import JevServer
+
+    assert isinstance(DecisionModel(JEV9, base_url="http://x", api_key="k"), JevServer)
+    assert isinstance(DecisionModel(V11, base_url="http://x"), v11.V11Model)
+    assert isinstance(DecisionModel(DECIDER, base_url="http://x"), systemone.SystemOne)
+    assert isinstance(DecisionModel("org/unknown", base_url="http://x"), systemone.SystemOne)
+    monkeypatch.setattr("mteb_gym.models.repo_files", lambda name: {"judge_config.json"})
+    assert isinstance(DecisionModel("org/new", base_url="http://x"), JevServer)
+
+
+@pytest.mark.parametrize("marker", ["decision_config.json", "decider_config.json"])
+def test_a_marked_repo_uses_the_server_or_says_to_serve_it(monkeypatch, marker):
+    monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {marker})
+    assert isinstance(load_model("org/marked", "http://server/v1"), systemone.SystemOne)
+    with pytest.raises(ValueError, match="org/marked cannot be loaded directly.*judge_url"):
+        load_model("org/marked")
+
+
+def test_a_chat_model_with_a_url_stays_chat_and_nothing_probes_the_route(monkeypatch):
+    from mteb_gym.llm import LLM
+
+    monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {"model.safetensors"})
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("no probing"))
+    assert isinstance(load_model("Qwen/chat", "http://server/v1"), LLM)
+
+
+def test_system_one_is_not_public():
+    import mteb_gym
+
+    assert not hasattr(mteb_gym, "SystemOne") and "SystemOne" not in mteb_gym.__all__
