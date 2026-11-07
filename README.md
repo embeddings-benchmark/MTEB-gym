@@ -208,7 +208,7 @@ Change a name to change a model.
 
 | Model | How it runs |
 |---|---|
-| [JEV-9B](https://huggingface.co/autotrust/JEV-9B), [JEV-27B](https://huggingface.co/autotrust/JEV-27B), and others in their format | By name, or served with vLLM |
+| [JEV-9B](https://huggingface.co/autotrust/JEV-9B), [JEV-27B](https://huggingface.co/autotrust/JEV-27B), [JEV-35B](https://huggingface.co/autotrust/JEV-35B), [GEV-26B](https://huggingface.co/autotrust/GEV-26B-Decide), and others in their format | By name, or served with vLLM |
 | [decider-4b](https://huggingface.co/Mapika/decider-4b) | By name, with `pip install "mteb-gym[decider]"` |
 | [JEV-27B v1.1](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | Served as its model card describes, then `judge_url` |
 
