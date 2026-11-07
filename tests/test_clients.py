@@ -2,10 +2,12 @@
 
 import json
 import math
+from types import SimpleNamespace as NS
 
 import httpx
 import huggingface_hub.errors as errors
 import pytest
+import torch
 
 from mteb_gym.llm import LLM, DecisionModel, llm_settings
 
@@ -231,8 +233,6 @@ def test_a_repo_that_cannot_be_reached_has_no_files(monkeypatch, error):
 
 
 def test_a_repos_files_and_sizes(monkeypatch):
-    from types import SimpleNamespace as NS
-
     from mteb_gym import local
 
     info = NS(siblings=[NS(rfilename="a.safetensors", size=5), NS(rfilename="README.md", size=None)])
@@ -241,8 +241,6 @@ def test_a_repos_files_and_sizes(monkeypatch):
 
 
 def test_a_model_too_big_for_the_gpu_says_so_before_any_download(monkeypatch):
-    import torch
-
     from mteb_gym import local
 
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
@@ -255,8 +253,6 @@ def test_a_model_too_big_for_the_gpu_says_so_before_any_download(monkeypatch):
 
 
 def test_a_model_that_fits_is_built_and_downloads_nothing_yet(monkeypatch):
-    import torch
-
     from mteb_gym import local
 
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
@@ -267,56 +263,112 @@ def test_a_model_that_fits_is_built_and_downloads_nothing_yet(monkeypatch):
     assert local.load_local("org/fits", files)._net is None
 
 
-def _fake_decision_model(monkeypatch, tmp_path):
-    """Two slots per option kind over a four-dimensional last state, so the arithmetic can be done by hand."""
-    import torch
+class _Tokens(dict):
+    def to(self, device):
+        return self
+
+
+class _Net:
+    """The last hidden state is always [1, 0], so a head's logit is its weight's first column plus its bias."""
+
+    def __init__(self):
+        self.device = torch.device("cpu")
+        self.merged = False
+
+    def eval(self):
+        return self
+
+    def model(self, **ids):
+        return NS(last_hidden_state=torch.tensor([[[9.0, 9.0], [1.0, 0.0]]]))
+
+    def generate(self, **kwargs):
+        return torch.tensor([[1, 2, 3, 4, 5]])
+
+
+class _Tokenizer:
+    eos_token_id = 0
+
+    def __init__(self):
+        self.seen, self.template, self.decoded = [], {}, None
+
+    def __call__(self, text, **kwargs):
+        self.seen.append((text, kwargs))
+        return _Tokens(input_ids=torch.tensor([[1, 2, 3]]))
+
+    def apply_chat_template(self, messages, **kwargs):
+        self.template = kwargs
+        return "prompt"
+
+    def decode(self, ids, **kwargs):
+        self.decoded = ids.tolist()
+        return "written"
+
+
+@pytest.fixture
+def fake_repo(monkeypatch, tmp_path):
+    """A repo of a decision model, with transformers and peft standing in. Returns what they were asked."""
+    from safetensors.torch import save_file
 
     from mteb_gym import local
 
-    model = local.LocalDecisionModel("org/judge", False)
-
-    class Tokenized(dict):
-        def to(self, device):
-            return self
-
-    class Backbone:
-        def __call__(self, **ids):
-            return NS(last_hidden_state=torch.tensor([[[9.0, 9.0], [1.0, 0.0]]]))
-
-    from types import SimpleNamespace as NS
-
-    model._net = NS(device=torch.device("cpu"), model=Backbone())
-    model._prompts = []
-
-    def tokenizer(text, **kw):
-        model._prompts.append(text)
-        return Tokenized(input_ids=[])
-
-    model._tokenizer = tokenizer
-    # logits are the first column of the weight plus the bias, since the last state is [1, 0]
-    model._weight = torch.tensor(
-        [[math.log(1.0), 0.0], [math.log(3.0), 0.0], [99.0, 0.0], [math.log(1.0), 0.0], [0.0, 0.0]]
+    weight = torch.tensor([[-1.0, 7.0], [math.log(3) - 2, 7.0], [-1.0, 7.0], [math.log(2) - 1, 7.0], [99.0, 7.0]])
+    save_file(
+        {"proj.weight": weight, "proj.bias": torch.tensor([1.0, 2.0, 1.0, 1.0, 1.0])}, tmp_path / "head.safetensors"
     )
-    model._bias = torch.zeros(5)
-    model._slots = {"noul": [0, 2], "choice": [3, 5], "score": [0, 6]}
-    model._temperature = {"noul": 1.0, "choice": 2.0}
-    return model
+    (tmp_path / "judge_config.json").write_text(json.dumps({"slots": {"ranges": {"noul": [0, 2], "choice": [2, 5]}}}))
+    (tmp_path / "calibration.json").write_text(json.dumps({"per_kind": {"noul": 2.0, "choice": 1.0}}))
+    tokenizer, net, built = _Tokenizer(), _Net(), []
+
+    def merged():
+        net.merged = True
+        return net
+
+    transformers = NS(
+        AutoTokenizer=NS(from_pretrained=lambda name: tokenizer),
+        AutoModelForCausalLM=NS(from_pretrained=lambda name, **kw: built.append(name) or net),
+    )
+    peft = NS(PeftModel=NS(from_pretrained=lambda base, name, subfolder: NS(merge_and_unload=merged)))
+    monkeypatch.setattr(local, "_imports", lambda: (peft, transformers))
+    monkeypatch.setattr(local, "hf_hub_download", lambda name, file: str(tmp_path / file))
+    return NS(tokenizer=tokenizer, net=net, built=built)
 
 
-def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(monkeypatch, tmp_path):
-    model = _fake_decision_model(monkeypatch, tmp_path)
-    assert model.decide("noul", "s", "q") == pytest.approx({"false": 0.25, "true": 0.75})
-    assert model._prompts[-1] == "[kind] noul\n[state] s\n[question] q\n[options]\nfalse\ntrue\n[decision]:"
-    # slots 3 and 4 hold 0 and 0: equal, whatever the temperature
-    assert model.decide("choice", "s", "q", ["x", "y"]) == pytest.approx({"x": 0.5, "y": 0.5})
-    assert model._prompts[-1].endswith("[options]\nA) x\nB) y\n[decision]:")
+def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(fake_repo):
+    from mteb_gym.local import LocalDecisionModel
+
+    model = LocalDecisionModel("org/judge")
+    # noul: logits 0 and log 3, halved by the temperature, so sqrt(3) to 1
+    root = math.sqrt(3)
+    assert model.decide("noul", "s", "q") == pytest.approx({"false": 1 / (1 + root), "true": root / (1 + root)})
+    assert fake_repo.tokenizer.seen[-1] == (
+        "[kind] noul\n[state] s\n[question] q\n[options]\nfalse\ntrue\n[decision]:",
+        {"return_tensors": "pt", "add_special_tokens": False},
+    )
+    # choice starts at slot 2: logits 0 and log 2 at temperature 1. The 99 at slot 4 is not one of its options.
+    assert model.decide("choice", "s", "q", ["x", "y"]) == pytest.approx({"x": 1 / 3, "y": 2 / 3})
+    assert fake_repo.tokenizer.seen[-1][0].endswith("[options]\nA) x\nB) y\n[decision]:")
+    assert fake_repo.built == ["org/judge"]  # loaded once, on first use
 
 
-def test_a_temperature_divides_the_logits(monkeypatch, tmp_path):
-    model = _fake_decision_model(monkeypatch, tmp_path)
-    model._temperature["noul"] = 2.0  # log 3 / 2 against 0: sqrt(3) to 1
-    p = model.decide("noul", "s", "q")
-    assert p["true"] == pytest.approx(math.sqrt(3) / (1 + math.sqrt(3)))
+def test_a_decision_model_merges_its_adapter_if_it_has_one(fake_repo):
+    from mteb_gym.local import LocalDecisionModel
+
+    LocalDecisionModel("org/merged", False).decide("noul", "s", "q")
+    assert not fake_repo.net.merged
+    LocalDecisionModel("org/judge").decide("noul", "s", "q")
+    assert fake_repo.net.merged
+
+
+def test_a_chat_model_turns_reasoning_off_and_returns_only_what_it_wrote(fake_repo):
+    from mteb_gym.local import LocalChatModel
+
+    model = LocalChatModel("org/chat")
+    assert fake_repo.built == []  # nothing is loaded until it is asked something
+    assert model.chat([{"role": "user", "content": "hi"}]) == "written"
+    assert model.chat([{"role": "user", "content": "hi"}]) == "written"
+    assert fake_repo.tokenizer.template["enable_thinking"] is False
+    assert fake_repo.tokenizer.decoded == [4, 5]  # the three prompt tokens are left out
+    assert fake_repo.built == ["org/chat"]
 
 
 def test_a_local_judge_has_the_identity_of_the_same_name_served():
