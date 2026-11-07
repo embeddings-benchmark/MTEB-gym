@@ -68,9 +68,13 @@ def test_decider_without_its_package_says_which_extra(monkeypatch):
         decider.DeciderModel(DECIDER).decide("score", "s", "q")
 
 
-def test_decider_with_a_url_is_its_server():
-    model = load_model(DECIDER, "http://server/v1")
-    assert isinstance(model, systemone.SystemOne) and model.model == DECIDER
+def test_decider_has_one_route_so_grades_in_one_cache_cannot_mix():
+    from mteb_gym import DecisionModel
+
+    with pytest.raises(ValueError, match="runs in this process.*Leave out its URL"):
+        load_model(DECIDER, "http://server/v1")
+    with pytest.raises(ValueError, match="runs in this process.*Leave out its URL"):
+        DecisionModel(DECIDER, base_url="http://server/v1")
 
 
 def test_v11_without_a_url_says_how_to_serve_it():
@@ -358,7 +362,6 @@ def test_decision_model_picks_by_what_it_knows(monkeypatch, s1_server):
 
     assert isinstance(DecisionModel(JEV9, base_url="http://x", api_key="k"), JevServer)
     assert isinstance(DecisionModel(V11, base_url="http://x"), v11.V11Model)
-    assert isinstance(DecisionModel(DECIDER, base_url="http://x"), systemone.SystemOne)
     assert isinstance(DecisionModel("org/unknown", base_url="http://x"), systemone.SystemOne)
     monkeypatch.setattr("mteb_gym.models.repo_files", lambda name: {"judge_config.json"})
     assert isinstance(DecisionModel("org/new", base_url="http://x"), JevServer)

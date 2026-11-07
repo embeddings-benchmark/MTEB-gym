@@ -6,7 +6,6 @@ import threading
 
 from ..local import fetch_folder, fits, shared
 from .known import pinned
-from .systemone import SystemOne
 
 _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 _MAX_TOKENS = 3072
@@ -39,4 +38,6 @@ class DeciderModel:
 
 
 def load(name: str, url: str | None, api_key: str | None):
-    return SystemOne(name, url, api_key=api_key) if url else shared(DeciderModel, name)
+    if url:
+        raise ValueError(f"{name} runs in this process through the decider-ai package. Leave out its URL.")
+    return shared(DeciderModel, name)
