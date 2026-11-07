@@ -1,5 +1,5 @@
 """The decision models that work by name. One small file per family: an object with `.model` and
-`decide(kind, state, question, options=None)`, which returns a probability per option. To add one, write its file and list
+`decide(kind, state, question, options=None)`, for the kinds "score" and "choice", which returns a probability per option. To add one, write its file and list
 it in `known`. A new model in the format of JEV-9B and JEV-27B works without an entry, at its latest version."""
 
 from __future__ import annotations

@@ -5,9 +5,9 @@ from __future__ import annotations
 import threading
 
 from ..local import fetch_folder, fits, shared
+from ..serving import GRADES
 from .known import pinned
 
-_OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 _MAX_TOKENS = 3072
 
 
@@ -24,11 +24,13 @@ class DeciderModel:
         try:
             from decider.infer import Decider
         except ImportError as e:
-            raise ImportError(f"{self.model} needs the `decider` extra: pip install 'mteb-gym[decider]' ({e})") from e
+            raise ImportError(
+                f"{self.model} needs the `decider` extra: pip install 'mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git' ({e})"
+            ) from e
         self._net = Decider(fetch_folder(self.model, self.revision))
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
-        options = _OPTIONS.get(kind, options)
+        options = options or GRADES
         with self._lock, fits(self.model):
             if self._net is None:
                 self._load()

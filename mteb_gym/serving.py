@@ -1,10 +1,15 @@
-"""What a client of a server needs: a request that survives a busy server, and knowing when an input does not fit."""
+"""What a client of a server needs: reaching it, a request that survives a busy server, and knowing when an input does
+not fit."""
 
 from __future__ import annotations
 
+import math
+import os
 import time
 
 import httpx
+
+GRADES = [str(i) for i in range(6)]
 
 READ_ONE_TOKEN = {  # the full distribution of the next token: a model's generation defaults must not truncate it
     "max_tokens": 1,
@@ -16,6 +21,32 @@ READ_ONE_TOKEN = {  # the full distribution of the next token: a model's generat
     "add_special_tokens": False,
     "return_tokens_as_token_ids": True,
 }
+
+
+def server_url(url: str) -> str:
+    return url.rstrip("/").removesuffix("/v1")
+
+
+def server_client(api_key: str | None) -> httpx.Client:
+    # a busy server queues requests, so the timeout is long
+    key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
+    return httpx.Client(timeout=600.0, headers={"Authorization": f"Bearer {key}"})
+
+
+def served_models(http: httpx.Client, base_url: str) -> list[dict]:
+    """What a server lists at /v1/models."""
+    try:
+        r = http.get(f"{base_url}/v1/models")
+        r.raise_for_status()
+        return r.json()["data"]
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        raise ValueError(f"could not reach {base_url}: {e!r}") from e
+
+
+def softmax(options: list[str], logits: list[float]) -> dict[str, float]:
+    largest = max(logits)
+    weights = [math.exp(z - largest) for z in logits]
+    return {o: w / sum(weights) for o, w in zip(options, weights, strict=True)}
 
 
 class InputTooLong(Exception):
@@ -30,7 +61,7 @@ def _too_long(status: int | None, message: str) -> bool:
 
 
 def post_json(http: httpx.Client, url: str, body: dict, max_retries: int) -> dict:
-    # a busy server queues requests, so the timeout is long and retries back off; a client error is final
+    # retries back off; a client error is final
     error = ""
     for attempt in range(max_retries + 1):
         if attempt:

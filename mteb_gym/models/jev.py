@@ -4,19 +4,17 @@ No entry is needed for a new one. Prompt, one forward pass, a probability per op
 from __future__ import annotations
 
 import json
-import math
-import os
+import logging
 import threading
 from pathlib import Path
 
-import httpx
-
 from ..local import fetch, fetch_folder, fits, repo_files, shared, transformers_and_peft
-from ..serving import READ_ONE_TOKEN, post_json
+from ..serving import GRADES, READ_ONE_TOKEN, post_json, served_models, server_client, server_url, softmax
 from .known import pinned
 
+logger = logging.getLogger(__name__)
+
 _LETTERS = "ABCDEFGHIJKLMNOP"
-_OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 
 
 def _decision_head(name: str, revision: str | None) -> dict:
@@ -50,7 +48,7 @@ def is_jev_repo(files: set[str]) -> bool:
 
 def decision_prompt(kind: str, state: str, question: str, options: list[str] | None) -> tuple[list[str], str]:
     """The options of a decision and its prompt, as the model cards write them."""
-    options = _OPTIONS.get(kind, options)
+    options = options or GRADES
     lines = [f"{_LETTERS[i]}) {o}" for i, o in enumerate(options)] if kind == "choice" else options
     text = f"[kind] {kind}\n[state] {state}\n[question] {question}\n[options]\n" + "\n".join(lines) + "\n[decision]:"
     return options, text
@@ -64,20 +62,12 @@ class JevServer:
 
     how = "decision model"
 
-    def __init__(
-        self,
-        model: str,
-        base_url: str,
-        api_key: str | None = None,
-        timeout: float = 600.0,
-        max_retries: int = 6,
-    ):
+    def __init__(self, model: str, base_url: str, api_key: str | None = None, max_retries: int = 6):
         self.model = model
         self.revision = pinned(model)
-        self.base_url = base_url.rstrip("/").removesuffix("/v1")
+        self.base_url = server_url(base_url)
         self.max_retries = max_retries
-        key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
-        self._http = httpx.Client(timeout=timeout, headers={"Authorization": f"Bearer {key}"})
+        self._http = server_client(api_key)
         self._lock = threading.Lock()
         self._head = None
 
@@ -91,10 +81,13 @@ class JevServer:
                 self._temperature = json.load(f)["per_kind"]
             self._served_as = self.model if head.get("merged") else "jev-decision"
             self._serve = serve_command(self.model, head, self.revision)
-            r = self._http.get(f"{self.base_url}/v1/models")
-            r.raise_for_status()
-            if self._served_as not in {m["id"] for m in r.json()["data"]}:
+            served = served_models(self._http, self.base_url)
+            if self._served_as not in {m["id"] for m in served}:
                 raise ValueError(f"{self.base_url} does not serve {self._served_as}. Restart it:\n{self._serve}")
+            names = " ".join(f"{m['id']} {m.get('root')}" for m in served)
+            # a renamed folder also lands here, so a warning and not an error
+            if self.model.split("/")[-1].lower() not in names.lower():
+                logger.warning("%s does not look like %s: it serves %s", self.base_url, self.model, names)
             self._head = head
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
@@ -119,9 +112,7 @@ class JevServer:
             raise ValueError(f"{self.base_url} left out options' probabilities. Restart it:\n{self._serve}")
         bias = self._head["bias"][start : start + len(options)]
         logits = [(found[i] + b) / self._temperature[kind] for i, b in zip(ids, bias, strict=True)]
-        largest = max(logits)
-        weights = [math.exp(z - largest) for z in logits]
-        return {o: w / sum(weights) for o, w in zip(options, weights, strict=True)}
+        return softmax(options, logits)
 
 
 class LocalDecisionModel:

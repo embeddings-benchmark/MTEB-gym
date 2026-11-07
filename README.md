@@ -217,13 +217,14 @@ If a model doesn't fit or can't load in your process, the error gives the comman
 
 | Model | In your process | On your own server |
 |---|---|---|
-| [JEV-9B](https://huggingface.co/autotrust/JEV-9B), [JEV-27B](https://huggingface.co/autotrust/JEV-27B), [JEV-35B](https://huggingface.co/autotrust/JEV-35B), and others in their format | Yes | vLLM, as below |
-| [GEV-26B](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
-| [decider-4b](https://huggingface.co/Mapika/decider-4b) | Yes, with `pip install "mteb-gym[decider]"` | No |
-| [JEV-27B v1.1](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
-| [d1-3B](https://huggingface.co/LiquidAI/d1-3B), [strands-decider-2B](https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610) | No | Its own server, as its model card describes |
+| [`autotrust/JEV-9B`](https://huggingface.co/autotrust/JEV-9B), [`autotrust/JEV-27B`](https://huggingface.co/autotrust/JEV-27B), others in their format | Yes | vLLM, as below |
+| [`autotrust/JEV-35B`](https://huggingface.co/autotrust/JEV-35B) | Yes | vLLM, with the command its error gives |
+| [`autotrust/GEV-26B-Decide`](https://huggingface.co/autotrust/GEV-26B-Decide) | Yes | Patched vLLM, as its model card describes |
+| [`Mapika/decider-4b`](https://huggingface.co/Mapika/decider-4b) | With `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"` | No |
+| [`autotrust/AutoTrust-JEV-27B-v1.1`](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | No | Its own setup, as its model card describes |
+| [`LiquidAI/d1-3B`](https://huggingface.co/LiquidAI/d1-3B), [`StrandsAgents/strands-decider-2B-qwen3.5-v1-2610`](https://huggingface.co/StrandsAgents/strands-decider-2B-qwen3.5-v1-2610) | No | Its own server, as its model card describes |
 
-For another decision model, serve it on a server with `/v1/systemone`, as its model card describes. Pass its name and URL if its repo marks it as one, or say so:
+Another decision model must be on a server with `/v1/systemone`. Pass its name and URL if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
 
 ```python
 judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
@@ -236,7 +237,8 @@ class MyJudge:
     model = "org/my-model"
 
     def decide(self, kind, state, question, options=None):
-        return {"0": 0.1, "1": 0.2, "2": 0.4, "3": 0.2, "4": 0.1, "5": 0.0}  # a probability per option
+        # kind is "score", with grades 0 to 5, or "choice"; a probability per option
+        return {"0": 0.1, "1": 0.2, "2": 0.4, "3": 0.2, "4": 0.1, "5": 0.0}
 ```
 
 ### Serving a model
@@ -252,7 +254,7 @@ vllm serve Qwen/Qwen3.5-4B --port 8000
 A decision model is served with [vLLM](https://docs.vllm.ai), with its decision module:
 
 ```bash
-hf download autotrust/JEV-9B --local-dir JEV-9B
+hf download autotrust/JEV-9B --revision 7ac669b8fb476ba926491e3d1c39f9330d68dbed --local-dir JEV-9B
 vllm serve JEV-9B --enable-lora --max-lora-rank 32 --lora-modules jev-decision=JEV-9B/adapter_vllm \
     --logprobs-mode processed_logprobs --port 8001
 ```

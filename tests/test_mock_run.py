@@ -679,7 +679,7 @@ def test_a_run_prints_its_judge_and_generator_without_any_logging_set_up(tmp_pat
         workers=1,
     )
     out = capsys.readouterr().out
-    assert "judge: mock (your own object)\n" in out and "generator: mock (mock model)\n" in out
+    assert "judge: mock (mock model)\n" in out and "generator: mock (mock model)\n" in out
 
 
 @pytest.mark.parametrize("judging", ["pointwise", "pairwise"])

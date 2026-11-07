@@ -64,7 +64,7 @@ def test_decider_grades_through_its_package_and_loads_once(decider_package):
 
 def test_decider_without_its_package_says_which_extra(monkeypatch):
     monkeypatch.setitem(sys.modules, "decider.infer", None)
-    with pytest.raises(ImportError, match=r"pip install 'mteb-gym\[decider\]'"):
+    with pytest.raises(ImportError, match=r"pip install 'mteb-gym\[decider\] @ git"):
         decider.DeciderModel(DECIDER).decide("score", "s", "q")
 
 
@@ -80,7 +80,7 @@ def test_decider_has_one_route_so_grades_in_one_cache_cannot_mix():
 def test_v11_without_a_url_says_how_to_serve_it():
     with pytest.raises(ValueError, match="cannot be loaded directly") as e:
         load_model(V11)
-    assert "serve_vllm.sh" in str(e.value) and "vllm==0.31.0" in str(e.value) and "judge_url" in str(e.value)
+    assert "serve_vllm.sh" in str(e.value) and "vllm==0.31.0" in str(e.value) and "its URL" in str(e.value)
 
 
 READOUT = {"readout_token_ids": [50, 51, 52, 53, 54, 55, 56], "codes": ["A", "B", "C", "D", "E", "F", "G"]}
@@ -89,12 +89,24 @@ READOUT = {"readout_token_ids": [50, 51, 52, 53, 54, 55, 56], "codes": ["A", "B"
 @pytest.fixture
 def v11_server(monkeypatch, tmp_path):
     """Its repo files, its tokenizer and its server standing in. Returns what they were asked."""
-    seen = NS(requests=[], paths=[], template=None, downloads=[], tokenizers=[], logprobs=None, temperature=1.0)
+    seen = NS(
+        requests=[],
+        paths=[],
+        template=None,
+        downloads=[],
+        tokenizers=[],
+        logprobs=None,
+        temperature=1.0,
+        served="AutoTrust-JEV-27B-v1.1",
+        dead=False,
+    )
 
     def handle(request):
         seen.paths.append(request.url.path)
+        if seen.dead:
+            raise httpx.ConnectError("refused")
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{"id": "served-name"}]})
+            return httpx.Response(200, json={"data": [{"id": seen.served}]})
         body = json.loads(request.content)
         seen.requests.append(body)
         found = seen.logprobs or {f"token_id:{t}": -0.1 * (t - 50) for t in body["allowed_token_ids"]}
@@ -137,7 +149,7 @@ def test_v11_asks_in_its_own_prompt_and_reads_its_own_tokens(v11_server):
         "A: 0\nB: 1\nC: 2\nD: 3\nE: 4\nF: 5\n\nReply with only the code of the best option."
     )
     assert v11_server.template == {"tokenize": False, "add_generation_prompt": True, "enable_thinking": False}
-    assert sent["model"] == "served-name" and sent["allowed_token_ids"] == [50, 51, 52, 53, 54, 55]
+    assert sent["model"] == "AutoTrust-JEV-27B-v1.1" and sent["allowed_token_ids"] == [50, 51, 52, 53, 54, 55]
     assert sent["logprobs"] == 6 and sent["max_tokens"] == 1 and sent["add_special_tokens"] is False
     model.decide("score", "s", "q")
     assert v11_server.paths == ["/v1/models", "/v1/completions", "/v1/completions"]
@@ -171,7 +183,7 @@ def test_every_listed_model_is_a_real_repo_name():
     assert all("/" in name and callable(loader) for name, loader in MODELS.items())
     assert set(MODELS) == set(known.KNOWN) >= {DECIDER, V11, "autotrust/JEV-27B"}
     assert known.pinned("autotrust/JEV-27B").startswith("14b4252")
-    assert all(len(revision) == 40 for _, revision in known.KNOWN.values())
+    assert all(revision is None or len(revision) == 40 for _, revision in known.KNOWN.values())
 
 
 JEV9, PIN9 = "autotrust/JEV-9B", known.pinned("autotrust/JEV-9B")
@@ -181,12 +193,12 @@ JEV9, PIN9 = "autotrust/JEV-9B", known.pinned("autotrust/JEV-9B")
 def repo_reads(monkeypatch, tmp_path):
     """Every read of a repo, with the revision it asked for."""
     seen = []
-    head = {"bias": [0.0] * 24, "verbalizer_ids": list(range(24)), "slots": {"ranges": {"noul": [0, 2]}}}
+    head = {"bias": [0.0] * 24, "verbalizer_ids": list(range(24)), "slots": {"ranges": {"choice": [0, 24]}}}
 
     def download(name, file, revision=None):
         seen.append((file, revision))
         path = tmp_path / file.replace("/", "_")
-        path.write_text(json.dumps(head if "head" in file else {"per_kind": {"noul": 1.0}}))
+        path.write_text(json.dumps(head if "head" in file else {"per_kind": {"choice": 1.0}}))
         return str(path)
 
     monkeypatch.setattr("mteb_gym.local.hf_hub_download", download)
@@ -205,7 +217,7 @@ def test_a_known_served_model_reads_its_files_at_its_revision(repo_reads):
 
     for model in (load_model(JEV9, "http://server/v1"), DecisionModel(JEV9, "http://server/v1")):
         model._http = httpx.Client(transport=httpx.MockTransport(handle))
-        model.decide("noul", "s", "q")
+        model.decide("choice", "s", "q", ["x", "y"])
     assert repo_reads == [("adapter_vllm/decision_head.json", PIN9), ("calibration.json", PIN9)] * 2
 
 
@@ -334,12 +346,6 @@ def test_system_one_score_and_choice_in_our_option_order(s1_server):
     }
 
 
-def test_system_one_noul_is_the_probability_of_true(s1_server):
-    model = systemone.SystemOne("org/m", "http://server")
-    assert model.decide("noul", "s", "q") == pytest.approx({"false": 0.75, "true": 0.25})
-    assert s1_server.bodies[0]["questions"]["q"] == {"type": "noul", "instructions": "q"}
-
-
 @pytest.mark.parametrize("status", [404, 501])
 def test_a_server_without_the_route_says_so_at_once(s1_server, status):
     s1_server.status = status
@@ -371,7 +377,7 @@ def test_decision_model_picks_by_what_it_knows(monkeypatch, s1_server):
 def test_a_marked_repo_uses_the_server_or_says_to_serve_it(monkeypatch, marker):
     monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {marker})
     assert isinstance(load_model("org/marked", "http://server/v1"), systemone.SystemOne)
-    with pytest.raises(ValueError, match="org/marked cannot be loaded directly.*judge_url"):
+    with pytest.raises(ValueError, match="org/marked cannot be loaded directly.*its URL"):
         load_model("org/marked")
 
 
@@ -392,12 +398,153 @@ def test_system_one_is_not_public():
 @pytest.mark.parametrize(
     ("name", "command"),
     [
-        ("LiquidAI/d1-3B", "vllm serve LiquidAI/d1-3B --logprobs-mode raw_logprobs"),
+        ("LiquidAI/d1-3B", "vllm serve LiquidAI/d1-3B --revision 051bcc4"),
         ("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610", "strands-decider serve StrandsAgents/"),
     ],
 )
 def test_a_listed_server_model_says_how_to_serve_it_and_takes_a_url(name, command):
     with pytest.raises(ValueError, match="cannot be loaded directly") as e:
         load_model(name)
-    assert command in str(e.value) and "judge_url" in str(e.value)
+    assert command in str(e.value) and "its URL" in str(e.value)
     assert isinstance(load_model(name, "http://server/v1"), systemone.SystemOne)
+
+
+def _jev_on(models, name=JEV9):
+    """A JEV server whose /v1/models lists `models`."""
+    from mteb_gym import DecisionModel
+
+    answer = {"choices": [{"logprobs": {"top_logprobs": {}}}]}
+    answer["choices"][0]["logprobs"]["top_logprobs"] = [{f"token_id:{i}": -1.0 for i in range(24)}]
+
+    def handle(request):
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": models})
+        return httpx.Response(200, json=answer)
+
+    model = DecisionModel(name, base_url="http://server/v1")
+    model._http = httpx.Client(transport=httpx.MockTransport(handle))
+    return model
+
+
+# as `vllm serve JEV-9B` with the card's flags answered in a real run
+RECORDED_9B = [
+    {"id": "JEV-9B", "root": "JEV-9B", "parent": None},
+    {"id": "jev-decision", "root": "JEV-9B/adapter_vllm", "parent": "JEV-9B"},
+]
+
+
+def test_a_server_of_the_named_model_passes_without_a_warning(repo_reads, caplog):
+    _jev_on(RECORDED_9B).decide("choice", "s", "q", ["x", "y"])
+    paper = [
+        {"id": "autotrust/JEV-27B", "root": "/hub/models--AutoTrust--jev-27b/snapshots/14b"},
+        {"id": "jev-decision", "root": "/x"},
+    ]
+    _jev_on(paper, "autotrust/JEV-27B").decide("choice", "s", "q", ["x", "y"])
+    assert "does not look like" not in caplog.text
+
+
+def test_a_server_of_another_model_warns(repo_reads, caplog):
+    other = [{"id": "JEV-27B", "root": "JEV-27B"}, {"id": "jev-decision", "root": "JEV-27B/adapter_vllm"}]
+    _jev_on(other).decide("choice", "s", "q", ["x", "y"])
+    assert f"does not look like {JEV9}" in caplog.text and "JEV-27B" in caplog.text
+
+
+def test_a_dead_server_says_it_could_not_be_reached(repo_reads, monkeypatch):
+    def dead(request):
+        raise httpx.ConnectError("refused")
+
+    model = _jev_on(RECORDED_9B)
+    model._http = httpx.Client(transport=httpx.MockTransport(dead))
+    with pytest.raises(ValueError, match="could not reach http://server"):
+        model.decide("choice", "s", "q", ["x", "y"])
+
+
+@pytest.mark.parametrize("name", ["AutoTrust-JEV-27B-v1.1", V11])
+def test_v11_accepts_its_own_server(v11_server, name):
+    v11_server.served = name
+    load_model(V11, "http://server/v1").decide("choice", "s", "q", ["x", "y"])
+    assert v11_server.requests[0]["model"] == name
+
+
+def test_v11_refuses_a_server_of_another_model(v11_server):
+    v11_server.served = "Qwen/Qwen3.5-4B"
+    with pytest.raises(ValueError, match="(?s)does not serve .*AutoTrust-JEV-27B-v1.1.*serve_vllm.sh"):
+        load_model(V11, "http://server/v1").decide("score", "s", "q")
+    assert v11_server.requests == []
+
+
+def test_v11_on_a_dead_server_says_it_could_not_be_reached(v11_server):
+    v11_server.dead = True
+    with pytest.raises(ValueError, match="could not reach http://server"):
+        load_model(V11, "http://server/v1").decide("score", "s", "q")
+
+
+@pytest.mark.parametrize("setting", ["key", "base"])
+def test_a_key_does_not_turn_a_decision_repo_into_a_chat_model(monkeypatch, setting):
+    from mteb_gym.llm import LLM
+    from mteb_gym.local import shared
+    from mteb_gym.models.jev import LocalDecisionModel
+
+    shared.cache_clear()
+    key = "k" if setting == "key" else None
+    if setting == "base":
+        monkeypatch.setenv("OPENAI_BASE_URL", "http://provider/v1")
+    monkeypatch.setattr(
+        "mteb_gym.llm.repo_files",
+        lambda name: (
+            {"judge_config.json", "head.safetensors"}
+            if name == "org/jev"
+            else {"decider_config.json"}
+            if name == "org/marked"
+            else None
+        ),
+    )
+    assert isinstance(load_model("org/jev", api_key=key), LocalDecisionModel)
+    with pytest.raises(ValueError, match="org/marked cannot be loaded directly"):
+        load_model("org/marked", api_key=key)
+    assert isinstance(load_model("gpt-x", api_key=key), LLM)
+
+
+def test_a_name_the_hub_cannot_give_says_found_or_accessible(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: None)
+    with pytest.raises(ValueError, match="not found on Hugging Face or not accessible"):
+        load_model("org/absent")
+
+
+def test_each_kind_of_judge_prints_what_it_is(capsys):
+    from mteb_gym import DecisionModel, run
+
+    run_module = sys.modules["mteb_gym.run"]
+    run_module._load("judge", DecisionModel(JEV9, base_url="http://x"), None)
+    run_module._load("judge", NS(model="mine", decide=lambda: None), None)
+    run_module._load("judge", "mock", None)
+    assert (
+        capsys.readouterr().out
+        == f"judge: {JEV9} (decision model)\njudge: mine (your own object)\njudge: mock (mock model)\n"
+    )
+    assert callable(run)
+
+
+def test_decide_answers_are_a_softmax():
+    from mteb_gym.serving import softmax
+
+    assert softmax(["a", "b"], [0.0, math.log(3)]) == pytest.approx({"a": 1 / 4, "b": 3 / 4})
+
+
+def test_the_readme_downloads_the_pinned_revision():
+    from pathlib import Path
+
+    readme = (Path(__file__).parent.parent / "README.md").read_text()
+    assert f"hf download {JEV9} --revision {PIN9}" in readme
+
+
+def test_a_pin_is_used_or_absent():
+    assert known.pinned("LiquidAI/d1-3B") in systemone._SERVE["LiquidAI/d1-3B"]
+    assert known.pinned("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610") is None
+
+
+def test_the_library_no_longer_asks_noul():
+    with pytest.raises(KeyError):
+        systemone.SystemOne("org/m", "http://x").decide("noul", "s", "q")

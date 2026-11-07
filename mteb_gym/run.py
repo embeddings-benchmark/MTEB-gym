@@ -182,10 +182,9 @@ def _check_coverage(verdicts: list[Verdict]) -> None:
 def _load(role: str, model, url: str | None):
     """A judge or generator by name, saying what it turned out to be: on stdout, so a Python caller sees it too."""
     client = load_model(model, url)
-    if isinstance(model, str):
-        print(f"{role}: {model} ({client.how})")
-    elif client is not None:
-        print(f"{role}: {model_id(client)} (your own object)")
+    if client is not None:
+        name = model if isinstance(model, str) else model_id(client)
+        print(f"{role}: {name} ({getattr(client, 'how', 'your own object')})")
     return client
 
 

@@ -12,12 +12,11 @@ import os
 import re
 from typing import Protocol
 
-import httpx
 from openai import OpenAI
 
 from .local import LocalChatModel, repo_files, shared
 from .models import MODELS, decision_model_in_repo
-from .serving import InputTooLong, _too_long
+from .serving import InputTooLong, _too_long, served_models, server_client, server_url
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +121,9 @@ class LLM:
 
 
 def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
-    key = api_key or os.environ.get("MTEB_GYM_API_KEY") or "EMPTY"
-    models = f"{url.rstrip('/').removesuffix('/v1')}/v1/models"
     try:
-        served = httpx.get(models, headers={"Authorization": f"Bearer {key}"}, timeout=30).json()["data"]
-        return "jev-decision" in {m["id"] for m in served}
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):  # any other kind of server: not one
+        return "jev-decision" in {m["id"] for m in served_models(server_client(api_key), server_url(url))}
+    except ValueError:  # any other kind of server: not one
         return False
 
 
@@ -141,25 +137,26 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
         return MockLLM()
     if model in MODELS:
         return MODELS[model](model, url, api_key)
+    files = repo_files(model)
+    decision = decision_model_in_repo(model, files or set(), url, api_key)
+    if decision:
+        return decision
     if url:
-        files = repo_files(model)
         if files is None and _serves_a_decision_module(url, api_key):
             raise ValueError(
                 f"{url} serves a decision model, but {model!r} cannot be read as a Hugging Face repo. "
                 "Use the model's repo name, such as autotrust/JEV-9B. If offline, it must be in the local cache."
             )
-        decision = decision_model_in_repo(model, files or set(), url, api_key)
-        return decision or LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
+        return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
     if api_key or os.environ.get("OPENAI_BASE_URL"):
         return LLM(model, api_key=api_key, extra_body=extra_body)
-    files = repo_files(model)
     if files is not None:
-        return decision_model_in_repo(model, files, None, None) or shared(LocalChatModel, model)
+        return shared(LocalChatModel, model)
     if os.environ.get("OPENAI_API_KEY"):
         return LLM(model, extra_body=extra_body)
     raise ValueError(
-        f"{model!r} was not found on Hugging Face or in its local cache. Use a model that is there, set OPENAI_API_KEY to reach it through an API, "
-        "or pass the URL where it is served."
+        f"{model!r} was not found on Hugging Face or not accessible there, and is not in its local cache. Use a model that "
+        "is there, set OPENAI_API_KEY to reach it through an API, or pass the URL where it is served."
     )
 
 
