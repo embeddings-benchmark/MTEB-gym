@@ -17,6 +17,8 @@ from typing import Protocol
 import httpx
 from openai import OpenAI
 
+from .local import load_local, repo_files
+
 logger = logging.getLogger(__name__)
 
 
@@ -166,8 +168,9 @@ class DecisionModel:
 
 
 def load_model(model, url: str | None = None, api_key: str | None = None, extra_body: dict | None = None):
-    """A generator or judge by name: an API model, or a model served at `url`. A server with a /v1/decide endpoint is a
-    decision model. Anything that is not a name is returned as it is."""
+    """A generator or judge by name. With `url`, the model served there: a server with a /v1/decide endpoint is a
+    decision model. Without it, a model on Hugging Face is loaded here on first use, and any other goes to the API.
+    Anything that is not a name is returned as it is."""
     if not isinstance(model, str):
         return model
     if model == "mock":
@@ -177,7 +180,18 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
         probe = f"{url.rstrip('/').removesuffix('/v1')}/v1/decide"  # an empty question: only whether the route exists
         if httpx.post(probe, json={}, headers={"Authorization": f"Bearer {key}"}, timeout=30).status_code != 404:
             return DecisionModel(model, url, api_key=api_key)
-    return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
+        return LLM(model, base_url=url, api_key=api_key, extra_body=extra_body)
+    if api_key or os.environ.get("OPENAI_BASE_URL"):
+        return LLM(model, api_key=api_key, extra_body=extra_body)
+    files = repo_files(model)
+    if files is not None:
+        return load_local(model, files)
+    if os.environ.get("OPENAI_API_KEY"):
+        return LLM(model, extra_body=extra_body)
+    raise ValueError(
+        f"{model!r} was not found on Hugging Face. Use a model that is there, set OPENAI_API_KEY to reach it through an API, "
+        "or pass the URL where it is served."
+    )
 
 
 def llm_settings(client) -> dict:

@@ -21,7 +21,7 @@ MTEB Gym ranks embedding models on your own documents. You don't need labels or 
 ## Installation
 
 ```bash
-pip install git+https://github.com/embeddings-benchmark/MTEB-gym.git
+pip install "mteb-gym[local] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
 ```
 
 ## Quickstart
@@ -32,15 +32,13 @@ import mteb_gym as gym
 result = gym.run(
     corpus="path/to/docs",
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
-    judge="autotrust/JEV-27B",
-    judge_url="http://localhost:8001",
-    generator="deepseek-ai/DeepSeek-V4-Flash",
-    generator_url="http://localhost:8000/v1",
+    judge="autotrust/JEV-9B",
+    generator="Qwen/Qwen3.5-4B",
 )
 print(result.leaderboard)
 ```
 
-The judge and the generator can be [any model](#choosing-the-judge-and-generator), served by you or through an API.
+This downloads both from Hugging Face and needs about 25 GB of GPU memory. Larger models are stronger: see [Choosing the judge and generator](#choosing-the-judge-and-generator).
 
 ## How it works
 
@@ -193,23 +191,25 @@ mteb-gym submit --create-pr  # open a pull request on each
 
 ## Choosing the judge and generator
 
-Change a name to change a model. Give a URL for a model you serve yourself:
+Change a name to change a model.
 
-```python
-gym.run(..., judge="autotrust/JEV-27B", judge_url="http://localhost:8001")
-gym.run(..., judge="gpt-5.4", generator="gpt-5.4-mini")  # through an API, with OPENAI_API_KEY set
-```
+| | Example |
+|---|---|
+| From Hugging Face | `judge="autotrust/JEV-9B"` |
+| Your own server (vLLM, SGLang or Ollama) | `judge="autotrust/JEV-27B", judge_url="http://localhost:8001"` |
+| An API, with `OPENAI_API_KEY` set | `generator="gpt-5.4-mini"` |
 
-- **Judge:** a decision model with a `/v1/decide` endpoint, such as [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
-- **Generator:** any OpenAI-compatible chat model.
+- **Judge:** any decision model on Hugging Face in the format of [JEV-9B](https://huggingface.co/autotrust/JEV-9B) and [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
+- **Generator:** a chat model.
 - **Models to compare:** any model `mteb` can load.
+
+Serve larger models for large runs. A model too big for your GPU says so before it downloads.
 
 ## Command line
 
 ```bash
 mteb-gym run --corpus path/to/docs --models mteb/baseline-bm25s BAAI/bge-small-en-v1.5 \
-    --judge autotrust/JEV-27B --judge-url http://localhost:8001 \
-    --generator deepseek-ai/DeepSeek-V4-Flash --generator-url http://localhost:8000/v1
+    --judge autotrust/JEV-9B --generator Qwen/Qwen3.5-4B
 ```
 
 ## Contributing

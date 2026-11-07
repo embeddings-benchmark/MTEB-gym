@@ -183,6 +183,8 @@ def _resolve_judging(judging: str, judge, generator, queries) -> str:
     """The judging mode, after checking the judge can do it."""
     if judging not in ("pointwise", "pairwise"):
         raise ValueError(f"judging must be 'pointwise' or 'pairwise', not {judging!r}")
+    if is_decision_model(generator):
+        raise ValueError("a decision model cannot write queries: choose a chat model as the generator")
     if is_decision_model(judge) and generator is None and queries == "synthetic":
         raise ValueError("a decision model cannot write queries: pass generator=, or queries='original' / your own")
     return judging
@@ -296,6 +298,8 @@ def predict(
             "and predictions are stored per query set. Pass generator=, or queries='original' / your own."
         )
     generator = load_model(generator, generator_url)
+    if is_decision_model(generator):
+        raise ValueError("a decision model cannot write queries: choose a chat model as the generator")
     cache = resolve_cache_folder(cache_folder)
     corp = corpus_mod.load(corpus)
     gen = QueryGenerator(

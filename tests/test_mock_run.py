@@ -643,3 +643,19 @@ def test_run_and_predict_pass_the_cache_and_the_cap_on_to_retrieval(tmp_path, mo
     rec = run(docs, ["mteb/baseline-bm25s"], MockLLM(), judging="pointwise", output_folder=tmp_path / "out", **shared)
     assert seen == [("vectors", 64), ("vectors", 64)]
     assert "-max64" in path.parent.parent.name and cache_files(rec.record, tmp_path / "c")["predictions"] == [path]
+
+
+def test_a_decision_model_is_refused_as_a_generator(tmp_path):
+    from mteb_gym import predict, run
+
+    class Decides:
+        model = "d"
+
+        def decide(self, kind, state, question, options=None):
+            return {}
+
+    (tmp_path / "a.txt").write_text("text")
+    with pytest.raises(ValueError, match="cannot write queries"):
+        run(tmp_path, ["m"], MockLLM(), Decides(), output_folder=tmp_path / "o", cache_folder=tmp_path / "c")
+    with pytest.raises(ValueError, match="cannot write queries"):
+        predict(tmp_path, "m", generator=Decides(), cache_folder=tmp_path / "c")
