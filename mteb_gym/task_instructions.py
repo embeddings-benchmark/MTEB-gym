@@ -1,4 +1,4 @@
-"""What a good result is, for a set of MTEB tasks: pass one as `task_instruction` to use it."""
+"""A sentence describing the retrieval task, for a set of MTEB tasks: pass one as `task_instruction` to use it."""
 
 _STACKEXCHANGE = "Given a {} question, retrieve web documents that provide the information needed to answer it"
 
