@@ -251,7 +251,7 @@ Any other decision model must be on a server with `/v1/systemone`. Pass its name
 judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
 ```
 
-To support a model that has no such server, add a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+To support a model that has no such server, add a small file with a `ModelMeta` in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
 
 ```python
 class MyJudge:

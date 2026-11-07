@@ -13,9 +13,10 @@ import pytest
 
 from mteb_gym.judge import is_decision_model
 from mteb_gym.llm import load_model
-from mteb_gym.models import MODELS, decider, known, systemone, v11
+from mteb_gym.models import MODEL_REGISTRY, decider, get_model_meta, get_model_metas, systemone, v11
 
 DECIDER, V11 = "Mapika/decider-4b", "autotrust/AutoTrust-JEV-27B-v1.1"
+JEV9, PIN9 = "autotrust/JEV-9B", get_model_meta("autotrust/JEV-9B").revision
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +61,7 @@ def test_decider_grades_through_its_package_and_loads_once(decider_package):
     assert questions == [{"question": "the question", "options": options, "_type": "score"}]
     assert model.decide("choice", "s", "q", ["x", "y"]) == pytest.approx({"x": 1 / 3, "y": 2 / 3})
     assert decider_package.asked[-1][1][0]["_type"] == "choice"
-    assert decider_package.built == [f"{DECIDER}@{known.pinned(DECIDER)}"]
+    assert decider_package.built == [f"{DECIDER}@{get_model_meta(DECIDER).revision}"]
     assert load_model(DECIDER) is model
 
 
@@ -155,8 +156,8 @@ def test_v11_asks_in_its_own_prompt_and_reads_its_own_tokens(v11_server):
     assert sent["logprobs"] == 6 and sent["max_tokens"] == 1 and sent["add_special_tokens"] is False
     model.decide("score", "s", "q")
     assert v11_server.paths == ["/v1/models", "/v1/completions", "/v1/completions"]
-    assert v11_server.downloads == [(V11, "vllm_readout.json", known.pinned(V11))]
-    assert v11_server.tokenizers == [known.pinned(V11)]
+    assert v11_server.downloads == [(V11, "vllm_readout.json", get_model_meta(V11).revision)]
+    assert v11_server.tokenizers == [get_model_meta(V11).revision]
 
 
 def test_v11_choice_has_as_many_tokens_as_options(v11_server):
@@ -182,13 +183,44 @@ def test_v11_does_not_guess_probabilities_the_server_left_out(v11_server):
 
 
 def test_every_listed_model_is_a_real_repo_name():
-    assert all("/" in name and callable(loader) for name, loader in MODELS.items())
-    assert set(MODELS) == set(known.KNOWN) >= {DECIDER, V11, "autotrust/JEV-27B"}
-    assert known.pinned("autotrust/JEV-27B").startswith("14b4252")
-    assert all(revision is None or len(revision) == 40 for _, revision in known.KNOWN.values())
+    assert all("/" in name and callable(meta.loader) for name, meta in MODEL_REGISTRY.items())
+    assert {DECIDER, V11, "autotrust/JEV-27B"} <= set(MODEL_REGISTRY) == {meta.name for meta in get_model_metas()}
+    assert len(get_model_metas()) == 8
+    assert get_model_meta("autotrust/JEV-27B").revision.startswith("14b4252")
+    assert all(meta.revision is None or len(meta.revision) == 40 for meta in get_model_metas())
 
 
-JEV9, PIN9 = "autotrust/JEV-9B", known.pinned("autotrust/JEV-9B")
+def test_a_listed_model_on_a_server_gets_its_key():
+    from mteb_gym import DecisionModel
+
+    assert load_model(V11, "http://x", api_key="k")._http.headers["authorization"] == "Bearer k"
+    assert DecisionModel(JEV9, base_url="http://x", api_key="k")._http.headers["authorization"] == "Bearer k"
+
+
+def test_the_model_metas_are_public():
+    import mteb_gym
+
+    assert mteb_gym.get_model_meta(JEV9) is MODEL_REGISTRY[JEV9] and MODEL_REGISTRY[JEV9] in mteb_gym.get_model_metas()
+    assert set(mteb_gym.__all__) >= {"get_model_meta", "get_model_metas"}
+    with pytest.raises(KeyError):
+        mteb_gym.get_model_meta("org/absent")
+
+
+@pytest.mark.parametrize(
+    ("name", "revision"),
+    [
+        ("autotrust/JEV-9B", "7ac669b8fb476ba926491e3d1c39f9330d68dbed"),
+        ("autotrust/JEV-27B", "14b425269ed24452e0a5ad5a8f3e51d139647a88"),
+        ("autotrust/JEV-35B", "a5d0d580bb9324f0f4c07dcba5c5ca91e813e7c9"),
+        ("autotrust/GEV-26B-Decide", "eea849038e792cd09aa731d59d586f0eaf2c18f6"),
+        ("Mapika/decider-4b", "585473dec4fa93f0325c2bf02dda7273b61f44c1"),
+        ("autotrust/AutoTrust-JEV-27B-v1.1", "ae156900e9f338e423042b89e25d0fd8093064d4"),
+        ("LiquidAI/d1-3B", "051bcc464b01b9f92942b364d9586b0ef5912432"),
+        ("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610", None),
+    ],
+)
+def test_each_model_is_listed_at_the_revision_tested(name, revision):
+    assert get_model_meta(name).revision == revision
 
 
 @pytest.fixture
@@ -298,7 +330,7 @@ def test_the_command_to_serve_a_listed_model_downloads_its_revision():
     from mteb_gym.models import jev
 
     assert f"hf download {JEV9} --revision {PIN9} --local-dir JEV-9B" in jev.serve_command(JEV9, {}, PIN9)
-    assert known.pinned(V11) in v11._SERVE
+    assert get_model_meta(V11).revision in v11._SERVE
 
 
 GRADES = [str(i) for i in range(6)]
@@ -543,8 +575,8 @@ def test_the_readme_downloads_the_pinned_revision():
 
 
 def test_a_pin_is_used_or_absent():
-    assert known.pinned("LiquidAI/d1-3B") in systemone._SERVE["LiquidAI/d1-3B"]
-    assert known.pinned("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610") is None
+    assert get_model_meta("LiquidAI/d1-3B").revision in systemone._SERVE["LiquidAI/d1-3B"]
+    assert get_model_meta("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610").revision is None
 
 
 def test_the_library_no_longer_asks_noul():

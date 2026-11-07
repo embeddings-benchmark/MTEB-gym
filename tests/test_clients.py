@@ -725,7 +725,7 @@ def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkey
 
 def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo, monkeypatch):
     from mteb_gym import local
-    from mteb_gym.models import known
+    from mteb_gym.models import get_model_meta
     from mteb_gym.models.jev import LocalDecisionModel
 
     reads, loads = [], []
@@ -745,6 +745,6 @@ def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo
         "from_pretrained",
         lambda n, revision, **k: loads.append(revision) or net(n, **k),
     )
-    LocalDecisionModel("autotrust/JEV-9B").decide("yesno", "s", "q", ["false", "true"])
-    pin = known.pinned("autotrust/JEV-9B")
+    pin = get_model_meta("autotrust/JEV-9B").revision
+    LocalDecisionModel("autotrust/JEV-9B", revision=pin).decide("yesno", "s", "q", ["false", "true"])
     assert set(reads) == {pin} and len(reads) == 4 and loads == [pin, pin]  # adapter, config, head, calibration

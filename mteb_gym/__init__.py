@@ -5,7 +5,7 @@ from importlib.metadata import PackageNotFoundError, version
 from .cache import cache_files
 from .judge import Grade, Verdict
 from .llm import LLM, ChatClient, DecisionClient, MockLLM, load_model
-from .models import DecisionModel
+from .models import DecisionModel, get_model_meta, get_model_metas
 from .queries import Query
 from .rank import ModelRating
 from .results import Result, Results, load_results
@@ -27,6 +27,8 @@ __all__ = [
     "LLM",
     "load_model",
     "DecisionModel",
+    "get_model_meta",
+    "get_model_metas",
     "MockLLM",
     "ChatClient",
     "DecisionClient",
