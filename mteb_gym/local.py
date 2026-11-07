@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import threading
+from contextlib import contextmanager
 from functools import cache
 
 import httpx
@@ -18,25 +19,25 @@ _OPTIONS = {"noul": ["false", "true"], "score": [str(i) for i in range(6)]}
 _MAX_NEW_TOKENS = 1024
 
 
-def repo_files(name: str) -> dict[str, int] | None:
-    """Each file of a Hugging Face model and its size, or None if no such model can be reached."""
+def repo_files(name: str) -> set[str] | None:
+    """The files of a Hugging Face model, or None if no such model can be reached."""
     try:
-        return {f.rfilename: f.size or 0 for f in HfApi().model_info(name, files_metadata=True).siblings}
+        return {f.rfilename for f in HfApi().model_info(name).siblings}
     except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
         return None
 
 
-def _check_it_fits(name: str, files: dict[str, int]) -> None:
-    """Before any download: the weights must fit the GPU memory that is free."""
+@contextmanager
+def _fits(name: str):
+    """An out-of-memory error from a model loaded here says what to do about it."""
     import torch
 
-    needed = sum(size for file, size in files.items() if file.endswith(".safetensors") and "/" not in file)
-    free = sum(torch.cuda.mem_get_info(i)[0] for i in range(torch.cuda.device_count()))
-    if needed > free:
-        raise ValueError(
-            f"{name} needs about {needed / 1e9:.0f} GB of GPU memory and {free / 1e9:.0f} GB is free. "
-            f"Serve it, for example with vLLM, and pass its URL, or choose a smaller model."
-        )
+    try:
+        yield
+    except torch.cuda.OutOfMemoryError as e:
+        raise torch.cuda.OutOfMemoryError(
+            f"{name} does not fit in GPU memory. Serve it and pass judge_url or generator_url."
+        ) from e
 
 
 def _imports():
@@ -65,7 +66,8 @@ class LocalDecisionModel:
 
         peft, transformers = _imports()
         self._tokenizer = transformers.AutoTokenizer.from_pretrained(self.model)
-        net = transformers.AutoModelForCausalLM.from_pretrained(self.model, dtype=torch.bfloat16, device_map="auto")
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        net = transformers.AutoModelForCausalLM.from_pretrained(self.model, dtype=torch.bfloat16, device_map=device)
         if self._has_adapter:
             net = peft.PeftModel.from_pretrained(net, self.model, subfolder="adapter").merge_and_unload()
         head = load_file(hf_hub_download(self.model, "head.safetensors"))
@@ -84,12 +86,12 @@ class LocalDecisionModel:
         text = (
             f"[kind] {kind}\n[state] {state}\n[question] {question}\n[options]\n" + "\n".join(lines) + "\n[decision]:"
         )
-        with self._lock:
+        with self._lock, _fits(self.model):
             if self._net is None:
                 self._load()
             ids = self._tokenizer(text, return_tensors="pt", add_special_tokens=False).to(self._net.device)
             with torch.no_grad(), torch.autocast(self._net.device.type, dtype=torch.bfloat16):
-                last = self._net.model(**ids).last_hidden_state[0, -1].float().to(self._weight.device)
+                last = self._net.model(**ids).last_hidden_state[0, -1].float()
         start = self._slots[kind][0]
         logits = (self._weight @ last + self._bias) / self._temperature[kind]
         return dict(zip(options, torch.softmax(logits[start : start + len(options)], 0).tolist(), strict=True))
@@ -108,14 +110,15 @@ class LocalChatModel:
 
         _, transformers = _imports()
         self._tokenizer = transformers.AutoTokenizer.from_pretrained(self.model)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         self._net = transformers.AutoModelForCausalLM.from_pretrained(
-            self.model, dtype=torch.bfloat16, device_map="auto"
+            self.model, dtype=torch.bfloat16, device_map=device
         ).eval()
 
     def chat(self, messages: list[dict]) -> str:
         import torch
 
-        with self._lock:
+        with self._lock, _fits(self.model):
             if self._net is None:
                 self._load()
             text = self._tokenizer.apply_chat_template(
@@ -138,9 +141,8 @@ def _shared(cls, name: str, *args):
     return cls(name, *args)
 
 
-def load_local(name: str, files: dict[str, int]):
-    """The model in `files`, which is loaded only when first asked something."""
-    _check_it_fits(name, files)
+def load_local(name: str, files: set[str]):
+    """The model holding `files`, which is loaded only when first asked something."""
     if "judge_config.json" in files and "head.safetensors" in files:
         return _shared(LocalDecisionModel, name, "adapter/adapter_config.json" in files)
     return _shared(LocalChatModel, name)

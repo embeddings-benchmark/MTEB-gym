@@ -203,7 +203,7 @@ Change a name to change a model.
 - **Generator:** a chat model.
 - **Models to compare:** any model `mteb` can load.
 
-Serve larger models for large runs. A model too big for your GPU says so before it downloads.
+Serve larger models for large runs.
 
 ## Command line
 

@@ -159,14 +159,13 @@ def hub(monkeypatch):
 
     files = {}
     monkeypatch.setattr(llm, "repo_files", files.get)
-    monkeypatch.setattr(local, "_check_it_fits", lambda name, found: None)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     local._shared.cache_clear()
     return files
 
 
-JEV = {"judge_config.json": 1, "head.safetensors": 1, "calibration.json": 1, "adapter/adapter_config.json": 1}
+JEV = {"judge_config.json", "head.safetensors", "calibration.json", "adapter/adapter_config.json"}
 
 
 def test_a_decision_model_on_hugging_face_is_told_by_its_files(hub):
@@ -174,8 +173,8 @@ def test_a_decision_model_on_hugging_face_is_told_by_its_files(hub):
     from mteb_gym.llm import load_model
     from mteb_gym.local import LocalChatModel, LocalDecisionModel
 
-    hub["org/judge"], hub["org/merged"] = JEV, {"judge_config.json": 1, "head.safetensors": 1}
-    hub["org/half"], hub["org/chat"] = {"judge_config.json": 1}, {"model.safetensors": 1}
+    hub["org/judge"], hub["org/merged"] = JEV, {"judge_config.json", "head.safetensors"}
+    hub["org/half"], hub["org/chat"] = {"judge_config.json"}, {"model.safetensors"}
     judge, merged = load_model("org/judge"), load_model("org/merged")
     assert isinstance(judge, LocalDecisionModel) and judge._has_adapter and not merged._has_adapter
     assert is_decision_model(judge) and not is_decision_model(load_model("org/chat"))
@@ -185,7 +184,7 @@ def test_a_decision_model_on_hugging_face_is_told_by_its_files(hub):
 def test_one_name_is_one_model(hub):
     from mteb_gym.llm import load_model
 
-    hub["org/chat"] = {"model.safetensors": 1}
+    hub["org/chat"] = {"model.safetensors"}
     assert load_model("org/chat") is load_model("org/chat")
 
 
@@ -207,7 +206,7 @@ def test_a_name_hugging_face_lacks_goes_to_the_api_or_says_what_to_do(monkeypatc
         load_model("gpt-x")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     assert isinstance(load_model("gpt-x"), LLM)
-    hub["org/chat"] = {"model.safetensors": 1}
+    hub["org/chat"] = {"model.safetensors"}
     assert not isinstance(load_model("org/chat"), LLM)  # a key does not send a Hugging Face model to the API
 
 
@@ -232,35 +231,12 @@ def test_a_repo_that_cannot_be_reached_has_no_files(monkeypatch, error):
     assert local.repo_files("org/m") is None
 
 
-def test_a_repos_files_and_sizes(monkeypatch):
+def test_a_repos_files(monkeypatch):
     from mteb_gym import local
 
-    info = NS(siblings=[NS(rfilename="a.safetensors", size=5), NS(rfilename="README.md", size=None)])
-    monkeypatch.setattr(local.HfApi, "model_info", lambda self, name, files_metadata: info)
-    assert local.repo_files("org/m") == {"a.safetensors": 5, "README.md": 0}
-
-
-def test_a_model_too_big_for_the_gpu_says_so_before_any_download(monkeypatch):
-    from mteb_gym import local
-
-    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
-    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda i: (10 * 10**9, 80 * 10**9))
-    monkeypatch.setattr(local, "_shared", lambda *a: pytest.fail("nothing is built"))
-    # 21 GB of weights at the top; the adapter beneath does not count; 20 GB is free over two GPUs
-    files = {"model-1.safetensors": 11 * 10**9, "model-2.safetensors": 10 * 10**9, "adapter/a.safetensors": 9 * 10**9}
-    with pytest.raises(ValueError, match=r"org/big needs about 21 GB of GPU memory and 20 GB is free\. Serve it"):
-        local.load_local("org/big", files)
-
-
-def test_a_model_that_fits_is_built_and_downloads_nothing_yet(monkeypatch):
-    from mteb_gym import local
-
-    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
-    monkeypatch.setattr(torch.cuda, "mem_get_info", lambda i: (10 * 10**9, 80 * 10**9))
-    monkeypatch.setattr(local, "hf_hub_download", lambda *a: pytest.fail("no download yet"))
-    local._shared.cache_clear()
-    files = {"model-1.safetensors": 20 * 10**9, "adapter/a.safetensors": 9 * 10**9}
-    assert local.load_local("org/fits", files)._net is None
+    info = NS(siblings=[NS(rfilename="a.safetensors"), NS(rfilename="README.md")])
+    monkeypatch.setattr(local.HfApi, "model_info", lambda self, name: info)
+    assert local.repo_files("org/m") == {"a.safetensors", "README.md"}
 
 
 class _Tokens(dict):
@@ -317,7 +293,7 @@ def fake_repo(monkeypatch, tmp_path):
     )
     (tmp_path / "judge_config.json").write_text(json.dumps({"slots": {"ranges": {"noul": [0, 2], "choice": [2, 5]}}}))
     (tmp_path / "calibration.json").write_text(json.dumps({"per_kind": {"noul": 2.0, "choice": 1.0}}))
-    tokenizer, net, built = _Tokenizer(), _Net(), []
+    tokenizer, net, built, kwargs = _Tokenizer(), _Net(), [], {}
 
     def merged():
         net.merged = True
@@ -325,12 +301,12 @@ def fake_repo(monkeypatch, tmp_path):
 
     transformers = NS(
         AutoTokenizer=NS(from_pretrained=lambda name: tokenizer),
-        AutoModelForCausalLM=NS(from_pretrained=lambda name, **kw: built.append(name) or net),
+        AutoModelForCausalLM=NS(from_pretrained=lambda name, **kw: kwargs.update(kw) or built.append(name) or net),
     )
     peft = NS(PeftModel=NS(from_pretrained=lambda base, name, subfolder: NS(merge_and_unload=merged)))
     monkeypatch.setattr(local, "_imports", lambda: (peft, transformers))
     monkeypatch.setattr(local, "hf_hub_download", lambda name, file: str(tmp_path / file))
-    return NS(tokenizer=tokenizer, net=net, built=built)
+    return NS(tokenizer=tokenizer, net=net, built=built, kwargs=kwargs, transformers=transformers)
 
 
 def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(fake_repo):
@@ -369,6 +345,56 @@ def test_a_chat_model_turns_reasoning_off_and_returns_only_what_it_wrote(fake_re
     assert fake_repo.tokenizer.template["enable_thinking"] is False
     assert fake_repo.tokenizer.decoded == [4, 5]  # the three prompt tokens are left out
     assert fake_repo.built == ["org/chat"]
+
+
+@pytest.mark.parametrize(("gpu", "device"), [(True, "cuda"), (False, "cpu")])
+def test_a_model_loads_whole_onto_one_device_so_running_out_of_memory_raises(monkeypatch, fake_repo, gpu, device):
+    from mteb_gym.local import LocalChatModel, LocalDecisionModel
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: gpu)
+    for model in (LocalDecisionModel("org/a", False), LocalChatModel("org/b")):
+        fake_repo.kwargs.clear()
+        model._load()
+        assert fake_repo.kwargs["device_map"] == device
+
+
+def _ask_decision(name):
+    from mteb_gym.local import LocalDecisionModel
+
+    return LocalDecisionModel(name, False).decide("noul", "s", "q")
+
+
+def _ask_chat(name):
+    from mteb_gym.local import LocalChatModel
+
+    return LocalChatModel(name).chat([{"role": "user", "content": "hi"}])
+
+
+@pytest.mark.parametrize("ask", [_ask_decision, _ask_chat])
+@pytest.mark.parametrize("where", ["loading", "running"])
+def test_running_out_of_memory_says_to_serve_the_model(monkeypatch, fake_repo, ask, where):
+    def out(*a, **k):
+        raise torch.cuda.OutOfMemoryError("CUDA out of memory")
+
+    if where == "loading":
+        monkeypatch.setattr(fake_repo.transformers.AutoModelForCausalLM, "from_pretrained", out)
+    else:
+        monkeypatch.setattr(fake_repo.net, "model", out)
+        monkeypatch.setattr(fake_repo.net, "generate", out)
+    with pytest.raises(torch.cuda.OutOfMemoryError) as e:
+        ask("org/big")
+    assert str(e.value) == "org/big does not fit in GPU memory. Serve it and pass judge_url or generator_url."
+    assert str(e.value.__cause__) == "CUDA out of memory"
+
+
+@pytest.mark.parametrize("ask", [_ask_decision, _ask_chat])
+def test_any_other_error_passes_through_untouched(monkeypatch, fake_repo, ask):
+    def other(*a, **k):
+        raise RuntimeError("something else")
+
+    monkeypatch.setattr(fake_repo.transformers.AutoModelForCausalLM, "from_pretrained", other)
+    with pytest.raises(RuntimeError, match="^something else$"):
+        ask("org/m")
 
 
 def test_a_local_judge_has_the_identity_of_the_same_name_served():
