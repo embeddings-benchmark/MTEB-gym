@@ -190,6 +190,13 @@ def test_every_listed_model_is_a_real_repo_name():
     assert all(meta.revision is None or len(meta.revision) == 40 for meta in get_model_metas())
 
 
+def test_a_listed_model_on_a_server_gets_its_key():
+    from mteb_gym import DecisionModel
+
+    assert load_model(V11, "http://x", api_key="k")._http.headers["authorization"] == "Bearer k"
+    assert DecisionModel(JEV9, base_url="http://x", api_key="k")._http.headers["authorization"] == "Bearer k"
+
+
 def test_the_model_metas_are_public():
     import mteb_gym
 
