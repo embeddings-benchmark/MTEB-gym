@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING
 import httpx
 from openai import APITimeoutError
 
-from .llm import InputTooLong
 from .queries import DOC_CHARS, extract_json, task_line
 from .retrieval import Ranked
+from .serving import InputTooLong
 
 if TYPE_CHECKING:
     from .llm import ChatClient, DecisionClient

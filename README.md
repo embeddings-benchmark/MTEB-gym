@@ -200,9 +200,27 @@ Change a name to change a model.
 | Your own server (vLLM, SGLang or Ollama) | `generator="Qwen/Qwen3.5-4B", generator_url="http://localhost:8000/v1"` |
 | An API, with `OPENAI_API_KEY` set | `generator="gpt-5.4-mini"` |
 
-- **Judge:** any decision model on Hugging Face in the format of [JEV-9B](https://huggingface.co/autotrust/JEV-9B) and [JEV-27B](https://huggingface.co/autotrust/JEV-27B). It answers in one forward pass, in both judging modes. A chat model also works, and is slower.
+- **Judge:** a decision model answers in one forward pass, in both judging modes. A chat model also works, and is slower.
 - **Generator:** a chat model.
 - **Models to compare:** any model `mteb` can load.
+
+### Decision models
+
+| Model | How it runs |
+|---|---|
+| [JEV-9B](https://huggingface.co/autotrust/JEV-9B), [JEV-27B](https://huggingface.co/autotrust/JEV-27B), and others in their format | By name, or served with vLLM |
+| [decider-4b](https://huggingface.co/Mapika/decider-4b) | By name, with `pip install "mteb-gym[decider]"` |
+| [JEV-27B v1.1](https://huggingface.co/autotrust/AutoTrust-JEV-27B-v1.1) | Served as its model card describes, then `judge_url` |
+
+To add one, put a small file in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+
+```python
+class MyJudge:
+    model = "org/my-model"
+
+    def decide(self, kind, state, question, options=None):
+        return {"0": 0.1, "1": 0.2, "2": 0.4, "3": 0.2, "4": 0.1, "5": 0.0}  # a probability per option
+```
 
 ### Serving a model
 
