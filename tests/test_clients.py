@@ -10,12 +10,12 @@ import pytest
 import torch
 
 from mteb_gym.llm import LLM, llm_settings
-from mteb_gym.models.jev import JevServer as DecisionModel
+from mteb_gym.models.jev_wrapper import JevServer as DecisionModel
 
 
 def decision_model(handler, **kw):
     """A decision model that has read its repo: `yesno`, tokens 100 and 101, no bias, temperature 1."""
-    model = DecisionModel("m", "http://server/v1", max_retries=2, **kw)
+    model = DecisionModel("m", url="http://server/v1", max_retries=2, **kw)
     model._http = httpx.Client(transport=httpx.MockTransport(handler), headers=model._http.headers)
     model._head = {"bias": [0.0, 0.0], "verbalizer_ids": [100, 101], "slots": {"ranges": {"yesno": [0, 2]}}}
     model._temperature, model._served_as = {"yesno": 1.0}, "jev-decision"
@@ -57,12 +57,12 @@ def test_openai_key_is_not_sent_to_other_endpoints(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "secret")
     monkeypatch.delenv("MTEB_GYM_API_KEY", raising=False)
     assert LLM("m", base_url="http://other/v1").client.api_key == "EMPTY"
-    assert DecisionModel("m", "http://other")._http.headers["authorization"] == "Bearer EMPTY"
+    assert DecisionModel("m", url="http://other")._http.headers["authorization"] == "Bearer EMPTY"
     assert LLM("m").client.api_key == "secret"
     monkeypatch.setenv("MTEB_GYM_API_KEY", "mine")
     assert LLM("m", base_url="http://other/v1").client.api_key == "mine"
-    assert DecisionModel("m", "http://other")._http.headers["authorization"] == "Bearer mine"
-    assert DecisionModel("m", "http://other", api_key="given")._http.headers["authorization"] == "Bearer given"
+    assert DecisionModel("m", url="http://other")._http.headers["authorization"] == "Bearer mine"
+    assert DecisionModel("m", url="http://other", api_key="given")._http.headers["authorization"] == "Bearer given"
 
 
 def test_the_record_leaves_out_a_private_endpoint():
@@ -152,7 +152,7 @@ def test_a_decision_model_on_hugging_face_is_told_by_its_files(hub):
     from mteb_gym.judge import is_decision_model
     from mteb_gym.llm import load_model
     from mteb_gym.local import LocalChatModel
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     hub["org/judge"], hub["org/merged"] = JEV, {"judge_config.json", "head.safetensors"}
     hub["org/chat"] = {"model.safetensors"}
@@ -267,7 +267,7 @@ def fake_repo(monkeypatch, tmp_path):
     from safetensors.torch import save_file
 
     from mteb_gym import local
-    from mteb_gym.models import jev
+    from mteb_gym.models import jev_wrapper as jev
 
     weight = torch.tensor([[-1.0, 7.0], [math.log(3) - 2, 7.0], [-1.0, 7.0], [math.log(2) - 1, 7.0], [99.0, 7.0]])
     save_file(
@@ -296,7 +296,7 @@ def fake_repo(monkeypatch, tmp_path):
 
 
 def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(fake_repo):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     model = LocalDecisionModel("org/judge")
     # yesno: logits 0 and log 3, halved by the temperature, so sqrt(3) to 1
@@ -315,9 +315,9 @@ def test_a_decision_is_the_softmax_of_its_slots_at_its_temperature(fake_repo):
 
 
 def test_a_decision_model_merges_its_adapter_if_it_has_one(fake_repo):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
-    LocalDecisionModel("org/merged", False).decide("yesno", "s", "q", ["false", "true"])
+    LocalDecisionModel("org/merged", None, False).decide("yesno", "s", "q", ["false", "true"])
     assert not fake_repo.net.merged
     LocalDecisionModel("org/judge").decide("yesno", "s", "q", ["false", "true"])
     assert fake_repo.net.merged
@@ -338,17 +338,17 @@ def test_a_chat_model_turns_reasoning_off_and_returns_only_what_it_wrote(fake_re
 @pytest.mark.parametrize(("gpu", "device"), [(True, "cuda"), (False, "cpu")])
 def test_a_model_loads_whole_onto_one_device_so_running_out_of_memory_raises(monkeypatch, fake_repo, gpu, device):
     from mteb_gym.local import LocalChatModel
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     monkeypatch.setattr(torch.cuda, "is_available", lambda: gpu)
-    for model in (LocalDecisionModel("org/a", False), LocalChatModel("org/b")):
+    for model in (LocalDecisionModel("org/a", None, False), LocalChatModel("org/b")):
         fake_repo.kwargs.clear()
         model._load()
         assert fake_repo.kwargs["device_map"] == device
 
 
 def _ask_decision(name):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     return LocalDecisionModel(name, False).decide("yesno", "s", "q", ["false", "true"])
 
@@ -391,9 +391,9 @@ def test_any_other_error_passes_through_untouched(monkeypatch, fake_repo, ask):
 def test_a_local_judge_has_the_identity_of_the_same_name_served():
     from mteb_gym.cache import model_id
     from mteb_gym.local import LocalChatModel
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
-    assert model_id(LocalDecisionModel("org/m")) == model_id(DecisionModel("org/m", "http://x")) == "org/m"
+    assert model_id(LocalDecisionModel("org/m")) == model_id(DecisionModel("org/m", url="http://x")) == "org/m"
     assert model_id(LocalChatModel("org/m")) == model_id(LLM("org/m", base_url="http://x", api_key="k")) == "org/m"
 
 
@@ -408,11 +408,11 @@ def test_a_missing_extra_says_which_to_install(monkeypatch):
 
 
 def test_a_decision_model_with_a_prefix_and_a_softcap_applies_both(fake_repo):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     config = {"slots": {"ranges": {"yesno": [0, 2]}}, "softcap": 30.0, "readout": {"prefix_token": 2}}
     (fake_repo.folder / "judge_config.json").write_text(json.dumps(config))
-    p = LocalDecisionModel("org/gemma", False).decide("yesno", "s", "q", ["false", "true"])
+    p = LocalDecisionModel("org/gemma", None, False).decide("yesno", "s", "q", ["false", "true"])
     assert fake_repo.tokenizer.seen[-1][0].startswith("<bos>[kind] yesno")
     # logits 0 and log 3, capped to 30 tanh(log 3 / 30), then halved by the temperature
     odds = math.exp(30 * math.tanh(math.log(3) / 30) / 2)
@@ -576,7 +576,7 @@ def test_a_plain_server_with_any_other_name_is_a_chat_model(server, name):
 
 def test_a_decision_repo_without_a_head_loads_as_a_decision_model_and_not_a_chat_model(hub):
     from mteb_gym.llm import load_model
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     hub["org/merged"] = {"judge_config.json", "adapter_vllm/decision_head.json"}
     model = load_model("org/merged")
@@ -584,7 +584,7 @@ def test_a_decision_repo_without_a_head_loads_as_a_decision_model_and_not_a_chat
 
 
 def test_a_decision_in_the_weights_is_read_from_the_next_token(fake_repo, monkeypatch):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     config = {"slots": {"ranges": {"yesno": [0, 2], "choice": [2, 5]}}, "verbalizer_ids": [10, 11, 12, 13, 14]}
     (fake_repo.folder / "judge_config.json").write_text(json.dumps(config))
@@ -600,7 +600,7 @@ def test_a_decision_in_the_weights_is_read_from_the_next_token(fake_repo, monkey
         return NS(logits=logits[None, None])
 
     fake_repo.net.__class__ = type("Net", (_Net,), {"__call__": lambda self, **kw: called(**kw)})
-    model = LocalDecisionModel("org/merged", False, False)
+    model = LocalDecisionModel("org/merged", None, False, False)
     # yesno: logits 0 and log 3 after the bias, at temperature 2. The other tokens are not its options.
     root = math.sqrt(3)
     assert model.decide("yesno", "s", "q", ["false", "true"]) == pytest.approx(
@@ -675,18 +675,18 @@ def test_a_partly_cached_decision_repo_is_never_a_chat_model(hub):
     from mteb_gym.llm import load_model
 
     hub["org/part"] = {"adapter_vllm/decision_head.json", "calibration.json"}
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     assert isinstance(load_model("org/part", "http://server/v1"), DecisionModel)
     assert isinstance(load_model("org/part"), LocalDecisionModel)
 
 
 def test_a_repo_missing_its_head_without_being_merged_says_so_and_does_not_read_the_next_token(fake_repo):
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     (fake_repo.folder / "adapter_vllm/decision_head.json").write_text(json.dumps({"bias": [0.0] * 5}))
     with pytest.raises(ValueError, match="(?s)org/part is missing head.safetensors.*vllm serve part"):
-        LocalDecisionModel("org/part", False, False).decide("yesno", "s", "q", ["false", "true"])
+        LocalDecisionModel("org/part", None, False, False).decide("yesno", "s", "q", ["false", "true"])
 
 
 def test_offline_a_repo_not_in_the_cache_says_so(monkeypatch, offline_cache):
@@ -726,7 +726,7 @@ def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkey
 def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo, monkeypatch):
     from mteb_gym import local
     from mteb_gym.models import get_model_meta
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     reads, loads = [], []
     original = local.hf_hub_download

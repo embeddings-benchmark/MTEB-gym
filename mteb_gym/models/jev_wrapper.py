@@ -1,5 +1,5 @@
 """Decision models in the format of JEV-9B and JEV-27B: a repo holding `judge_config.json`, or its `adapter_vllm/` part.
-No entry is needed for a new one. Prompt, one forward pass, a probability per option, as their model cards do it."""
+Prompt, one forward pass, a probability per option, as their model cards do it: on a server, or in this process."""
 
 from __future__ import annotations
 
@@ -10,20 +10,19 @@ from pathlib import Path
 
 from ..local import fetch, fetch_folder, fits, repo_files, shared, transformers_and_peft
 from ..serving import GRADES, READ_ONE_TOKEN, post_json, served_models, server_client, server_url, softmax
-from .model_meta import ModelMeta
 
 logger = logging.getLogger(__name__)
 
-_LETTERS = "ABCDEFGHIJKLMNOP"
+LETTERS = "ABCDEFGHIJKLMNOP"
 
 
-def _decision_head(name: str, revision: str | None) -> dict:
+def decision_head(name: str, revision: str | None) -> dict:
     with open(fetch(name, "adapter_vllm/decision_head.json", revision)) as f:
         return json.load(f)
 
 
 def serve_command(name: str, head: dict, revision: str | None = None) -> str:
-    """How to serve a model of this format, by what its decision head says about it."""
+    """How to serve a model of this format that is not listed, by what its decision head says about it."""
     folder = name.split("/")[-1]
     at = f" --revision {revision}" if revision else ""
     download = f"hf download {name}{at} --local-dir {folder}\n"
@@ -49,7 +48,7 @@ def is_jev_repo(files: set[str]) -> bool:
 def decision_prompt(kind: str, state: str, question: str, options: list[str] | None) -> tuple[list[str], str]:
     """The options of a decision and its prompt, as the model cards write them."""
     options = options or GRADES
-    lines = [f"{_LETTERS[i]}) {o}" for i, o in enumerate(options)] if kind == "choice" else options
+    lines = [f"{LETTERS[i]}) {o}" for i, o in enumerate(options)] if kind == "choice" else options
     text = f"[kind] {kind}\n[state] {state}\n[question] {question}\n[options]\n" + "\n".join(lines) + "\n[decision]:"
     return options, text
 
@@ -63,12 +62,19 @@ class JevServer:
     how = "decision model"
 
     def __init__(
-        self, model: str, base_url: str, api_key: str | None = None, max_retries: int = 6, revision: str | None = None
+        self,
+        name: str,
+        revision: str | None = None,
+        url: str | None = None,
+        api_key: str | None = None,
+        serve: str | None = None,
+        max_retries: int = 6,
     ):
-        self.model = model
+        self.model = name
         self.revision = revision
-        self.base_url = server_url(base_url)
+        self.base_url = server_url(url)
         self.max_retries = max_retries
+        self.serve = serve
         self._http = server_client(api_key)
         self._lock = threading.Lock()
         self._head = None
@@ -78,14 +84,14 @@ class JevServer:
         with self._lock:
             if self._head is not None:
                 return
-            head = _decision_head(self.model, self.revision)
+            head = decision_head(self.model, self.revision)
             with open(fetch(self.model, "calibration.json", self.revision)) as f:
                 self._temperature = json.load(f)["per_kind"]
             self._served_as = self.model if head.get("merged") else "jev-decision"
-            self._serve = serve_command(self.model, head, self.revision)
+            self.serve = self.serve or serve_command(self.model, head, self.revision)
             served = served_models(self._http, self.base_url)
             if self._served_as not in {m["id"] for m in served}:
-                raise ValueError(f"{self.base_url} does not serve {self._served_as}. Restart it:\n{self._serve}")
+                raise ValueError(f"{self.base_url} does not serve {self._served_as}. Restart it:\n{self.serve}")
             names = " ".join(f"{m['id']} {m.get('root')}" for m in served)
             # a renamed folder also lands here, so a warning and not an error
             if self.model.split("/")[-1].lower() not in names.lower():
@@ -111,7 +117,7 @@ class JevServer:
         )
         found = {int(k.split(":")[1]): v for k, v in out["choices"][0]["logprobs"]["top_logprobs"][0].items()}
         if not set(ids) <= set(found):
-            raise ValueError(f"{self.base_url} left out options' probabilities. Restart it:\n{self._serve}")
+            raise ValueError(f"{self.base_url} left out options' probabilities. Restart it:\n{self.serve}")
         bias = self._head["bias"][start : start + len(options)]
         logits = [(found[i] + b) / self._temperature[kind] for i, b in zip(ids, bias, strict=True)]
         return softmax(options, logits)
@@ -122,13 +128,24 @@ class LocalDecisionModel:
 
     how = "decision model"
 
-    def __init__(self, name: str, has_adapter: bool = True, has_head: bool = True, revision: str | None = None):
+    def __init__(
+        self,
+        name: str,
+        revision: str | None = None,
+        has_adapter: bool = True,
+        has_head: bool = True,
+        serve: str | None = None,
+    ):
         self.model = name
         self.revision = revision
+        self.serve = serve
         self._has_adapter = has_adapter
         self._has_head = has_head  # without one, the decision model is in the weights: its answers are the next token's
         self._lock = threading.Lock()
         self._net = None
+
+    def _serve_command(self) -> str:
+        return self.serve or serve_command(self.model, decision_head(self.model, self.revision), self.revision)
 
     def _load(self):
         import torch
@@ -149,11 +166,10 @@ class LocalDecisionModel:
             head = load_file(fetch(self.model, "head.safetensors", self.revision))
             self._weight, self._bias = head["proj.weight"].to(net.device), head["proj.bias"].to(net.device)
         else:
-            head = _decision_head(self.model, self.revision)
+            head = decision_head(self.model, self.revision)
             if not head.get("merged"):
-                command = serve_command(self.model, head, self.revision)
                 raise ValueError(
-                    f"{self.model} is missing head.safetensors. Download it, or serve the model:\n{command}"
+                    f"{self.model} is missing head.safetensors. Download it, or serve the model:\n{self._serve_command()}"
                 )
             self._bias = torch.tensor(head["bias"], device=net.device)
             self._tokens = config["verbalizer_ids"]
@@ -169,12 +185,7 @@ class LocalDecisionModel:
         import torch
 
         options, text = decision_prompt(kind, state, question, options)
-        with (
-            self._lock,
-            fits(
-                self.model, lambda: serve_command(self.model, _decision_head(self.model, self.revision), self.revision)
-            ),
-        ):
+        with self._lock, fits(self.model, self._serve_command):
             if self._net is None:
                 self._load()
             ids = self._tokenizer(self._prefix + text, return_tensors="pt", add_special_tokens=False).to(
@@ -194,18 +205,19 @@ class LocalDecisionModel:
         return dict(zip(options, torch.softmax(logits[start : start + len(options)], 0).tolist(), strict=True))
 
 
-def load(name: str, url: str | None, api_key: str | None, files: set[str] | None = None, revision: str | None = None):
-    """Served at `url`, or loaded here on first use."""
+def jev_loader(
+    name: str,
+    revision: str | None = None,
+    url: str | None = None,
+    api_key: str | None = None,
+    serve: str | None = None,
+    files: set[str] | None = None,
+):
+    """Served at `url`, or loaded here on first use, once per model."""
     if url:
-        return JevServer(name, url, api_key=api_key, revision=revision)
+        return JevServer(name, revision, url, api_key, serve)
     files = repo_files(name, revision) if files is None else files
     if files is None:
         raise ValueError(f"{name} at revision {revision} is not on Hugging Face or in its local cache.")
     adapter, head = "adapter/adapter_config.json" in files, "head.safetensors" in files
-    return shared(LocalDecisionModel, name, adapter, head, revision)
-
-
-jev_9b = ModelMeta(loader=load, name="autotrust/JEV-9B", revision="7ac669b8fb476ba926491e3d1c39f9330d68dbed")
-jev_27b = ModelMeta(loader=load, name="autotrust/JEV-27B", revision="14b425269ed24452e0a5ad5a8f3e51d139647a88")
-jev_35b = ModelMeta(loader=load, name="autotrust/JEV-35B", revision="a5d0d580bb9324f0f4c07dcba5c5ca91e813e7c9")
-gev_26b = ModelMeta(loader=load, name="autotrust/GEV-26B-Decide", revision="eea849038e792cd09aa731d59d586f0eaf2c18f6")
+    return shared(LocalDecisionModel, name, revision, adapter, head, serve)

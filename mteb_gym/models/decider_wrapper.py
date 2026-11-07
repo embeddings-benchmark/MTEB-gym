@@ -6,9 +6,8 @@ import threading
 
 from ..local import fetch_folder, fits, shared
 from ..serving import GRADES
-from .model_meta import ModelMeta
 
-_MAX_TOKENS = 3072
+MAX_TOKENS = 3072
 
 
 class DeciderModel:
@@ -35,14 +34,14 @@ class DeciderModel:
             if self._net is None:
                 self._load()
             ask = {"question": question, "options": options, "_type": kind}
-            answer = self._net.decide(state, [ask], max_ctx_tokens=_MAX_TOKENS)[0]
+            answer = self._net.decide(state, [ask], max_ctx_tokens=MAX_TOKENS)[0]
         return dict(zip(options, answer["probs_list"], strict=True))
 
 
-def load(name: str, url: str | None, api_key: str | None, revision: str | None = None):
+def decider_loader(
+    name: str, revision: str | None = None, url: str | None = None, api_key: str | None = None, serve: str | None = None
+):
+    """Loaded here on first use, once per model. Its server grades on another level under the same name, so it has none."""
     if url:
         raise ValueError(f"{name} runs in this process through the decider-ai package. Leave out its URL.")
     return shared(DeciderModel, name, revision)
-
-
-decider_4b = ModelMeta(loader=load, name="Mapika/decider-4b", revision="585473dec4fa93f0325c2bf02dda7273b61f44c1")

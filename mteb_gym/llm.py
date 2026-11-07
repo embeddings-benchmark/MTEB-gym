@@ -27,12 +27,6 @@ class ChatClient(Protocol):
     def chat(self, messages: list[dict]) -> str: ...
 
 
-class DecisionClient(Protocol):
-    """What a decision-model judge needs."""
-
-    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]: ...
-
-
 class MockLLM:
     """Deterministic stand-in for tests and dry runs: same input, same output."""
 

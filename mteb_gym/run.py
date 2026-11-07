@@ -39,7 +39,8 @@ from .cache import (
     verdict_key,
 )
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
-from .llm import ChatClient, DecisionClient, llm_settings, load_model
+from .llm import ChatClient, llm_settings, load_model
+from .models.models_protocols import DecisionClient
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result

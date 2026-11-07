@@ -199,15 +199,13 @@ judge: autotrust/JEV-9B (decision model)
 generator: Qwen/Qwen3.5-4B (chat model)
 ```
 
-**Judge.** A decision model answers in one forward pass, in both judging modes:
+**Judge.** Any decision model in the format of JEV-9B and JEV-27B, any decision model on a server with `/v1/systemone`, and any chat model. A decision model answers in one forward pass, in both judging modes; a chat model is slower. The tested ones are listed with pinned versions, and `gym.get_model_metas()` returns them:
 
 - `autotrust/JEV-9B`
 - `autotrust/JEV-27B`
 - `autotrust/JEV-35B`
 - `autotrust/GEV-26B-Decide`
 - `Mapika/decider-4b`, with the `decider` extra
-
-A chat model also works, and is slower.
 
 **Generator.** Any chat model, such as `Qwen/Qwen3.5-4B`, or `gpt-5.4-mini` through an API with `OPENAI_API_KEY` set.
 
@@ -245,13 +243,13 @@ vLLM takes most of a GPU's memory. To share one with a second model, add `--gpu-
 
 These run on a server, as their model cards describe: `LiquidAI/d1-3B`, `StrandsAgents/strands-decider-2B-qwen3.5-v1-2610` and `autotrust/AutoTrust-JEV-27B-v1.1`. Pass the name and `judge_url`.
 
-Any other decision model must be on a server with `/v1/systemone`. Pass its name and `judge_url` if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
+A decision model on a server with `/v1/systemone`: pass its name and `judge_url` if its repo has a `decision_config.json` or `decider_config.json`. If not, say it is one:
 
 ```python
 judge = gym.DecisionModel("org/my-model", base_url="http://localhost:8000/v1")
 ```
 
-To support a model that has no such server, add a small file with a `ModelMeta` in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
+For a format with no wrapper yet, add one in [`mteb_gym/models/`](mteb_gym/models), or pass your own object:
 
 ```python
 class MyJudge:
