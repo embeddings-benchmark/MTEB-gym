@@ -68,7 +68,7 @@ def transformers_and_peft():
         import transformers
     except ImportError as e:
         raise ImportError(
-            f"loading a model directly needs the `local` extra: pip install 'mteb-gym[local]' ({e})"
+            f"loading a model directly needs the `local` extra: pip install \"mteb-gym[local] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git\" ({e})"
         ) from e
     return peft, transformers
 
