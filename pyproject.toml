@@ -29,6 +29,7 @@ dependencies = [
     "pandas>=2",
     "huggingface_hub>=0.25",
     "datasets>=2.19",
+    "transformers>=4.57,<6",  # the oldest tested; models loaded here are passed `dtype`
     "peft>=0.18",
     "accelerate>=1",
     "packaging",
