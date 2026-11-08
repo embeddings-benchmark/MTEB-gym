@@ -66,6 +66,21 @@ def fits(name: str, card: str | None = None):
         raise torch.cuda.OutOfMemoryError(f"{name} does not fit in GPU memory. {advice}") from e
 
 
+@contextmanager
+def known_architecture(name: str):
+    """A model newer than the installed transformers says so, instead of transformers' own error."""
+    try:
+        yield
+    except ValueError as e:
+        import transformers
+
+        if "does not recognize this architecture" in str(e) and int(transformers.__version__.split(".")[0]) < 5:
+            raise ValueError(
+                f"{name} needs transformers 5 or newer: pip install -U transformers, or serve it and pass its URL."
+            ) from e
+        raise
+
+
 def transformers_and_peft():
     """Imported where a model is loaded, so importing the library stays fast."""
     import peft
@@ -96,7 +111,7 @@ class LocalChatModel:
 
     def load(self) -> None:
         """Load the model now rather than on its first answer."""
-        with self._lock, fits(self.model, f"https://huggingface.co/{self.model}"):
+        with self._lock, fits(self.model, f"https://huggingface.co/{self.model}"), known_architecture(self.model):
             if self._net is None:
                 self._load()
 

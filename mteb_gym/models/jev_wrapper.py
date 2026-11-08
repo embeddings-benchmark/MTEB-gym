@@ -7,7 +7,7 @@ import logging
 import threading
 from pathlib import Path
 
-from ..local import fetch, fetch_folder, fits, repo_files, shared, transformers_and_peft
+from ..local import fetch, fetch_folder, fits, known_architecture, repo_files, shared, transformers_and_peft
 from ..serving import GRADES, READ_ONE_TOKEN, model_card, post_json, served_models, server_client, server_url, softmax
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class LocalDecisionModel:
 
     def load(self) -> None:
         """Load the model now rather than on its first answer."""
-        with self._lock, fits(self.model, self.card):
+        with self._lock, fits(self.model, self.card), known_architecture(self.model):
             if self._net is None:
                 self._load()
 

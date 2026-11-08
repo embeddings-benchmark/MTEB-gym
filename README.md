@@ -26,6 +26,8 @@ You can install MTEB Gym with pip:
 pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
 ```
 
+Some embedding models need an extra of `mteb`, which their error names, and a few older ones need transformers 4.
+
 ## Quickstart
 
 The judge here, decider-4b, needs the `decider` extra: `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"`.
@@ -217,7 +219,9 @@ These judges work by name, at pinned versions, which `gym.get_model_metas()` lis
 - `autotrust/JEV-27B`, used in the paper
 - `autotrust/JEV-35B`
 - `autotrust/GEV-26B-Decide`
-- `Mapika/decider-4b`, with the `decider` extra
+- `Mapika/decider-4b`
+
+The first four need the `transformers5` extra and decider-4b the `decider` extra. Their error says how to install it.
 
 **Generator.** Any chat model, such as `Qwen/Qwen3.5-4B`, or `gpt-5.4-mini` through an API with `OPENAI_API_KEY` set.
 
