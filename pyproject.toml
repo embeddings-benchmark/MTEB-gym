@@ -29,14 +29,16 @@ dependencies = [
     "pandas>=2",
     "huggingface_hub>=0.25",
     "datasets>=2.19",
-    "transformers>=5,<6",
+    "transformers>=4.57,<6",  # the oldest tested; models loaded here are passed `dtype`
     "peft>=0.18",
     "accelerate>=1",
+    "packaging",
 ]
 
 [project.optional-dependencies]
 colbert = ["mteb[pylate]>=2.20,<3"]
 decider = ["decider-ai>=1.10,<2"]
+transformers5 = ["transformers>=5,<6"]  # the judges whose architecture is newer than transformers 4
 
 [project.urls]
 Homepage = "https://github.com/embeddings-benchmark/MTEB-gym"

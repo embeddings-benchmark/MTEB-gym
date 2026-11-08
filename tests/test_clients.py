@@ -737,3 +737,44 @@ def test_a_decision_model_loaded_here_reads_every_file_at_its_revision(fake_repo
     pin = get_model_meta("autotrust/JEV-9B").revision
     LocalDecisionModel("autotrust/JEV-9B", revision=pin).decide("yesno", "s", "q", ["false", "true"])
     assert set(reads) == {pin} and len(reads) == 4 and loads == [pin, pin]  # adapter, config, head, calibration
+
+
+@pytest.mark.parametrize("version", ["4.57.6", "5.22.2"])
+def test_a_model_newer_than_transformers_says_to_upgrade_it(monkeypatch, fake_repo, version):
+    import transformers
+
+    from mteb_gym.local import LocalChatModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
+
+    def unknown(name, **kw):
+        raise ValueError(
+            "The checkpoint you are trying to load has model type `qwen3_5` but Transformers does not recognize this "
+            "architecture."
+        )
+
+    monkeypatch.setattr(transformers, "__version__", version)
+    monkeypatch.setattr(fake_repo.transformers.AutoModelForCausalLM, "from_pretrained", unknown)
+    for model in (LocalDecisionModel("org/new"), LocalChatModel("org/new")):
+        if version.startswith("4"):
+            with pytest.raises(ValueError) as e:
+                model.load()
+            assert str(e.value) == (
+                "org/new needs transformers 5 or newer: pip install -U transformers, or serve it and pass its URL."
+            )
+        else:  # transformers 5 does not know it either: its own error stands
+            with pytest.raises(ValueError, match="does not recognize this architecture"):
+                model.load()
+
+
+def test_another_loading_error_is_not_taken_for_an_old_transformers(monkeypatch, fake_repo):
+    import transformers
+
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
+
+    def broken(name, **kw):
+        raise ValueError("something else")
+
+    monkeypatch.setattr(transformers, "__version__", "4.57.6")
+    monkeypatch.setattr(fake_repo.transformers.AutoModelForCausalLM, "from_pretrained", broken)
+    with pytest.raises(ValueError, match="something else"):
+        LocalDecisionModel("org/new").load()

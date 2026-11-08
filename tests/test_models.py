@@ -42,6 +42,10 @@ def decider_package(monkeypatch):
             return [{"probs_list": [(i + 1) / (n * (n + 1) / 2) for i in range(n)]}]
 
     monkeypatch.setattr("mteb_gym.models.decider_wrapper.fetch_folder", lambda name, revision: f"{name}@{revision}")
+    from mteb_gym.models import model_meta
+
+    installed = model_meta.version
+    monkeypatch.setattr(model_meta, "version", lambda name: "1.10.0" if name == "decider-ai" else installed(name))
     package, infer = ModuleType("decider"), ModuleType("decider.infer")
     infer.Decider = Decider
     monkeypatch.setitem(sys.modules, "decider", package)
@@ -610,3 +614,63 @@ def test_an_error_names_the_card_of_the_model_it_is_about():
     assert LocalDecisionModel("org/new").card == "https://huggingface.co/org/new"
     with pytest.raises(ValueError, match="https://huggingface.co/org/new"):
         systemone.SystemOne("org/new")
+
+
+@pytest.fixture
+def installed(monkeypatch):
+    """The installed packages and mteb-gym's extras, as importlib.metadata reports them."""
+    from mteb_gym.models import model_meta
+
+    versions = {"transformers": "4.57.6", "decider-ai": "1.10.0"}
+    extras = [
+        'decider-ai<2,>=1.10; extra == "decider"',
+        'transformers<6,>=5; extra == "transformers5"',
+        "httpx>=0.27",
+    ]
+
+    def version(name):
+        if name not in versions:
+            raise model_meta.PackageNotFoundError(name)
+        return versions[name]
+
+    monkeypatch.setattr(model_meta, "requires", lambda name: extras)
+    monkeypatch.setattr(model_meta, "version", version)
+    return versions
+
+
+def test_a_model_needing_an_extra_says_which_and_how_to_install_it(installed):
+    with pytest.raises(ImportError) as e:
+        load_model(JEV9)
+    assert str(e.value) == (
+        f'Model {JEV9} is missing required dependencies: transformers<6,>=5; extra == "transformers5" '
+        "(installed: 4.57.6).\nYou can install it with "
+        '`pip install "mteb-gym[transformers5] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"`.'
+    )
+    del installed["decider-ai"]
+    with pytest.raises(ImportError, match=r"mteb-gym\[decider\] @ git\+"):
+        load_model(DECIDER)
+
+
+def test_a_model_whose_extras_are_installed_loads(installed, monkeypatch):
+    from mteb_gym.local import shared
+    from mteb_gym.models import jev_wrapper
+
+    shared.cache_clear()
+    installed["transformers"] = "5.22.2"
+    monkeypatch.setattr(jev_wrapper, "repo_files", lambda name, revision: {"judge_config.json", "head.safetensors"})
+    assert isinstance(load_model(JEV9), jev_wrapper.LocalDecisionModel)
+
+
+def test_a_served_model_needs_no_extra(installed):
+    assert load_model(JEV9, "http://server/v1").model == JEV9
+
+
+def test_every_extra_a_model_names_exists():
+    import tomllib
+    from pathlib import Path
+
+    extras = tomllib.loads((Path(__file__).parent.parent / "pyproject.toml").read_text())["project"][
+        "optional-dependencies"
+    ]
+    for meta in get_model_metas():
+        assert set(meta.extra_requirements_groups) <= set(extras), meta.name
