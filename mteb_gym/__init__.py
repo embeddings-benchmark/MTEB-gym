@@ -2,6 +2,7 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from .benchmarks import Benchmark, get_benchmark, get_benchmarks
 from .cache import cache_files
 from .judge import Grade, Verdict
 from .llm import LLM, ChatClient, MockLLM, load_model
@@ -40,5 +41,8 @@ __all__ = [
     "Result",
     "Results",
     "load_results",
+    "Benchmark",
+    "get_benchmark",
+    "get_benchmarks",
     "TASK_INSTRUCTIONS",
 ]

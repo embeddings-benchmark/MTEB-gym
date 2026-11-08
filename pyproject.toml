@@ -39,6 +39,7 @@ dependencies = [
 colbert = ["mteb[pylate]>=2.20,<3"]
 decider = ["decider-ai>=1.10,<2"]
 transformers5 = ["transformers>=5,<6"]  # the judges whose architecture is newer than transformers 4
+leaderboard = ["gradio>=6,<7"]
 
 [project.urls]
 Homepage = "https://github.com/embeddings-benchmark/MTEB-gym"
@@ -53,7 +54,7 @@ test = ["pytest>=8"]
 dev = [{ include-group = "test" }, "ruff"]
 
 [tool.setuptools]
-packages = ["mteb_gym", "mteb_gym.models", "mteb_gym.models.model_implementations"]
+packages = ["mteb_gym", "mteb_gym.benchmarks", "mteb_gym.benchmarks.benchmarks", "mteb_gym.leaderboard", "mteb_gym.models", "mteb_gym.models.model_implementations"]
 
 [tool.setuptools.package-data]
 mteb_gym = ["py.typed"]
