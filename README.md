@@ -16,6 +16,11 @@
   <a href="#citing">Citing</a>
 </h4>
 
+<h4 align="center">
+  <a href="https://github.com/embeddings-benchmark/gym-results">Results</a> |
+  <a href="https://huggingface.co/datasets/mteb/gym-runs">Runs dataset</a>
+</h4>
+
 MTEB Gym ranks embedding models on your own documents. You don't need labels or queries.
 
 ## Installation
