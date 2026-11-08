@@ -2,31 +2,22 @@
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import gradio as gr
 import pandas as pd
 
 from ..benchmarks import agreement_table, get_benchmark, get_benchmarks, per_task_table, summary_table
-from ..cache import resolve_cache_folder
 from ..results import Results, load_results
-from ..submit import RESULTS_REPOSITORY
 
 DEFAULT_BENCHMARK = "Gym(eng, v1)"
 
 
-def _results(source: str) -> Results:
-    """A local folder as it is, or a git repository cloned into the cache, or updated if it was before."""
-    if Path(source).exists():
-        return load_results(source)
-    clone = resolve_cache_folder(None) / "remote" / "gym-results-leaderboard"
-    if clone.exists():
-        subprocess.run(["git", "pull", "--quiet", "--ff-only"], cwd=clone, check=True)
-    else:
-        clone.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["git", "clone", "--quiet", "--depth", "1", source, str(clone)], check=True)
-    return load_results(clone / "results")
+def _results(source: str | None) -> Results:
+    """The results repository by default; a local folder as it is; any other source as a repository's URL."""
+    if source is None:
+        return load_results()
+    return load_results(source) if Path(source).exists() else load_results(results_repo=source)
 
 
 def _tables(results: Results, name: str) -> tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
@@ -37,8 +28,8 @@ def _tables(results: Results, name: str) -> tuple[str, pd.DataFrame, pd.DataFram
     return benchmark.description or "", summary, per_task, agreement
 
 
-def get_leaderboard_app(results: str = RESULTS_REPOSITORY) -> gr.Blocks:
-    """The leaderboard over `results`: a results folder, or a results repository's URL."""
+def get_leaderboard_app(results: str | None = None) -> gr.Blocks:
+    """The leaderboard over the results repository, or over `results`: a results folder or a repository's URL."""
     loaded = _results(results)
     names = [b.name for b in get_benchmarks()]
 

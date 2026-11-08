@@ -2,11 +2,10 @@
 
 import argparse
 
-from ..submit import RESULTS_REPOSITORY
 from .app import get_leaderboard_app
 
 parser = argparse.ArgumentParser(prog="python -m mteb_gym.leaderboard")
-parser.add_argument("--results", default=RESULTS_REPOSITORY, help="a results folder, or a results repository's URL")
+parser.add_argument("--results", help="a results folder, or a results repository's URL (default: gym-results)")
 parser.add_argument("--host", default="0.0.0.0")
 parser.add_argument("--port", type=int, default=7860)
 args = parser.parse_args()

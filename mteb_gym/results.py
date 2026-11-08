@@ -228,7 +228,47 @@ class Results:
         return summary_table(self, get_benchmark(benchmark) if isinstance(benchmark, str) else benchmark)
 
 
-def load_results(root: str | Path) -> Results:
-    """All records under `root`: a results folder's or results repository's <task>/ folders."""
+def _git(*args: str, cwd: Path) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+
+
+def download_results(
+    results_repo: str | None = None,
+    download_latest: bool = True,
+    revision: str | None = None,
+    cache_folder: str | Path | None = None,
+) -> Path:
+    """A shallow clone of the results repository in the cache, as mteb keeps its results. An existing clone is reused,
+    and moved to the repository's latest commit with `download_latest`, or to `revision`."""
+    from .cache import resolve_cache_folder
+    from .submit import RESULTS_REPOSITORY
+
+    results_repo = results_repo or RESULTS_REPOSITORY
+    clone = resolve_cache_folder(cache_folder) / "results_repo"
+    if not clone.exists():
+        clone.parent.mkdir(parents=True, exist_ok=True)
+        _git("clone", "--quiet", "--depth", "1", results_repo, str(clone), cwd=clone.parent)
+        update = revision is not None
+    elif (origin := _git("config", "--get", "remote.origin.url", cwd=clone)) != results_repo:
+        raise ValueError(f"{clone} is a clone of {origin}, not {results_repo}")
+    else:
+        update = download_latest or revision is not None
+    if update:
+        _git("fetch", "--quiet", "--depth", "1", "origin", revision or "HEAD", cwd=clone)
+        _git("reset", "--quiet", "--hard", "FETCH_HEAD", cwd=clone)
+    return clone
+
+
+def load_results(
+    root: str | Path | None = None,
+    *,
+    results_repo: str | None = None,
+    download_latest: bool = True,
+    revision: str | None = None,
+) -> Results:
+    """All records under `root`: a results folder's or results repository's <task>/ folders. Without `root`, the
+    records of the results repository, fetched into the cache as `mteb.load_results` fetches its results."""
+    if root is None:
+        root = download_results(results_repo, download_latest, revision) / "results"
     paths = sorted(p for p in Path(root).rglob("*.json") if p.parent.name == p.name.split("__")[0])
     return Results([Result.from_disk(p) for p in paths])

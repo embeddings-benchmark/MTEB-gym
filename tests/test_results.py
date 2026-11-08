@@ -1,5 +1,6 @@
 import json
 import math
+import subprocess
 import tempfile
 import types
 from pathlib import Path
@@ -230,3 +231,30 @@ def test_the_cache_reopens_its_own_vectors(tmp_path):
     second = backend(tmp_path / "c")
     second.load()
     assert second.get_vector({"text": "two"}).tolist() == [3.0, 4.0]
+
+
+def _commit_record(work, task, name):
+    folder = work / "results" / task
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{task}__judge__{name}.json").write_text(json.dumps({"task_name": task, "ratings": []}))
+    git = ["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", name], check=True)
+
+
+def test_without_a_path_the_results_repository_is_fetched_into_the_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("MTEB_GYM_CACHE", str(tmp_path / "cache"))
+    work, remote = tmp_path / "work", str(tmp_path / "remote.git")
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+    _commit_record(work, "t", "one")
+    subprocess.run(["git", "clone", "-q", "--bare", str(work), remote], check=True)
+    assert len(load_results(results_repo=remote).results) == 1  # first call: cloned
+    _commit_record(work, "t", "two")
+    subprocess.run(["git", "-C", str(work), "push", "-q", remote, "main"], check=True)
+    assert len(load_results(results_repo=remote, download_latest=False).results) == 1  # the clone as it is
+    assert len(load_results(results_repo=remote).results) == 2  # moved to the latest commit
+    subprocess.run(["git", "-C", str(work), "branch", "old", "HEAD~1"], check=True)
+    subprocess.run(["git", "-C", str(work), "push", "-q", remote, "old"], check=True)
+    assert len(load_results(results_repo=remote, revision="old").results) == 1
+    with pytest.raises(ValueError, match="is a clone of"):
+        load_results(results_repo=str(tmp_path / "other.git"))

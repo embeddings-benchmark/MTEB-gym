@@ -136,7 +136,7 @@ Rank Model                                   Rating    CI±    W    L    T
 ==============================================================================
 ```
 
-Each run also writes a record to `results/<task>/`. Read them back with `gym.load_results("results/").to_dataframe()`.
+Each run also writes a record to `results/<task>/`. Read them back with `gym.load_results("results/").to_dataframe()`, or read the shared results repository with `gym.load_results()`, which fetches it into the cache as `mteb.load_results()` does.
 
 <details>
 <summary>Record format</summary>
@@ -280,10 +280,10 @@ class MyJudge:
 
 ## Leaderboard
 
-A benchmark is a fixed set of tasks judged one way. `gym.get_benchmarks()` lists them. The main one, `Gym(eng, v1)`, is 28 tasks on synthetic queries judged by JEV-27B. Its table, from a results folder:
+A benchmark is a fixed set of tasks judged one way. `gym.get_benchmarks()` lists them. The main one, `Gym(eng, v1)`, is 28 tasks on synthetic queries judged by JEV-27B. Its table, from the shared results repository, or from a folder with `gym.load_results("path/to/results")`:
 
 ```python
-results = gym.load_results("path/to/gym-results")
+results = gym.load_results()
 results.get_benchmark_result("Gym(eng, v1)")
 ```
 
