@@ -29,11 +29,13 @@ dependencies = [
     "pandas>=2",
     "huggingface_hub>=0.25",
     "datasets>=2.19",
+    "transformers>=5,<6",
+    "peft>=0.18",
+    "accelerate>=1",
 ]
 
 [project.optional-dependencies]
 colbert = ["mteb[pylate]>=2.20,<3"]
-local = ["transformers>=5,<6", "peft>=0.18", "accelerate>=1"]
 decider = ["decider-ai>=1.10,<2"]
 
 [project.urls]

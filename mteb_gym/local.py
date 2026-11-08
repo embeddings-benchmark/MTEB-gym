@@ -67,13 +67,10 @@ def fits(name: str, card: str | None = None):
 
 
 def transformers_and_peft():
-    try:
-        import peft
-        import transformers
-    except ImportError as e:
-        raise ImportError(
-            f'loading a model directly needs the `local` extra: pip install "mteb-gym[local] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git" ({e})'
-        ) from e
+    """Imported where a model is loaded, so importing the library stays fast."""
+    import peft
+    import transformers
+
     return peft, transformers
 
 
