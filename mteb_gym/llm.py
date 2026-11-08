@@ -27,12 +27,6 @@ class ChatClient(Protocol):
     def chat(self, messages: list[dict]) -> str: ...
 
 
-class DecisionClient(Protocol):
-    """What a decision-model judge needs."""
-
-    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]: ...
-
-
 class MockLLM:
     """Deterministic stand-in for tests and dry runs: same input, same output."""
 
@@ -123,7 +117,7 @@ class LLM:
 def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
     try:
         return "jev-decision" in {m["id"] for m in served_models(server_client(api_key), server_url(url))}
-    except ValueError:  # any other kind of server: not one
+    except ValueError:  # not a server with a decision module
         return False
 
 

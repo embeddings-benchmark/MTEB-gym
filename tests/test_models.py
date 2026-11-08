@@ -13,7 +13,10 @@ import pytest
 
 from mteb_gym.judge import is_decision_model
 from mteb_gym.llm import load_model
-from mteb_gym.models import MODEL_REGISTRY, decider, get_model_meta, get_model_metas, systemone, v11
+from mteb_gym.models import MODEL_REGISTRY, get_model_meta, get_model_metas
+from mteb_gym.models import decider_wrapper as decider
+from mteb_gym.models import systemone_wrapper as systemone
+from mteb_gym.models import v11_wrapper as v11
 
 DECIDER, V11 = "Mapika/decider-4b", "autotrust/AutoTrust-JEV-27B-v1.1"
 JEV9, PIN9 = "autotrust/JEV-9B", get_model_meta("autotrust/JEV-9B").revision
@@ -38,7 +41,7 @@ def decider_package(monkeypatch):
             n = len(questions[0]["options"])
             return [{"probs_list": [(i + 1) / (n * (n + 1) / 2) for i in range(n)]}]
 
-    monkeypatch.setattr("mteb_gym.models.decider.fetch_folder", lambda name, revision: f"{name}@{revision}")
+    monkeypatch.setattr("mteb_gym.models.decider_wrapper.fetch_folder", lambda name, revision: f"{name}@{revision}")
     package, infer = ModuleType("decider"), ModuleType("decider.infer")
     infer.Decider = Decider
     monkeypatch.setitem(sys.modules, "decider", package)
@@ -56,7 +59,7 @@ def test_decider_grades_through_its_package_and_loads_once(decider_package):
     grades = model.decide("score", "the state", "the question")
     assert grades == pytest.approx({str(i): (i + 1) / 21 for i in range(6)})
     context, questions, kw = decider_package.asked[0]
-    assert context == "the state" and kw == {"max_ctx_tokens": decider._MAX_TOKENS}
+    assert context == "the state" and kw == {"max_ctx_tokens": decider.MAX_TOKENS}
     options = [str(i) for i in range(6)]
     assert questions == [{"question": "the question", "options": options, "_type": "score"}]
     assert model.decide("choice", "s", "q", ["x", "y"]) == pytest.approx({"x": 1 / 3, "y": 2 / 3})
@@ -201,7 +204,10 @@ def test_the_model_metas_are_public():
     import mteb_gym
 
     assert mteb_gym.get_model_meta(JEV9) is MODEL_REGISTRY[JEV9] and MODEL_REGISTRY[JEV9] in mteb_gym.get_model_metas()
-    assert set(mteb_gym.__all__) >= {"get_model_meta", "get_model_metas"}
+    assert set(mteb_gym.__all__) >= {"get_model_meta", "get_model_metas", "DecisionClient"}
+    from mteb_gym.models.models_protocols import DecisionClient
+
+    assert mteb_gym.DecisionClient is DecisionClient
     with pytest.raises(KeyError):
         mteb_gym.get_model_meta("org/absent")
 
@@ -256,9 +262,9 @@ def test_a_known_served_model_reads_its_files_at_its_revision(repo_reads):
 
 
 def test_a_model_not_listed_is_at_its_latest():
-    from mteb_gym.models.jev import JevServer
+    from mteb_gym.models.jev_wrapper import JevServer
 
-    assert JevServer("org/new", "http://server/v1").revision is None
+    assert JevServer("org/new", url="http://server/v1").revision is None
 
 
 def test_the_revision_is_in_the_record_and_in_no_identity(tmp_path):
@@ -274,7 +280,7 @@ def test_the_revision_is_in_the_record_and_in_no_identity(tmp_path):
 
 def test_a_listed_model_loads_directly_at_its_revision(monkeypatch):
     from mteb_gym.local import shared
-    from mteb_gym.models import jev
+    from mteb_gym.models import jev_wrapper as jev
 
     shared.cache_clear()
     asked = []
@@ -289,7 +295,7 @@ def test_a_revision_that_is_not_cached_offline_is_a_clear_error(monkeypatch):
 
     from mteb_gym import local
     from mteb_gym.local import shared
-    from mteb_gym.models import jev
+    from mteb_gym.models import jev_wrapper as jev
 
     shared.cache_clear()
     monkeypatch.setattr(jev, "repo_files", lambda name, revision: None)
@@ -327,10 +333,10 @@ def test_repo_files_asks_for_the_revision_on_the_hub_and_in_the_cache(monkeypatc
 
 
 def test_the_command_to_serve_a_listed_model_downloads_its_revision():
-    from mteb_gym.models import jev
+    from mteb_gym.models import jev_wrapper as jev
 
     assert f"hf download {JEV9} --revision {PIN9} --local-dir JEV-9B" in jev.serve_command(JEV9, {}, PIN9)
-    assert get_model_meta(V11).revision in v11._SERVE
+    assert get_model_meta(V11).revision in get_model_meta(V11).serve_command()
 
 
 GRADES = [str(i) for i in range(6)]
@@ -362,7 +368,7 @@ def s1_server(monkeypatch):
 
 
 def test_system_one_score_and_choice_in_our_option_order(s1_server):
-    model = systemone.SystemOne("org/m", "http://server/v1", api_key="k")
+    model = systemone.SystemOne("org/m", url="http://server/v1", api_key="k")
     assert is_decision_model(model) and model.how == "decision model"
     assert model.decide("score", "the state", "the question") == pytest.approx({str(i): (i + 1) / 21 for i in range(6)})
     assert s1_server.paths == ["/v1/systemone"]
@@ -384,7 +390,7 @@ def test_system_one_score_and_choice_in_our_option_order(s1_server):
 def test_a_server_without_the_route_says_so_at_once(s1_server, status):
     s1_server.status = status
     with pytest.raises(ValueError, match="does not answer decisions for org/m on /v1/systemone"):
-        systemone.SystemOne("org/m", "http://server").decide("score", "s", "q")
+        systemone.SystemOne("org/m", url="http://server").decide("score", "s", "q")
     assert len(s1_server.paths) == 1  # no retries
 
 
@@ -393,12 +399,12 @@ def test_an_input_over_the_limit_can_be_shortened(s1_server):
 
     s1_server.status = 413
     with pytest.raises(InputTooLong):
-        systemone.SystemOne("org/m", "http://server").decide("score", "s", "q")
+        systemone.SystemOne("org/m", url="http://server").decide("score", "s", "q")
 
 
 def test_decision_model_picks_by_what_it_knows(monkeypatch, s1_server):
     from mteb_gym import DecisionModel
-    from mteb_gym.models.jev import JevServer
+    from mteb_gym.models.jev_wrapper import JevServer
 
     assert isinstance(DecisionModel(JEV9, base_url="http://x", api_key="k"), JevServer)
     assert isinstance(DecisionModel(V11, base_url="http://x"), v11.V11Model)
@@ -517,7 +523,7 @@ def test_v11_on_a_dead_server_says_it_could_not_be_reached(v11_server):
 def test_a_key_does_not_turn_a_decision_repo_into_a_chat_model(monkeypatch, setting):
     from mteb_gym.llm import LLM
     from mteb_gym.local import shared
-    from mteb_gym.models.jev import LocalDecisionModel
+    from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     shared.cache_clear()
     key = "k" if setting == "key" else None
@@ -575,13 +581,13 @@ def test_the_readme_downloads_the_pinned_revision():
 
 
 def test_a_pin_is_used_or_absent():
-    assert get_model_meta("LiquidAI/d1-3B").revision in systemone._SERVE["LiquidAI/d1-3B"]
+    assert get_model_meta("LiquidAI/d1-3B").revision in get_model_meta("LiquidAI/d1-3B").serve_command()
     assert get_model_meta("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610").revision is None
 
 
 def test_the_library_no_longer_asks_noul():
     with pytest.raises(KeyError):
-        systemone.SystemOne("org/m", "http://x").decide("noul", "s", "q")
+        systemone.SystemOne("org/m", url="http://x").decide("noul", "s", "q")
 
 
 def test_every_package_folder_is_in_the_built_package():
@@ -590,3 +596,39 @@ def test_every_package_folder_is_in_the_built_package():
     folders = {str(p.parent.relative_to(root)).replace("/", ".") for p in (root / "mteb_gym").rglob("__init__.py")}
     listed = tomllib.loads((root / "pyproject.toml").read_text())["tool"]["setuptools"]["packages"]
     assert folders == set(listed)
+
+
+@pytest.mark.parametrize(
+    ("name", "head"),
+    [
+        ("autotrust/JEV-9B", {}),
+        ("autotrust/JEV-27B", {}),
+        ("autotrust/JEV-35B", {"merged": True}),
+        ("autotrust/GEV-26B-Decide", {"prefix_token": 2}),
+    ],
+)
+def test_a_listed_jev_command_is_the_one_its_decision_head_gives(name, head):
+    from mteb_gym.models.jev_wrapper import serve_command
+
+    meta = get_model_meta(name)
+    assert meta.serve_command() == serve_command(name, head, meta.revision)
+
+
+def test_every_listed_model_has_its_card_and_a_way_to_run():
+    for meta in get_model_metas():
+        assert meta.reference == f"https://huggingface.co/{meta.name}"
+        assert meta.serve is not None or meta.name == DECIDER
+
+
+def test_the_v11_command_is_its_card_s():
+    assert get_model_meta(V11).serve_command() == (
+        'pip install vllm==0.31.0 transformers==5.17.0 "startlux-decide @ '
+        'git+https://github.com/StartLuxLabs/StartLux-Decision@cb1d11f1ac9e9b43b95ef3a6468fa29b607c40fd"\n'
+        "hf download autotrust/AutoTrust-JEV-27B-v1.1 --revision ae156900e9f338e423042b89e25d0fd8093064d4 "
+        "--local-dir AutoTrust-JEV-27B-v1.1\n"
+        "bash AutoTrust-JEV-27B-v1.1/serve_vllm.sh AutoTrust-JEV-27B-v1.1"
+    )
+
+
+def test_a_listed_jev_server_says_its_listed_command():
+    assert load_model(JEV9, "http://server/v1").serve == get_model_meta(JEV9).serve_command()
