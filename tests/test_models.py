@@ -86,7 +86,10 @@ def test_decider_has_one_route_so_grades_in_one_cache_cannot_mix():
 def test_v11_without_a_url_says_how_to_serve_it():
     with pytest.raises(ValueError, match="cannot be loaded directly") as e:
         load_model(V11)
-    assert "serve_vllm.sh" in str(e.value) and "vllm==0.31.0" in str(e.value) and "its URL" in str(e.value)
+    assert str(e.value) == (
+        f"{V11} cannot be loaded directly. Serve it as its model card describes, then pass its URL: "
+        f"https://huggingface.co/{V11}"
+    )
 
 
 READOUT = {"readout_token_ids": [50, 51, 52, 53, 54, 55, 56], "codes": ["A", "B", "C", "D", "E", "F", "G"]}
@@ -332,13 +335,6 @@ def test_repo_files_asks_for_the_revision_on_the_hub_and_in_the_cache(monkeypatc
     assert local.repo_files("org/m", "abc") == {"a.json"} and asked == {"hub": "abc", "cache": "abc"}
 
 
-def test_the_command_to_serve_a_listed_model_downloads_its_revision():
-    from mteb_gym.models import jev_wrapper as jev
-
-    assert f"hf download {JEV9} --revision {PIN9} --local-dir JEV-9B" in jev.serve_command(JEV9, {}, PIN9)
-    assert get_model_meta(V11).revision in get_model_meta(V11).serve_command()
-
-
 GRADES = [str(i) for i in range(6)]
 
 
@@ -438,8 +434,8 @@ def test_system_one_is_not_public():
 @pytest.mark.parametrize(
     ("name", "command"),
     [
-        ("LiquidAI/d1-3B", "vllm serve LiquidAI/d1-3B --revision 051bcc4"),
-        ("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610", "strands-decider serve StrandsAgents/"),
+        ("LiquidAI/d1-3B", "https://huggingface.co/LiquidAI/d1-3B"),
+        ("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610", "https://huggingface.co/StrandsAgents/strands-decider"),
     ],
 )
 def test_a_listed_server_model_says_how_to_serve_it_and_takes_a_url(name, command):
@@ -508,7 +504,10 @@ def test_v11_accepts_its_own_server(v11_server, name):
 
 def test_v11_refuses_a_server_of_another_model(v11_server):
     v11_server.served = "Qwen/Qwen3.5-4B"
-    with pytest.raises(ValueError, match="(?s)does not serve .*AutoTrust-JEV-27B-v1.1.*serve_vllm.sh"):
+    with pytest.raises(
+        ValueError,
+        match=f"does not serve AutoTrust-JEV-27B-v1.1. Serve it as its model card describes: https://huggingface.co/{V11}",
+    ):
         load_model(V11, "http://server/v1").decide("score", "s", "q")
     assert v11_server.requests == []
 
@@ -581,7 +580,6 @@ def test_the_readme_downloads_the_pinned_revision():
 
 
 def test_a_pin_is_used_or_absent():
-    assert get_model_meta("LiquidAI/d1-3B").revision in get_model_meta("LiquidAI/d1-3B").serve_command()
     assert get_model_meta("StrandsAgents/strands-decider-2B-qwen3.5-v1-2610").revision is None
 
 
@@ -598,37 +596,17 @@ def test_every_package_folder_is_in_the_built_package():
     assert folders == set(listed)
 
 
-@pytest.mark.parametrize(
-    ("name", "head"),
-    [
-        ("autotrust/JEV-9B", {}),
-        ("autotrust/JEV-27B", {}),
-        ("autotrust/JEV-35B", {"merged": True}),
-        ("autotrust/GEV-26B-Decide", {"prefix_token": 2}),
-    ],
-)
-def test_a_listed_jev_command_is_the_one_its_decision_head_gives(name, head):
-    from mteb_gym.models.jev_wrapper import serve_command
-
-    meta = get_model_meta(name)
-    assert meta.serve_command() == serve_command(name, head, meta.revision)
-
-
-def test_every_listed_model_has_its_card_and_a_way_to_run():
+def test_every_listed_model_has_its_card():
     for meta in get_model_metas():
         assert meta.reference == f"https://huggingface.co/{meta.name}"
-        assert meta.serve is not None or meta.name == DECIDER
 
 
-def test_the_v11_command_is_its_card_s():
-    assert get_model_meta(V11).serve_command() == (
-        'pip install vllm==0.31.0 transformers==5.17.0 "startlux-decide @ '
-        'git+https://github.com/StartLuxLabs/StartLux-Decision@cb1d11f1ac9e9b43b95ef3a6468fa29b607c40fd"\n'
-        "hf download autotrust/AutoTrust-JEV-27B-v1.1 --revision ae156900e9f338e423042b89e25d0fd8093064d4 "
-        "--local-dir AutoTrust-JEV-27B-v1.1\n"
-        "bash AutoTrust-JEV-27B-v1.1/serve_vllm.sh AutoTrust-JEV-27B-v1.1"
-    )
+def test_an_error_names_the_card_of_the_model_it_is_about():
+    from mteb_gym.models.jev_wrapper import JevServer, LocalDecisionModel
 
-
-def test_a_listed_jev_server_says_its_listed_command():
-    assert load_model(JEV9, "http://server/v1").serve == get_model_meta(JEV9).serve_command()
+    meta = get_model_meta(JEV9)
+    assert load_model(JEV9, "http://server/v1").card == meta.reference
+    assert JevServer("org/new", url="http://server/v1").card == "https://huggingface.co/org/new"
+    assert LocalDecisionModel("org/new").card == "https://huggingface.co/org/new"
+    with pytest.raises(ValueError, match="https://huggingface.co/org/new"):
+        systemone.SystemOne("org/new")

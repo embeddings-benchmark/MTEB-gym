@@ -20,6 +20,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 from .judge import Grade, PairwiseJudge, PointwiseJudge, Verdict
+from .local import load_now
 from .retrieval import Ranked, slug
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,7 @@ def judge_pool_cached(
     docs: dict[str, str],
     key: str,
     query_set: str = "",
+    bar=None,
 ) -> list[Grade]:
     """A grade for every document in every query's pool (the union of the models' lists). A crash, a rerun or an added
     model grades only what is missing, and a failed answer counts as missing."""
@@ -167,9 +169,20 @@ def judge_pool_cached(
     pool = sorted({(r.qid, d) for lists in ranked.values() for r in lists for d in r.doc_ids})
     todo = [(q, query[q], d, docs[d]) for q, d in pool if (q, d) not in done]
     if todo:
+        load_now(judge.client)
+    if bar is not None:  # after loading, so the bar times only the grading
+        bar.reset(total=len(pool))
+        bar.update(len(pool) - len(todo))
+    if todo:
         logger.info("grading %d documents (%d already graded)", len(todo), len(pool) - len(todo))
         run = dict(task=folder.name, judge=model_id(judge.client), query_set=query_set)
-        append = _appender(path, run)
+        write = _appender(path, run)
+
+        def append(grade: Grade) -> None:
+            write(grade)
+            if bar is not None and grade.parsed_ok:
+                bar.update()
+
         grades = judge.grade_all(todo, on_grade=append)
         failed = {(g.qid, g.doc_id) for g in grades if not g.parsed_ok}
         if failed:
@@ -177,6 +190,11 @@ def judge_pool_cached(
             grades += judge.grade_all([t for t in todo if (t[0], t[2]) in failed], on_grade=append)
         done.update({(g.qid, g.doc_id): replace(g, **run) for g in grades})
     return [done[p] for p in pool]
+
+
+def verdicts_done(path: Path) -> dict[str, Verdict]:
+    """The usable verdicts on disk, by query."""
+    return {v.qid: v for v in _read_jsonl(path, Verdict) if all(v.parsed_ok)}
 
 
 def judge_pair_cached(
@@ -188,17 +206,27 @@ def judge_pair_cached(
     rb: list[Ranked],
     key: str,
     query_set: str = "",
+    bar=None,
 ) -> list[Verdict]:
     """Verdicts for one pair under `key`, for the queries in `ra`. A crash, a rerun or a run over a subset of queries
     judges only what is missing, and a failed answer counts as missing."""
     path = verdict_file(folder, a, b, key)
-    done = {v.qid: v for v in _read_jsonl(path, Verdict) if all(v.parsed_ok)}
+    done = verdicts_done(path)
     todo = [r for r in ra if r.qid not in done]
+    if bar is not None:
+        bar.update(len(ra) - len(todo))
     if todo:
         if done:
             logger.info("%s vs %s: %d verdicts on disk, judging %d more", a, b, len(done), len(todo))
         run = dict(task=folder.name, judge=model_id(judge.client), query_set=query_set)
-        verdicts = judge.judge_all(todo, rb, a, b, on_verdict=_appender(path, run))
+        write = _appender(path, run)
+
+        def append(verdict: Verdict) -> None:
+            write(verdict)
+            if bar is not None:
+                bar.update()
+
+        verdicts = judge.judge_all(todo, rb, a, b, on_verdict=append)
         done.update({v.qid: replace(v, **run) for v in verdicts})
     order = {r.qid: i for i, r in enumerate(ra)}
     return sorted((v for v in done.values() if v.qid in order), key=lambda v: order[v.qid])

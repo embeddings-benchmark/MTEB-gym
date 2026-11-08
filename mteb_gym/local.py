@@ -51,14 +51,18 @@ def fetch_folder(name: str, revision: str | None = None, allow_patterns: str | N
 
 
 @contextmanager
-def fits(name: str, serve=None):
-    """An out-of-memory error from a model loaded here says what to do about it: `serve` gives the command."""
+def fits(name: str, card: str | None = None):
+    """An out-of-memory error from a model loaded here says what to do about it."""
     import torch
 
     try:
         yield
     except torch.cuda.OutOfMemoryError as e:
-        advice = f"Serve it, then pass judge_url or generator_url:\n{serve()}" if serve else "It needs a larger GPU."
+        advice = (
+            f"Serve it as its model card describes, then pass judge_url or generator_url: {card}"
+            if card
+            else "It needs a larger GPU."
+        )
         raise torch.cuda.OutOfMemoryError(f"{name} does not fit in GPU memory. {advice}") from e
 
 
@@ -93,12 +97,17 @@ class LocalChatModel:
             self.model, dtype=torch.bfloat16, device_map=device
         ).eval()
 
+    def load(self) -> None:
+        """Load the model now rather than on its first answer."""
+        with self._lock, fits(self.model, f"https://huggingface.co/{self.model}"):
+            if self._net is None:
+                self._load()
+
     def chat(self, messages: list[dict]) -> str:
         import torch
 
-        with self._lock, fits(self.model, lambda: f"vllm serve {self.model}"):
-            if self._net is None:
-                self._load()
+        self.load()
+        with self._lock, fits(self.model, f"https://huggingface.co/{self.model}"):
             text = self._tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
             )
@@ -111,6 +120,13 @@ class LocalChatModel:
                     pad_token_id=self._tokenizer.eos_token_id,
                 )
         return self._tokenizer.decode(out[0, ids["input_ids"].shape[1] :], skip_special_tokens=True)
+
+
+def load_now(client) -> None:
+    """A model loaded in this process loads before a stage's progress starts, so its bar times only the work."""
+    load = getattr(client, "load", None)
+    if callable(load):
+        load()
 
 
 @cache

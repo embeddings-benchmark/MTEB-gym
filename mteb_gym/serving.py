@@ -23,6 +23,11 @@ READ_ONE_TOKEN = {  # the full distribution of the next token: a model's generat
 }
 
 
+def model_card(name: str, reference: str | None = None) -> str:
+    """Where a model's card says how to serve it."""
+    return reference or f"https://huggingface.co/{name}"
+
+
 def server_url(url: str) -> str:
     return url.rstrip("/").removesuffix("/v1")
 
