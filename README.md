@@ -35,9 +35,12 @@ result = gym.run(
     judge="autotrust/JEV-9B",
     generator="Qwen/Qwen3.5-4B",
     judging="pointwise",  # or "pairwise" to compare whole result lists
+    n_queries=20,  # 100 for a real evaluation
 )
 print(result.leaderboard)
 ```
+
+Needs a GPU with about 28 GB of memory, such as an A100 or H100.
 
 The judge and the generator both load from Hugging Face. [Change them or serve them](#choosing-the-judge-and-generator) by changing a name.
 

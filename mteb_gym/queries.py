@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .llm import ChatClient, llm_settings
+from .progress import progress_bar
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,10 @@ class QueryGenerator:
         min_score: int = 3,
         dedup: float = 0.8,
         doc_chars: int = DOC_CHARS,
+        show_progress_bar: bool = False,
     ):
         self.client = client
+        self.show_progress_bar = show_progress_bar  # not part of the query set
         self.task_instruction = task_instruction
         self.n_queries = n_queries
         self.seed = seed
@@ -175,20 +178,19 @@ class QueryGenerator:
         cap = target * 3
         out: list[Query] = []
         attempts = 0
+        bar = progress_bar("Writing queries", target, self.show_progress_bar, unit="query")
         while len(out) < target and attempts < cap:
             wave = min(target - len(out), cap - attempts)  # failed attempts are retried by the next wave
             seeds = [rng.sample(doc_ids, min(self.docs_per_query, len(doc_ids))) for _ in range(wave)]
             base, attempts = attempts, attempts + wave
-            if self.workers <= 1 or wave <= 1:
-                results = [self._one(s, docs, base + k) for k, s in enumerate(seeds)]
-            else:
-                with ThreadPoolExecutor(max_workers=self.workers) as pool:
-                    results = list(pool.map(lambda ks: self._one(ks[1], docs, base + ks[0]), enumerate(seeds)))
-            for q in results:
-                if q and self._heuristic_ok(q.text):
-                    q.qid = f"q{len(out)}"  # qid = acceptance order
-                    out.append(q)
+            with ThreadPoolExecutor(max_workers=self.workers if wave > 1 else 1) as pool:
+                for q in pool.map(lambda ks: self._one(ks[1], docs, base + ks[0]), enumerate(seeds)):  # in order
+                    if q and self._heuristic_ok(q.text):
+                        q.qid = f"q{len(out)}"  # qid = acceptance order
+                        out.append(q)
+                        bar.update()
             logger.info("query generation: %d/%d kept (%d attempts)", len(out), target, attempts)
+        bar.close()
         return out
 
     def _heuristic_ok(self, text: str) -> bool:

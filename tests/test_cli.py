@@ -64,3 +64,14 @@ def test_each_endpoint_can_use_its_own_key_variable(run_call, monkeypatch):
     )
     assert run_call["judge"]._http.headers["authorization"] == "Bearer judge-secret"
     assert run_call["generator"].client.api_key == "generator-secret"
+
+
+def test_no_progress_turns_the_bars_off(monkeypatch, tmp_path):
+    from mteb_gym import cli
+
+    seen = {}
+    monkeypatch.setattr(cli, "predict", lambda corpus, model, **kw: seen.update(kw) or tmp_path)
+    cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original", "--no-progress"])
+    assert seen["show_progress_bar"] is False
+    cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original"])
+    assert seen["show_progress_bar"] is True

@@ -41,6 +41,7 @@ from .cache import (
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
 from .llm import ChatClient, llm_settings, load_model
 from .models.models_protocols import DecisionClient
+from .progress import progress_bar
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
@@ -211,6 +212,7 @@ class _Judging:
     doc_chars: int
     seed: int
     workers: int
+    show_progress_bar: bool = False
 
 
 def _judge_pointwise(
@@ -220,7 +222,8 @@ def _judge_pointwise(
     pj = PointwiseJudge(judge, instruction=instruction, workers=run.workers, doc_chars=run.doc_chars)
     key = grades_key(model_id(pj.client), pj.system, pj.instruction, pj.doc_chars, run.query_set)
     folder = run.cache / "grades" / run.corpus.name
-    grades = judge_pool_cached(folder, pj, ranked, run.corpus.docs, key, run.query_set)
+    with progress_bar("Judging", 0, run.show_progress_bar, unit="grade") as bar:
+        grades = judge_pool_cached(folder, pj, ranked, run.corpus.docs, key, run.query_set, bar)
     diagnostics = results.grade_diagnostics(grades)
     # A query with an ungraded document is left out: counting it as 0 would punish whichever model found it.
     failed = {g.qid for g in grades if not g.parsed_ok}
@@ -262,9 +265,13 @@ def _judge_pairwise(
         key = verdict_key(
             model_id(jd.client), jd.system, run.top_k, jd.doc_chars, run.query_set, a, revisions[a], b, revisions[b]
         )
-        return judge_pair_cached(run.cache / "verdicts" / run.corpus.name, jd, a, b, ra, rb, key, run.query_set)
+        return judge_pair_cached(run.cache / "verdicts" / run.corpus.name, jd, a, b, ra, rb, key, run.query_set, bar)
 
-    with ThreadPoolExecutor(max_workers=run.workers) as pool:
+    n = sum(len(qids) if chosen is None else sum(i in chosen[q] for q in qids) for i in range(len(pairs)))
+    with (
+        progress_bar("Judging", n, run.show_progress_bar, unit="comparison") as bar,
+        ThreadPoolExecutor(max_workers=run.workers) as pool,
+    ):
         # map keeps pair order, so the verdict list, and the bootstrap over it, is the same every run
         verdicts = [v for pair in pool.map(judge_pair, range(len(pairs))) for v in pair]
     logger.info("judged %d pairs", len(pairs))
@@ -289,6 +296,7 @@ def predict(
     max_seq_length: int | None = None,
     batch_size: int = 32,
     workers: int = 8,
+    show_progress_bar: bool = True,
 ) -> Path:
     """Retrieve one model's results for `corpus`, and write mteb's prediction file.
 
@@ -320,6 +328,7 @@ def predict(
         filter_queries=filter_queries,
         workers=workers,
         doc_chars=doc_chars or DOC_CHARS,
+        show_progress_bar=show_progress_bar,
     )
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
@@ -358,6 +367,7 @@ def run(
     max_seq_length: int | None = None,
     batch_size: int = 32,
     workers: int = 8,
+    show_progress_bar: bool = True,
 ) -> Result:
     """Rank `models` on `corpus` without relevance labels.
 
@@ -392,6 +402,7 @@ def run(
             the predictions' and verdicts' identity, and recorded in the record's config.
         batch_size: Encoding batch size.
         workers: Concurrent grades when judging pointwise, or model pairs when judging pairwise.
+        show_progress_bar: Show a bar for writing queries, retrieving and judging. Work already cached counts as done.
 
     Returns:
         The run's Result: leaderboard, record and path.
@@ -423,6 +434,7 @@ def run(
         filter_queries=filter_queries,
         workers=workers,
         doc_chars=gen_doc_chars,
+        show_progress_bar=show_progress_bar,
     )
 
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
@@ -436,16 +448,24 @@ def run(
     labels = task_mod.labels(corp, qs, texts)  # None for your own queries
     ranked: dict[str, list[Ranked]] = {}
     ndcg: dict[str, float] = {}  # the baseline that needs no judge: nDCG@10 against the labels
-    for m in models:
-        folder = prediction_folder(cache, corp.name, m, revisions[m], query_set, max_seq_length)
-        pred = retrieval.predict(
-            m, gym_task, folder, batch_size=batch_size, embedding_cache=embedding_cache, max_seq_length=max_seq_length
-        )
-        ranked[m] = retrieval.top_k(pred, corp, texts, top_k)
-        if labels:
-            ndcg[m] = retrieval.ndcg_at_10(pred, labels, corp.ignore_identical_ids)
+    with progress_bar("Retrieving", len(models), show_progress_bar, unit="model") as bar:
+        for m in models:
+            bar.set_postfix_str(m)
+            folder = prediction_folder(cache, corp.name, m, revisions[m], query_set, max_seq_length)
+            pred = retrieval.predict(
+                m,
+                gym_task,
+                folder,
+                batch_size=batch_size,
+                embedding_cache=embedding_cache,
+                max_seq_length=max_seq_length,
+            )
+            ranked[m] = retrieval.top_k(pred, corp, texts, top_k)
+            if labels:
+                ndcg[m] = retrieval.ndcg_at_10(pred, labels, corp.ignore_identical_ids)
+            bar.update()
 
-    judging_run = _Judging(corp, cache, query_set, top_k, doc_chars, seed, workers)
+    judging_run = _Judging(corp, cache, query_set, top_k, doc_chars, seed, workers, show_progress_bar)
     if judging == "pointwise":
         ratings, diagnostics, judge_system = _judge_pointwise(judge, instruction, ranked, judging_run)
     else:

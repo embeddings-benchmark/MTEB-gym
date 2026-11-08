@@ -62,6 +62,7 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--no-progress", action="store_true", help="no progress bars")
 
 
 def main(argv=None) -> None:
@@ -134,6 +135,7 @@ def main(argv=None) -> None:
         max_seq_length=args.max_seq_length,
         batch_size=args.batch_size,
         workers=args.workers,
+        show_progress_bar=not args.no_progress,
     )
 
     if args.command == "predict":

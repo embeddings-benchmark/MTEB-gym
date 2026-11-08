@@ -716,3 +716,51 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
     monkeypatch.setattr(httpx.Client, "send", nothing_is_fetched)
     again = run(docs, judge=DecisionModel("org/jev", url="http://unused/v1", api_key="k"), **kw)
     assert again.record == first.record and again.path == first.path
+
+
+@pytest.mark.parametrize("judging", ["pointwise", "pairwise"])
+def test_progress_bars_show_each_stage_and_change_nothing(tmp_path, capsys, judging):
+    from mteb_gym import run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    kw = dict(n_queries=4, judging=judging, cache_folder=tmp_path / "c", workers=2)
+    models = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
+    quiet = run(docs, models, MockLLM(), "mock", output_folder=tmp_path / "quiet", show_progress_bar=False, **kw)
+    err = capsys.readouterr().err
+    assert "Writing queries" not in err and "Retrieving" not in err and "Judging" not in err
+    shown = run(docs, models, MockLLM(), "mock", output_folder=tmp_path / "shown", **kw)
+    err = capsys.readouterr().err
+    assert "Retrieving" in err and "Judging" in err
+    assert "Writing queries" not in err  # already cached: the queries are read, not written
+    unit = "grade" if judging == "pointwise" else "comparison"
+    assert f"{unit}" in err
+    assert shown.record["ratings"] == quiet.record["ratings"] and shown.path.name == quiet.path.name
+
+
+def test_writing_queries_shows_as_queries_are_kept(tmp_path, capsys):
+    from mteb_gym import run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    run(
+        docs,
+        ["mteb/baseline-bm25s"],
+        MockLLM(),
+        "mock",
+        n_queries=4,
+        cache_folder=tmp_path / "c",
+        output_folder=tmp_path / "r",
+    )
+    assert "Writing queries" in capsys.readouterr().err
+
+
+def test_the_progress_setting_is_in_no_identity():
+    from mteb_gym.llm import MockLLM as Mock
+    from mteb_gym.queries import QueryGenerator
+
+    assert QueryGenerator(Mock(), show_progress_bar=True).params == QueryGenerator(Mock()).params
