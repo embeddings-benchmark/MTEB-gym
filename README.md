@@ -21,7 +21,7 @@ MTEB Gym ranks embedding models on your own documents. You don't need labels or 
 ## Installation
 
 ```bash
-pip install "mteb-gym[local] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
+pip install "mteb-gym[local,decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
 ```
 
 ## Quickstart
@@ -32,7 +32,7 @@ import mteb_gym as gym
 result = gym.run(
     corpus="NFCorpus",  # an MTEB task, or "path/to/docs" for your own documents
     models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
-    judge="autotrust/JEV-9B",
+    judge="Mapika/decider-4b",
     generator="Qwen/Qwen3.5-4B",
     judging="pointwise",  # or "pairwise" to compare whole result lists
     n_queries=20,  # 100 for a real evaluation
@@ -40,7 +40,7 @@ result = gym.run(
 print(result.leaderboard)
 ```
 
-Needs a GPU with about 28 GB of memory, such as an A100 or H100.
+Needs a GPU with about 19 GB of memory, such as an L4, A10, A100 or H100.
 
 The judge and the generator both load from Hugging Face. [Change them or serve them](#choosing-the-judge-and-generator) by changing a name.
 
@@ -198,14 +198,19 @@ mteb-gym submit --create-pr  # open a pull request on each
 Give a name. The model loads from Hugging Face and runs in your Python process, and the run prints what it found:
 
 ```text
-judge: autotrust/JEV-9B (decision model)
+judge: Mapika/decider-4b (decision model)
 generator: Qwen/Qwen3.5-4B (chat model)
 ```
 
-**Judge.** Any decision model in the format of JEV-9B and JEV-27B, any decision model on a server with `/v1/systemone`, and any chat model. A decision model answers in one forward pass, in both judging modes; a chat model is slower. The tested ones are listed with pinned versions, and `gym.get_model_metas()` returns them:
+**Judge.** A decision model answers in one forward pass, in both judging modes. A chat model also works, and is slower.
+
+- In your Python process: the judges listed below.
+- On your own server: any decision model with a `/v1/systemone` endpoint, or any chat model.
+
+The tested judges, at pinned versions, which `gym.get_model_metas()` lists:
 
 - `autotrust/JEV-9B`
-- `autotrust/JEV-27B`
+- `autotrust/JEV-27B`, the paper's judge
 - `autotrust/JEV-35B`
 - `autotrust/GEV-26B-Decide`
 - `Mapika/decider-4b`, with the `decider` extra
@@ -214,7 +219,7 @@ generator: Qwen/Qwen3.5-4B (chat model)
 
 **Models to compare.** Any model `mteb` can load.
 
-To use a model on your own server, add its URL. If a model doesn't fit in your process, the error gives the command to serve it.
+To use a model on your own server, add its URL. If a model doesn't fit in your process, the error links its model card, which says how to serve it.
 
 ```python
 gym.run(..., judge="autotrust/JEV-27B", judge_url="http://localhost:8001/v1")

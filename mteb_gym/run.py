@@ -36,10 +36,13 @@ from .cache import (
     resolve_cache_folder,
     sha,
     texts_hash,
+    verdict_file,
     verdict_key,
+    verdicts_done,
 )
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
 from .llm import ChatClient, llm_settings, load_model
+from .local import load_now
 from .models.models_protocols import DecisionClient
 from .progress import progress_bar
 from .queries import DOC_CHARS, Query, QueryGenerator
@@ -256,8 +259,9 @@ def _judge_pairwise(
     qids = [r.qid for r in next(iter(ranked.values()))]
     chosen = pair_subset(len(pairs), qids, pairs_per_query, run.seed)  # None: every pair for every query
 
-    def judge_pair(i: int) -> list[Verdict]:
-        a, b = pairs[i]
+    folder = run.cache / "verdicts" / run.corpus.name
+    jobs = []
+    for i, (a, b) in enumerate(pairs):
         ra, rb = ranked[a], ranked[b]
         if chosen is not None:
             ra = [r for r in ra if i in chosen[r.qid]]
@@ -265,15 +269,19 @@ def _judge_pairwise(
         key = verdict_key(
             model_id(jd.client), jd.system, run.top_k, jd.doc_chars, run.query_set, a, revisions[a], b, revisions[b]
         )
-        return judge_pair_cached(run.cache / "verdicts" / run.corpus.name, jd, a, b, ra, rb, key, run.query_set, bar)
+        jobs.append((a, b, ra, rb, key))
+    if any(set(r.qid for r in ra) - set(verdicts_done(verdict_file(folder, a, b, key))) for a, b, ra, _, key in jobs):
+        load_now(judge)  # before the bar, so it times only the judging
 
-    n = sum(len(qids) if chosen is None else sum(i in chosen[q] for q in qids) for i in range(len(pairs)))
+    def judge_pair(job) -> list[Verdict]:
+        return judge_pair_cached(folder, jd, *job, run.query_set, bar)
+
     with (
-        progress_bar("Judging", n, run.show_progress_bar, unit="comparison") as bar,
+        progress_bar("Judging", sum(len(job[2]) for job in jobs), run.show_progress_bar, unit="comparison") as bar,
         ThreadPoolExecutor(max_workers=run.workers) as pool,
     ):
         # map keeps pair order, so the verdict list, and the bootstrap over it, is the same every run
-        verdicts = [v for pair in pool.map(judge_pair, range(len(pairs))) for v in pair]
+        verdicts = [v for pair in pool.map(judge_pair, jobs) for v in pair]
     logger.info("judged %d pairs", len(pairs))
     _check_coverage(verdicts)
     return rate(verdicts, seed=run.seed), results.verdict_diagnostics(verdicts), jd.system

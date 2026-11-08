@@ -28,18 +28,27 @@ class DeciderModel:
             ) from e
         self._net = Decider(fetch_folder(self.model, self.revision))
 
-    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
-        options = options or GRADES
+    def load(self) -> None:
+        """Load the model now rather than on its first answer."""
         with self._lock, fits(self.model):
             if self._net is None:
                 self._load()
+
+    def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
+        options = options or GRADES
+        self.load()
+        with self._lock, fits(self.model):
             ask = {"question": question, "options": options, "_type": kind}
             answer = self._net.decide(state, [ask], max_ctx_tokens=MAX_TOKENS)[0]
         return dict(zip(options, answer["probs_list"], strict=True))
 
 
 def decider_loader(
-    name: str, revision: str | None = None, url: str | None = None, api_key: str | None = None, serve: str | None = None
+    name: str,
+    revision: str | None = None,
+    url: str | None = None,
+    api_key: str | None = None,
+    reference: str | None = None,
 ):
     """Loaded in this process once per model. A URL is refused: its server grades differently under the same name."""
     if url:

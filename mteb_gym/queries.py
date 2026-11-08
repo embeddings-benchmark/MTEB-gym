@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from .llm import ChatClient, llm_settings
+from .local import load_now
 from .progress import progress_bar
 
 logger = logging.getLogger(__name__)
@@ -178,6 +179,7 @@ class QueryGenerator:
         cap = target * 3
         out: list[Query] = []
         attempts = 0
+        load_now(self.client)  # before the bar, so it times only the writing
         bar = progress_bar("Writing queries", target, self.show_progress_bar, unit="query")
         while len(out) < target and attempts < cap:
             wave = min(target - len(out), cap - attempts)  # failed attempts are retried by the next wave

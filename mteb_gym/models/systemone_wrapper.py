@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import httpx
 
-from ..serving import GRADES, post_json, server_client, server_url
+from ..serving import GRADES, model_card, post_json, server_client, server_url
 
 
 class SystemOne:
@@ -17,12 +17,14 @@ class SystemOne:
         revision: str | None = None,
         url: str | None = None,
         api_key: str | None = None,
-        serve: str | None = None,
+        reference: str | None = None,
         max_retries: int = 6,
     ):
         if not url:
-            how = f":\n{serve}" if serve else " as its model card describes."
-            raise ValueError(f"{name} cannot be loaded directly. Pass its URL after serving it{how}")
+            raise ValueError(
+                f"{name} cannot be loaded directly. Serve it as its model card describes, then pass its URL: "
+                f"{model_card(name, reference)}"
+            )
         self.model = name
         self.base_url = server_url(url)
         self.max_retries = max_retries

@@ -764,3 +764,39 @@ def test_the_progress_setting_is_in_no_identity():
     from mteb_gym.queries import QueryGenerator
 
     assert QueryGenerator(Mock(), show_progress_bar=True).params == QueryGenerator(Mock()).params
+
+
+class _Loading(MockLLM):
+    """A mock that loads on its own call, and records the order of loading and answering."""
+
+    def __init__(self, seen, who):
+        super().__init__()
+        self.seen, self.who, self.loaded = seen, who, False
+
+    def load(self):
+        self.seen.append(f"{self.who} loads")
+        self.loaded = True
+
+    def chat(self, messages):
+        assert self.loaded, "asked before it was loaded"
+        self.seen.append(f"{self.who} answers")
+        return super().chat(messages)
+
+
+@pytest.mark.parametrize("judging", ["pointwise", "pairwise"])
+def test_models_load_before_their_stage_and_only_when_it_has_work(tmp_path, judging):
+    from mteb_gym import run
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    for did, text in make_corpus(12).items():
+        (docs / f"{did}.txt").write_text(text)
+    seen = []
+    kw = dict(n_queries=4, judging=judging, cache_folder=tmp_path / "c", output_folder=tmp_path / "r", workers=2)
+    models = ["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]
+    run(docs, models, _Loading(seen, "judge"), _Loading(seen, "generator"), **kw)
+    assert seen[0] == "generator loads" and seen.index("judge loads") < seen.index("judge answers")
+    assert seen.count("judge loads") == 1 and seen.count("generator loads") == 1
+    seen.clear()
+    run(docs, models, _Loading(seen, "judge"), _Loading(seen, "generator"), **kw)
+    assert seen == []  # everything was cached: nothing loads

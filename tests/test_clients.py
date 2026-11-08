@@ -373,8 +373,10 @@ def test_running_out_of_memory_says_to_serve_the_model(monkeypatch, fake_repo, a
     with pytest.raises(torch.cuda.OutOfMemoryError) as e:
         ask("org/big")
     said = str(e.value)
-    assert said.startswith("org/big does not fit in GPU memory. Serve it, then pass judge_url or generator_url:\n")
-    assert "vllm serve" in said and "org/big" in said.split("\n", 1)[1]
+    assert said == (
+        "org/big does not fit in GPU memory. Serve it as its model card describes, then pass judge_url or "
+        "generator_url: https://huggingface.co/org/big"
+    )
     assert str(e.value.__cause__) == "CUDA out of memory"
 
 
@@ -521,18 +523,8 @@ def test_a_plain_server_without_the_decision_module_says_which_flags_to_add(serv
     server.models = ["base"]
     with pytest.raises(
         ValueError,
-        match=r"(?s)does not serve jev-decision.*hf download org/jev --local-dir jev\nvllm serve jev --enable-lora "
-        r".*--lora-modules jev-decision=jev/adapter_vllm --logprobs-mode processed_logprobs",
+        match=r"does not serve jev-decision. Serve the model as its model card describes: https://huggingface.co/org/jev",
     ):
-        load_model("org/jev", "http://server/v1").decide("yesno", "s", "q", ["false", "true"])
-
-
-def test_a_gemma_decision_model_says_vllm_needs_the_patch_in_its_repo(server):
-    from mteb_gym.llm import load_model
-
-    server.head["prefix_token"] = 2
-    server.models = ["base"]
-    with pytest.raises(ValueError, match=r"(?s)patches/vllm-gemma4-lm-head-lora.patch.*bash jev/serve.sh"):
         load_model("org/jev", "http://server/v1").decide("yesno", "s", "q", ["false", "true"])
 
 
@@ -542,7 +534,8 @@ def test_a_merged_decision_model_is_asked_under_its_own_name(server):
     server.head["merged"] = True
     server.models = ["other"]
     with pytest.raises(
-        ValueError, match=r"(?s)does not serve org/jev.*vllm serve jev --served-model-name org/jev .*processed_logprobs"
+        ValueError,
+        match=r"does not serve org/jev. Serve the model as its model card describes: https://huggingface.co/org/jev",
     ):
         load_model("org/jev", "http://server/v1").decide("yesno", "s", "q", ["false", "true"])
     server.models = ["org/jev"]
@@ -562,7 +555,10 @@ def test_probabilities_the_server_left_out_are_an_error_and_not_a_guess(server):
     from mteb_gym.llm import load_model
 
     server.logprobs = {"token_id:100": -1.0, "token_id:5": -0.5}
-    with pytest.raises(ValueError, match="processed_logprobs"):
+    with pytest.raises(
+        ValueError,
+        match="left out options' probabilities. Serve the model as its model card describes: https://huggingface.co/org/jev",
+    ):
         load_model("org/jev", "http://server/v1").decide("yesno", "s", "q", ["false", "true"])
 
 
@@ -685,7 +681,10 @@ def test_a_repo_missing_its_head_without_being_merged_says_so_and_does_not_read_
     from mteb_gym.models.jev_wrapper import LocalDecisionModel
 
     (fake_repo.folder / "adapter_vllm/decision_head.json").write_text(json.dumps({"bias": [0.0] * 5}))
-    with pytest.raises(ValueError, match="(?s)org/part is missing head.safetensors.*vllm serve part"):
+    with pytest.raises(
+        ValueError,
+        match="org/part is missing head.safetensors. Download it, or serve the model as its model card describes: https://huggingface.co/org/part",
+    ):
         LocalDecisionModel("org/part", None, False, False).decide("yesno", "s", "q", ["false", "true"])
 
 

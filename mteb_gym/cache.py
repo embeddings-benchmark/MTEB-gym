@@ -20,6 +20,7 @@ from dataclasses import asdict, replace
 from pathlib import Path
 
 from .judge import Grade, PairwiseJudge, PointwiseJudge, Verdict
+from .local import load_now
 from .retrieval import Ranked, slug
 
 logger = logging.getLogger(__name__)
@@ -167,7 +168,9 @@ def judge_pool_cached(
     query = {r.qid: r.query for lists in ranked.values() for r in lists}
     pool = sorted({(r.qid, d) for lists in ranked.values() for r in lists for d in r.doc_ids})
     todo = [(q, query[q], d, docs[d]) for q, d in pool if (q, d) not in done]
-    if bar is not None:
+    if todo:
+        load_now(judge.client)
+    if bar is not None:  # after loading, so the bar times only the grading
         bar.reset(total=len(pool))
         bar.update(len(pool) - len(todo))
     if todo:
@@ -189,6 +192,11 @@ def judge_pool_cached(
     return [done[p] for p in pool]
 
 
+def verdicts_done(path: Path) -> dict[str, Verdict]:
+    """The usable verdicts on disk, by query."""
+    return {v.qid: v for v in _read_jsonl(path, Verdict) if all(v.parsed_ok)}
+
+
 def judge_pair_cached(
     folder: Path,
     judge: PairwiseJudge,
@@ -203,7 +211,7 @@ def judge_pair_cached(
     """Verdicts for one pair under `key`, for the queries in `ra`. A crash, a rerun or a run over a subset of queries
     judges only what is missing, and a failed answer counts as missing."""
     path = verdict_file(folder, a, b, key)
-    done = {v.qid: v for v in _read_jsonl(path, Verdict) if all(v.parsed_ok)}
+    done = verdicts_done(path)
     todo = [r for r in ra if r.qid not in done]
     if bar is not None:
         bar.update(len(ra) - len(todo))
