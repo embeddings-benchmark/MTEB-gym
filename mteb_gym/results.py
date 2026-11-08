@@ -221,6 +221,12 @@ class Results:
     def agreement(self, **kwargs) -> dict[str, dict]:
         return {str(r.path): r.agreement(**kwargs) for r in self.results}
 
+    def get_benchmark_result(self, benchmark):
+        """The benchmark's summary table from these records, as mteb's `get_benchmark_result`."""
+        from .benchmarks import get_benchmark, summary_table
+
+        return summary_table(self, get_benchmark(benchmark) if isinstance(benchmark, str) else benchmark)
+
 
 def load_results(root: str | Path) -> Results:
     """All records under `root`: a results folder's or results repository's <task>/ folders."""
