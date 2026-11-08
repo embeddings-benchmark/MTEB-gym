@@ -399,16 +399,6 @@ def test_a_local_judge_has_the_identity_of_the_same_name_served():
     assert model_id(LocalChatModel("org/m")) == model_id(LLM("org/m", base_url="http://x", api_key="k")) == "org/m"
 
 
-def test_a_missing_extra_says_which_to_install(monkeypatch):
-    import sys
-
-    from mteb_gym import local
-
-    monkeypatch.setitem(sys.modules, "peft", None)
-    with pytest.raises(ImportError, match=r"mteb-gym\[local\]"):
-        local.transformers_and_peft()
-
-
 def test_a_decision_model_with_a_prefix_and_a_softcap_applies_both(fake_repo):
     from mteb_gym.models.jev_wrapper import LocalDecisionModel
 

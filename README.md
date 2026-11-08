@@ -20,11 +20,15 @@ MTEB Gym ranks embedding models on your own documents. You don't need labels or 
 
 ## Installation
 
+You can install MTEB Gym with pip:
+
 ```bash
-pip install "mteb-gym[local,decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
+pip install "mteb-gym @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"
 ```
 
 ## Quickstart
+
+The judge here, decider-4b, needs the `decider` extra: `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"`.
 
 ```python
 import mteb_gym as gym
@@ -40,7 +44,7 @@ result = gym.run(
 print(result.leaderboard)
 ```
 
-Needs a GPU with about 19 GB of memory, such as an L4, A10, A100 or H100.
+Runs on one GPU with about 20 GB of memory.
 
 The judge and the generator both load from Hugging Face. [Change them or serve them](#choosing-the-judge-and-generator) by changing a name.
 
@@ -207,10 +211,10 @@ generator: Qwen/Qwen3.5-4B (chat model)
 - In your Python process: the judges listed below.
 - On your own server: any decision model with a `/v1/systemone` endpoint, or any chat model.
 
-The tested judges, at pinned versions, which `gym.get_model_metas()` lists:
+These judges work by name, at pinned versions, which `gym.get_model_metas()` lists:
 
 - `autotrust/JEV-9B`
-- `autotrust/JEV-27B`, the paper's judge
+- `autotrust/JEV-27B`, used in the paper
 - `autotrust/JEV-35B`
 - `autotrust/GEV-26B-Decide`
 - `Mapika/decider-4b`, with the `decider` extra
