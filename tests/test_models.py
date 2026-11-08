@@ -42,6 +42,10 @@ def decider_package(monkeypatch):
             return [{"probs_list": [(i + 1) / (n * (n + 1) / 2) for i in range(n)]}]
 
     monkeypatch.setattr("mteb_gym.models.decider_wrapper.fetch_folder", lambda name, revision: f"{name}@{revision}")
+    from mteb_gym.models import model_meta
+
+    installed = model_meta.version
+    monkeypatch.setattr(model_meta, "version", lambda name: "1.10.0" if name == "decider-ai" else installed(name))
     package, infer = ModuleType("decider"), ModuleType("decider.infer")
     infer.Decider = Decider
     monkeypatch.setitem(sys.modules, "decider", package)
