@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .benchmark import Benchmark
+from ..benchmark import Benchmark
 
-PAPER_TASKS = (
+GYM_ENG_TASKS = (
     "ArguAna",
     "ClimateFEVERHardNegatives",
     "CQADupstackGamingRetrieval",
@@ -35,7 +35,7 @@ PAPER_TASKS = (
 
 GYM_ENG_V1 = Benchmark(
     name="Gym(eng, v1)",
-    tasks=PAPER_TASKS,
+    tasks=GYM_ENG_TASKS,
     judge="autotrust/JEV-27B",
     judge_revision="14b425269ed24452e0a5ad5a8f3e51d139647a88",
     judging="pointwise",
@@ -49,7 +49,7 @@ GYM_ENG_V1 = Benchmark(
 
 GYM_ENG_V1_PAIRWISE = Benchmark(
     name="Gym(eng, v1, pairwise)",
-    tasks=PAPER_TASKS,
+    tasks=GYM_ENG_TASKS,
     judge="autotrust/JEV-27B",
     judge_revision="14b425269ed24452e0a5ad5a8f3e51d139647a88",
     judging="pairwise",
@@ -62,7 +62,7 @@ GYM_ENG_V1_PAIRWISE = Benchmark(
 
 GYM_ENG_V1_VALIDATION = Benchmark(
     name="Gym(eng, v1, original queries)",
-    tasks=PAPER_TASKS,
+    tasks=GYM_ENG_TASKS,
     judge="autotrust/JEV-27B",
     judge_revision="14b425269ed24452e0a5ad5a8f3e51d139647a88",
     judging="pointwise",

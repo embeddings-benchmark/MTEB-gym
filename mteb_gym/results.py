@@ -222,10 +222,12 @@ class Results:
         return {str(r.path): r.agreement(**kwargs) for r in self.results}
 
     def get_benchmark_result(self, benchmark):
-        """The benchmark's summary table from these records, as mteb's `get_benchmark_result`."""
-        from .benchmarks import get_benchmark, summary_table
+        """Each model's rank and mean rating on `benchmark`, a `Benchmark` or its name, as a DataFrame, as mteb's
+        `get_benchmark_result` gives."""
+        from .benchmarks import get_benchmark
 
-        return summary_table(self, get_benchmark(benchmark) if isinstance(benchmark, str) else benchmark)
+        benchmark = get_benchmark(benchmark) if isinstance(benchmark, str) else benchmark
+        return benchmark._create_summary_table(self)
 
 
 def _git(*args: str, cwd: Path) -> str:

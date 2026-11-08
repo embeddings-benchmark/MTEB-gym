@@ -4,7 +4,7 @@ import math
 import pytest
 
 import mteb_gym as gym
-from mteb_gym.benchmarks import Benchmark, agreement_table, per_task_table, summary_table
+from mteb_gym.benchmarks import Benchmark
 
 BENCH = Benchmark(
     name="Test(v1)",
@@ -46,11 +46,12 @@ def write(tmp_path, records):
     return gym.load_results(tmp_path)
 
 
-def test_the_paper_benchmarks_are_registered():
+def test_the_benchmarks_are_registered():
     names = [b.name for b in gym.get_benchmarks()]
     assert names == ["Gym(eng, v1)", "Gym(eng, v1, pairwise)", "Gym(eng, v1, original queries)"]
     main = gym.get_benchmark("Gym(eng, v1)")
-    assert len(main.tasks) == 28 and main.query_source == "synthetic" and main.judging == "pointwise"
+    assert len(main) == 28 and list(main) == list(main.tasks)
+    assert main.query_source == "synthetic" and main.judging == "pointwise"
     assert gym.get_benchmark("Gym(eng, v1, pairwise)").judging == "pairwise"
     assert gym.get_benchmark("Gym(eng, v1, original queries)").generator is None
     with pytest.raises(KeyError, match="Did you mean: Gym"):
@@ -92,29 +93,29 @@ def test_the_summary_ranks_models_by_their_mean_and_leaves_a_missing_task_missin
             record("TaskB", [("m1", 60, 0.5), ("m2", 90, 0.4)]),
         ],
     )
-    summary = summary_table(results, BENCH)
+    summary = BENCH._create_summary_table(results)
     assert list(summary.columns) == ["Rank", "Model", "Mean", "Tasks"]
     assert summary["Model"].tolist() == ["m2", "m1", "m3"]
     assert summary["Mean"].tolist()[:2] == [80, 70] and math.isnan(summary["Mean"].iloc[2])
     assert summary["Rank"].tolist()[:2] == [1, 2] and summary["Rank"].isna().iloc[2]
     assert summary["Tasks"].tolist() == [2, 2, 1]
-    per_task = per_task_table(results, BENCH)
+    per_task = BENCH._create_per_task_table(results)
     assert per_task.at["m1", "TaskA"] == 80 and math.isnan(per_task.at["m3", "TaskB"])
-    assert per_task_table(results, BENCH, value="ci_low").at["m2", "TaskB"] == 89
+    assert BENCH._create_per_task_table(results, value="ci_low").at["m2", "TaskB"] == 89
     assert results.get_benchmark_result(BENCH).equals(summary)
 
 
 def test_a_task_without_a_record_leaves_every_mean_missing(tmp_path):
     results = write(tmp_path, [record("TaskA", [("m1", 80, 0.5), ("m2", 70, 0.4)])])
-    summary = summary_table(results, BENCH)
+    summary = BENCH._create_summary_table(results)
     assert summary["Mean"].isna().all() and summary["Tasks"].tolist() == [1, 1]
-    assert list(per_task_table(results, BENCH).columns) == ["TaskA", "TaskB"]
+    assert list(BENCH._create_per_task_table(results).columns) == ["TaskA", "TaskB"]
 
 
 def test_two_records_for_one_task_are_an_error(tmp_path):
     results = write(tmp_path, [record("TaskA", [("m1", 80, 0.5)]), record("TaskA", [("m1", 70, 0.5)])])
     with pytest.raises(ValueError, match="TaskA has 2 matching records"):
-        summary_table(results, BENCH)
+        BENCH._create_summary_table(results)
 
 
 def test_of_original_records_the_one_with_the_most_queries_is_used(tmp_path):
@@ -128,7 +129,7 @@ def test_of_original_records_the_one_with_the_most_queries_is_used(tmp_path):
             record("TaskA", [("m1", 70, 0.5)], query_source="original", generator_model=None, n=8),
         ],
     )
-    assert per_task_table(results, original).at["m1", "TaskA"] == 70
+    assert original._create_per_task_table(results).at["m1", "TaskA"] == 70
 
 
 def test_agreement_compares_ratings_with_labelled_ndcg(tmp_path):
@@ -148,6 +149,6 @@ def test_agreement_compares_ratings_with_labelled_ndcg(tmp_path):
             record("TaskB", ms, labels=None, query_source="original", generator_model=None),
         ],
     )
-    table = agreement_table(results, original, bootstrap=50)
+    table = original._create_agreement_table(results, bootstrap=50)
     assert table["Task"].tolist() == ["TaskA"]
     assert table["Spearman"].iloc[0] == pytest.approx(1.0) and table["Models"].iloc[0] == 4

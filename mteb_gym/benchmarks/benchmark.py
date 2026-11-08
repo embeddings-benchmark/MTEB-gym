@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from . import _create_table
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from ..results import Results
 
 
 @dataclass(frozen=True)
@@ -53,3 +62,24 @@ class Benchmark:
             and (n == self.n_queries or (self.query_source == "original" and n < self.n_queries))
             and (self.judge_revision is None or judge.get("revision") == self.judge_revision)
         )
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.tasks)
+
+    def __len__(self) -> int:
+        return len(self.tasks)
+
+    def _create_summary_table(self, results: Results) -> pd.DataFrame:
+        """One row per model: its rank, mean rating over the tasks, and how many tasks it has. A model missing any task
+        has no mean and no rank, as in mteb."""
+        return _create_table._create_summary_table(results, self)
+
+    def _create_per_task_table(self, results: Results, value: str = "rating") -> pd.DataFrame:
+        """One row per model and one column per task, holding each record's `value` for the model: "rating", "ci_low",
+        "ci_high" or "ndcg_at_10". A task without a record, or a model a record lacks, is missing."""
+        return _create_table._create_per_task_table(results, self, value)
+
+    def _create_agreement_table(self, results: Results, bootstrap: int = 1000, seed: int = 0) -> pd.DataFrame:
+        """For each task whose record was scored against the dataset's labels: Spearman's rho between the judge's
+        ratings and the models' nDCG@10 on the same queries, with a bootstrap interval over models."""
+        return _create_table._create_agreement_table(results, self, bootstrap, seed)
