@@ -193,6 +193,27 @@ def _load(role: str, model, url: str | None):
     return client
 
 
+def _meta(model):
+    """An embedding model's mteb metadata, from its name, its ModelMeta or the loaded model."""
+    import mteb
+    from mteb.models import ModelMeta
+
+    if isinstance(model, str):
+        return mteb.get_model_meta(model)
+    meta = model if isinstance(model, ModelMeta) else getattr(model, "mteb_model_meta", None)
+    if not isinstance(meta, ModelMeta) or meta.name is None:
+        raise ValueError(
+            f"{model!r} has no mteb name to cache and record it under: pass a model name, a ModelMeta, "
+            "or a model with its mteb_model_meta set, as mteb.get_model returns"
+        )
+    return meta
+
+
+def _name(model) -> str:
+    """The name a model is cached and recorded under: a name as given, else mteb's name with its experiment."""
+    return model if isinstance(model, str) else _meta(model).model_name_with_experiment
+
+
 def _resolve_judging(judging: str, judge, generator, queries) -> str:
     """The judging mode, after checking the judge can do it."""
     if judging not in ("pointwise", "pairwise"):
@@ -289,7 +310,7 @@ def _judge_pairwise(
 
 def predict(
     corpus: str | Path,
-    model: str,
+    model,
     *,
     generator: str | ChatClient | None = None,
     generator_url: str | None = None,
@@ -312,12 +333,11 @@ def predict(
     and the GPU is returned to the operating system between them. `run()` then finds every
     prediction file already written and only judges. Arguments that decide the query set must match
     the later `run()`, since predictions are stored per query set, and `max_seq_length`, since they are stored per cap.
+    `model` is what `run()` takes for each model: a name, a ModelMeta or a loaded mteb model.
 
     Returns:
         The path of mteb's prediction file.
     """
-    import mteb
-
     if queries == "synthetic" and generator is None:
         raise ValueError(
             "predict() needs the generator that run() will use: a generated query set is identified by it, "
@@ -340,12 +360,13 @@ def predict(
     )
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
-    revision = mteb.get_model_meta(model).revision
-    folder = prediction_folder(cache, corp.name, model, revision, qset.id, max_seq_length)
+    name = _name(model)
+    folder = prediction_folder(cache, corp.name, name, _meta(model).revision, qset.id, max_seq_length)
     return retrieval.predict(
-        model,
+        name,
         task_mod.build(corp, qset.queries, qset.texts),
         folder,
+        instance=model,
         batch_size=batch_size,
         embedding_cache=embedding_cache,
         max_seq_length=max_seq_length,
@@ -354,7 +375,7 @@ def predict(
 
 def run(
     corpus: str | Path,
-    models: list[str],
+    models: list,
     judge: str | ChatClient | DecisionClient,
     generator: str | ChatClient | None = None,
     *,
@@ -381,7 +402,9 @@ def run(
 
     Args:
         corpus: An mteb retrieval task name, a folder of .txt/.md files, or a .jsonl with id and text.
-        models: mteb model ids. They run through mteb itself.
+        models: mteb model ids, or the models themselves: a ModelMeta or a loaded mteb model. They run through mteb
+            itself. An object is recorded under mteb's name with its experiment, so a wrapper with its own
+            experiment_kwargs is ranked apart; two different models with one name are refused.
         judge: A model name: a chat model or a decision model, loaded directly or served.
         generator: The name of a chat model that writes the queries. Defaults to the judge.
         judge_url: Where the judge is served, if not an API. An OpenAI-compatible endpoint or a decision model's.
@@ -416,7 +439,16 @@ def run(
         The run's Result: leaderboard, record and path.
     """
     started = time.time()
-    out, models = Path(output_folder), sorted(set(models))  # the order must not change what is judged or its identity
+    given = {}
+    for m in models:
+        name = _name(m)
+        if name in given and given[name] != m:
+            raise ValueError(
+                f"two different models are named {name!r}: pass each model once, or give a variant its own name or "
+                "experiment_kwargs, as mteb's wrappers do, so each is ranked and cached apart"
+            )
+        given[name] = m
+    out, models = Path(output_folder), sorted(given)  # the order must not change what is judged or its identity
     cache = resolve_cache_folder(cache_folder)
     if not models:
         raise ValueError("no models given")
@@ -449,9 +481,7 @@ def run(
     logger.info("query set: %s", qset.id)
     query_set, texts, qs, query_source = qset.id, qset.texts, qset.queries, qset.query_source
 
-    import mteb
-
-    revisions = {m: mteb.get_model_meta(m).revision for m in models}  # mteb's pins: part of every cache identity
+    revisions = {m: _meta(given[m]).revision for m in models}  # mteb's pins: part of every cache identity
     gym_task = task_mod.build(corp, qs, texts)
     labels = task_mod.labels(corp, qs, texts)  # None for your own queries
     ranked: dict[str, list[Ranked]] = {}
@@ -464,6 +494,7 @@ def run(
                 m,
                 gym_task,
                 folder,
+                instance=given[m],
                 batch_size=batch_size,
                 embedding_cache=embedding_cache,
                 max_seq_length=max_seq_length,

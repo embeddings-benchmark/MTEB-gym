@@ -225,7 +225,7 @@ The first four need the `transformers5` extra and decider-4b the `decider` extra
 
 **Generator.** Any chat model, such as `Qwen/Qwen3.5-4B`, or `gpt-5.4-mini` through an API with `OPENAI_API_KEY` set.
 
-**Models to compare.** Any model `mteb` can load.
+**Models to compare.** Any model `mteb` can load, by name, or the model itself: a `ModelMeta` or a loaded mteb model. A variant, such as a wrapper, is ranked as its own model when its `mteb_model_meta` has its own name or `experiment_kwargs`, as mteb's wrappers do. Two different models with one name are refused.
 
 To use a model on your own server, add its URL. If a model doesn't fit in your process, the error links its model card, which says how to serve it.
 

@@ -31,7 +31,8 @@ def _cacheable(model_name: str, model) -> bool:
     """A model with one vector per text that takes time to encode."""
     import mteb
 
-    late_interaction = "late-interaction" in (mteb.get_model_meta(model_name).model_type or [])
+    meta = getattr(model, "mteb_model_meta", None) or mteb.get_model_meta(model_name)
+    late_interaction = "late-interaction" in (meta.model_type or [])
     return (
         callable(getattr(model, "encode", None))
         and "bm25" not in model_name.lower()
@@ -86,6 +87,7 @@ def predict(
     task,
     folder: Path,
     *,
+    instance=None,
     batch_size: int = 32,
     embedding_cache: str | Path | None = None,
     max_seq_length: int | None = None,
@@ -93,6 +95,9 @@ def predict(
     """Run `model_name` on `task` through mteb, writing mteb's prediction file into
     `folder`; skipped when the file already exists. Dense, sparse and
     late-interaction models all go through the same call.
+
+    `instance` is the model as the caller gave it, if not by name: a ModelMeta, loaded only when the file is missing,
+    or a loaded mteb model. It runs in place of mteb's model named `model_name`.
 
     `embedding_cache` keeps each model's vectors in mteb's cache under <embedding_cache>, per model and cap, so a corpus
     is encoded once; it holds one vector per text, so lexical, static and late-interaction models run without it.
@@ -102,9 +107,12 @@ def predict(
         return path
     import mteb
     import torch
+    from mteb.models import ModelMeta
 
     folder.mkdir(parents=True, exist_ok=True)
-    model = mteb.get_model(model_name)
+    model = mteb.get_model(model_name) if isinstance(instance, str | None) else instance
+    if isinstance(model, ModelMeta):
+        model = model.load_model()
     if max_seq_length is not None:
         _cap_length(model, max_seq_length)
     if embedding_cache is not None and _cacheable(model_name, model):
