@@ -9,8 +9,12 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .corpus import Corpus
+
+if TYPE_CHECKING:
+    from mteb.models import ModelMeta
 
 
 @dataclass
@@ -27,15 +31,12 @@ def slug(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
-def _cacheable(model_name: str, model) -> bool:
+def _cacheable(meta: ModelMeta, model) -> bool:
     """A model with one vector per text that takes time to encode."""
-    import mteb
-
-    meta = getattr(model, "mteb_model_meta", None) or mteb.get_model_meta(model_name)
     late_interaction = "late-interaction" in (meta.model_type or [])
     return (
         callable(getattr(model, "encode", None))
-        and "bm25" not in model_name.lower()
+        and "bm25" not in meta.name.lower()
         and not late_interaction
         and not _is_static(getattr(model, "model", None))
     )
@@ -83,21 +84,17 @@ def _cached(model, folder: Path):
 
 
 def predict(
-    model_name: str,
+    meta: ModelMeta,
     task,
     folder: Path,
     *,
-    instance=None,
     batch_size: int = 32,
     embedding_cache: str | Path | None = None,
     max_seq_length: int | None = None,
 ) -> Path:
-    """Run `model_name` on `task` through mteb, writing mteb's prediction file into
+    """Run the model `meta` describes on `task` through mteb, writing mteb's prediction file into
     `folder`; skipped when the file already exists. Dense, sparse and
     late-interaction models all go through the same call.
-
-    `instance` is the model as the caller gave it, if not by name: a ModelMeta, loaded only when the file is missing,
-    or a loaded mteb model. It runs in place of mteb's model named `model_name`.
 
     `embedding_cache` keeps each model's vectors in mteb's cache under <embedding_cache>, per model and cap, so a corpus
     is encoded once; it holds one vector per text, so lexical, static and late-interaction models run without it.
@@ -107,19 +104,16 @@ def predict(
         return path
     import mteb
     import torch
-    from mteb.models import ModelMeta
 
     folder.mkdir(parents=True, exist_ok=True)
-    model = mteb.get_model(model_name) if isinstance(instance, str | None) else instance
-    if isinstance(model, ModelMeta):
-        model = model.load_model()
+    model = meta.load_model()
     if max_seq_length is not None:
         _cap_length(model, max_seq_length)
-    if embedding_cache is not None and _cacheable(model_name, model):
+    if embedding_cache is not None and _cacheable(meta, model):
         cap = (
             "" if max_seq_length is None else f"-max{max_seq_length}"
         )  # vectors made under one cap stay apart from another's
-        model = _cached(model, Path(embedding_cache) / f"{slug(model_name)}{cap}")
+        model = _cached(model, Path(embedding_cache) / f"{slug(meta.model_name_with_experiment)}{cap}")
     with tempfile.TemporaryDirectory(dir=folder) as temporary:  # the file appears whole or not at all
         mteb.evaluate(
             model,

@@ -8,6 +8,13 @@ def make_corpus(n=40):
     return {f"D{i}": f"Document {i} about {topics[i % 4]}. " + "clinical evidence " * (i % 5 + 1) for i in range(n)}
 
 
+def metas(names):
+    """mteb's ModelMeta for each of `names`, in their order, as run() takes them."""
+    import mteb
+
+    return [mteb.get_model_meta(name) for name in names]
+
+
 def fake_ranked(seed, queries, k=5):
     return [
         Ranked(q.qid, q.text, [f"D{seed}{j}" for j in range(k)], [f"result {seed}-{q.qid}-{j}" for j in range(k)])

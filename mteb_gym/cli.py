@@ -6,6 +6,7 @@ import argparse
 import json
 import logging
 import os
+from pathlib import Path
 
 from . import load_model, predict, run, submit
 
@@ -138,14 +139,17 @@ def main(argv=None) -> None:
         show_progress_bar=not args.no_progress,
     )
 
+    import mteb
+
+    corpus = args.corpus if Path(args.corpus).exists() else mteb.get_task(args.corpus)
     if args.command == "predict":
-        print(f"predictions -> {predict(args.corpus, args.model, **shared)}")
+        print(f"predictions -> {predict(corpus, mteb.get_model_meta(args.model), **shared)}")
         return
 
     judge = client(args.judge, args.judge_url, args.judge_extra_body, args.judge_key_env)
     result = run(
-        args.corpus,
-        args.models,
+        corpus,
+        [mteb.get_model_meta(m) for m in args.models],
         judge,
         judging=args.judging,
         top_k=args.top_k,

@@ -200,8 +200,7 @@ def test_seed_labels_keep_every_seed_document():
     }
 
 
-def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
-    import mteb
+def test_a_multilingual_task_runs_on_its_english_subset():
     from datasets import Dataset
 
     from mteb_gym import corpus as corpus_mod
@@ -214,6 +213,7 @@ def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
     }
 
     class Meta:
+        name = "t"
         dataset = {"path": "p", "revision": "r"}
         eval_langs = {"en": ["eng-Latn"], "es": ["spa-Latn"]}
         prompt = None
@@ -232,6 +232,5 @@ def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
         def convert_v1_dataset_format_to_v2(self, num_proc=None):
             pass
 
-    monkeypatch.setattr(mteb, "get_tasks", lambda tasks: [Task()])
-    corpus = corpus_mod.load("NotAFolderOnDisk")
+    corpus = corpus_mod.load(Task())
     assert "/en/all" in corpus.id and set(corpus.docs) == {"d1", "d2"}

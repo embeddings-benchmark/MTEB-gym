@@ -34,7 +34,9 @@ def test_a_model_loaded_directly_grades_as_it_does_served(name, file):
     rows = [json.loads(line) for line in (Path(STORED) / file).open()]
     random.Random(0).shuffle(rows)
     rows = rows[:200]
-    task = corpus.load("SciFact")
+    import mteb
+
+    task = corpus.load(mteb.get_task("SciFact"))
     judge = load_model(name)
     grades = []
     for row in rows:

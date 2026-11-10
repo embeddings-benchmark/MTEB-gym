@@ -111,15 +111,22 @@ def test_predictions_on_disk_are_not_computed_again(tmp_path, monkeypatch):
     (tmp_path / "t_predictions.json").write_text("{}")
     monkeypatch.setattr(mteb, "evaluate", lambda *a, **k: pytest.fail("should not run"))
     task = types.SimpleNamespace(metadata=types.SimpleNamespace(name="t"))
-    assert retrieval.predict("m", task, tmp_path) == tmp_path / "t_predictions.json"
+    assert retrieval.predict(_meta(None), task, tmp_path) == tmp_path / "t_predictions.json"
 
 
 class _Task:
     metadata = types.SimpleNamespace(name="t")
 
 
-def _patched(monkeypatch, tmp_path, model, meta_type=None):
-    """mteb with the model and a run that only writes the prediction file. Returns what mteb was asked to run."""
+def _meta(model, name="m", model_type=None):
+    """A ModelMeta that loads `model`."""
+    return types.SimpleNamespace(
+        name=name, model_name_with_experiment=name, model_type=model_type, load_model=lambda: model
+    )
+
+
+def _patched(monkeypatch):
+    """mteb with a run that only writes the prediction file. Returns what mteb was asked to run."""
     import mteb
 
     ran = []
@@ -128,9 +135,7 @@ def _patched(monkeypatch, tmp_path, model, meta_type=None):
         ran.append(model)
         (Path(prediction_folder) / "t_predictions.json").write_text("{}")
 
-    monkeypatch.setattr(mteb, "get_model", lambda name: model)
     monkeypatch.setattr(mteb, "evaluate", evaluate)
-    monkeypatch.setattr(mteb, "get_model_meta", lambda name: types.SimpleNamespace(model_type=meta_type))
     return ran
 
 
@@ -142,8 +147,8 @@ def test_by_default_a_model_runs_as_mteb_loads_it(tmp_path, monkeypatch):
     from mteb_gym import retrieval
 
     model = _encoder()
-    ran = _patched(monkeypatch, tmp_path, model)
-    retrieval.predict("m", _Task, tmp_path / "p")
+    ran = _patched(monkeypatch)
+    retrieval.predict(_meta(model), _Task, tmp_path / "p")
     assert ran == [model] and model.model.max_seq_length == 32768
 
 
@@ -152,8 +157,8 @@ def test_the_cap_only_lowers_a_length(tmp_path, monkeypatch, own, cap, after):
     from mteb_gym import retrieval
 
     model = _encoder(own)
-    _patched(monkeypatch, tmp_path, model)
-    retrieval.predict("m", _Task, tmp_path / "p", max_seq_length=cap)
+    _patched(monkeypatch)
+    retrieval.predict(_meta(model), _Task, tmp_path / "p", max_seq_length=cap)
     assert model.model.max_seq_length == after
 
 
@@ -164,12 +169,11 @@ def test_the_cap_leaves_a_static_model_and_one_without_a_length(tmp_path, monkey
         max_seq_length = 1000000
 
     static = types.SimpleNamespace(model=StaticEmbedding(), encode=lambda *a: None)
-    _patched(monkeypatch, tmp_path, static)
-    retrieval.predict("m", _Task, tmp_path / "static", max_seq_length=8192)
+    _patched(monkeypatch)
+    retrieval.predict(_meta(static), _Task, tmp_path / "static", max_seq_length=8192)
     assert static.model.max_seq_length == 1000000
     lexical = types.SimpleNamespace(encode=lambda *a: None)
-    _patched(monkeypatch, tmp_path, lexical)
-    retrieval.predict("m", _Task, tmp_path / "lexical", max_seq_length=8192)  # nothing to cap: it runs
+    retrieval.predict(_meta(lexical), _Task, tmp_path / "lexical", max_seq_length=8192)  # nothing to cap: it runs
 
 
 def test_the_embedding_cache_wraps_a_model_at_its_own_folder(tmp_path, monkeypatch):
@@ -177,8 +181,8 @@ def test_the_embedding_cache_wraps_a_model_at_its_own_folder(tmp_path, monkeypat
 
     from mteb_gym import retrieval
 
-    ran = _patched(monkeypatch, tmp_path, _encoder())
-    retrieval.predict("org/my model", _Task, tmp_path / "p", embedding_cache=tmp_path / "vectors")
+    ran = _patched(monkeypatch)
+    retrieval.predict(_meta(_encoder(), "org/my model"), _Task, tmp_path / "p", embedding_cache=tmp_path / "vectors")
     assert isinstance(ran[0], CachedEmbeddingWrapper) and ran[0].cache_path == tmp_path / "vectors" / "org_my_model"
 
 
@@ -189,8 +193,8 @@ def test_models_without_one_vector_per_text_skip_the_embedding_cache(tmp_path, m
         pass
 
     def uncached(name, model, meta_type=None):
-        ran = _patched(monkeypatch, tmp_path, model, meta_type)
-        retrieval.predict(name, _Task, tmp_path / name, embedding_cache=tmp_path / "vectors")
+        ran = _patched(monkeypatch)
+        retrieval.predict(_meta(model, name, meta_type), _Task, tmp_path / name, embedding_cache=tmp_path / "vectors")
         return ran == [model]
 
     assert uncached("mteb/baseline-bm25s", _encoder())
@@ -205,8 +209,10 @@ def test_vectors_of_one_cap_are_kept_apart_from_another(tmp_path, monkeypatch):
 
     folder = {}
     for cap in (None, 8192, 512):
-        ran = _patched(monkeypatch, tmp_path, _encoder())
-        retrieval.predict("m", _Task, tmp_path / str(cap), embedding_cache=tmp_path / "vectors", max_seq_length=cap)
+        ran = _patched(monkeypatch)
+        retrieval.predict(
+            _meta(_encoder()), _Task, tmp_path / str(cap), embedding_cache=tmp_path / "vectors", max_seq_length=cap
+        )
         folder[cap] = ran[0].cache_path
     assert folder == {
         None: tmp_path / "vectors" / "m",

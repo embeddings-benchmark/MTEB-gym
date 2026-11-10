@@ -1,6 +1,6 @@
 """
 A corpus is {doc_id: "title text"} plus the mteb task metadata that tells models
-how to encode it (prompts, language). Loaded from an mteb retrieval task by name,
+how to encode it (prompts, language). Loaded from an mteb retrieval task,
 or from a local directory of .txt/.md files or a .jsonl with id/text fields.
 Identity follows mteb: dataset path@revision (plus subset and split); only a
 local corpus, which has no revision, is identified by a content hash.
@@ -13,6 +13,10 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mteb.abstasks.retrieval import AbsTaskRetrieval
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +37,26 @@ class Corpus:
         return "local" if self.id.startswith("local:") else "mteb"
 
 
-def load(spec: str | Path) -> Corpus:
-    """`spec` is an mteb task name, or a path to a directory / .jsonl of documents."""
+def load(spec: AbsTaskRetrieval | str | Path) -> Corpus:
+    """`spec` is an mteb retrieval task, as mteb.get_task returns it, or a path to a directory / .jsonl of documents."""
+    if not isinstance(spec, str | Path):
+        return _load_task(spec)
     path = Path(spec)
-    if path.exists():
-        logger.info("loading the local corpus at %s", path)
-        return _load_local(path)
-    return _load_task(str(spec))
+    if not path.exists():
+        raise ValueError(
+            f"no documents at {path}: a corpus is a folder or .jsonl of documents, or an mteb task, "
+            f"as mteb.get_task({str(spec)!r}) returns it"
+        )
+    logger.info("loading the local corpus at %s", path)
+    return _load_local(path)
 
 
 def _text(row) -> str:
     return ((row.get("title") or "") + " " + (row.get("text") or "")).strip()
 
 
-def _load_task(name: str) -> Corpus:
-    import mteb
-
-    task = mteb.get_tasks(tasks=[name])[0]
+def _load_task(task: AbsTaskRetrieval) -> Corpus:
+    name = task.metadata.name
     task.load_data()
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset

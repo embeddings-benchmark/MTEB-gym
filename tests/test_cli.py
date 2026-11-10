@@ -18,6 +18,8 @@ def run_call(monkeypatch, tmp_path):
         return types.SimpleNamespace(leaderboard="board", record={"diagnostics": {}}, path=tmp_path / "r.json")
 
     monkeypatch.setattr(cli, "run", fake_run)
+    monkeypatch.setattr("mteb.get_task", lambda name: f"task {name}")
+    monkeypatch.setattr("mteb.get_model_meta", lambda name: f"meta {name}")
     return seen
 
 
@@ -27,7 +29,7 @@ def test_run_passes_its_arguments(run_call, capsys):
         "--queries original --top-k 3 --doc-chars 9 --pairs-per-query 2 --judging pairwise --seed 5 "
         "--batch-size 4 --workers 6 --embedding-cache vectors --max-seq-length 8192".split()
     )
-    assert run_call["corpus"] == "docs" and run_call["models"] == ["a", "b"]
+    assert run_call["corpus"] == "task docs" and run_call["models"] == ["meta a", "meta b"]
     assert isinstance(run_call["judge"], MockLLM) and isinstance(run_call["generator"], MockLLM)
     expected = dict(
         task_instruction="t",
@@ -71,6 +73,7 @@ def test_no_progress_turns_the_bars_off(monkeypatch, tmp_path):
 
     seen = {}
     monkeypatch.setattr(cli, "predict", lambda corpus, model, **kw: seen.update(kw) or tmp_path)
+    monkeypatch.setattr("mteb.get_model_meta", lambda name: f"meta {name}")
     cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original", "--no-progress"])
     assert seen["show_progress_bar"] is False
     cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original"])
