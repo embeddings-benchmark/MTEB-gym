@@ -4,7 +4,7 @@ import json
 import math
 from types import SimpleNamespace as NS
 
-import httpx
+import httpx2
 import huggingface_hub.errors as errors
 import pytest
 import torch
@@ -16,7 +16,7 @@ from mteb_gym.models.jev_wrapper import JevServer as DecisionModel
 def decision_model(handler, **kw):
     """A decision model that has read its repo: `yesno`, tokens 100 and 101, no bias, temperature 1."""
     model = DecisionModel("m", url="http://server/v1", max_retries=2, **kw)
-    model._http = httpx.Client(transport=httpx.MockTransport(handler), headers=model._http.headers)
+    model._http = httpx2.Client(transport=httpx2.MockTransport(handler), headers=model._http.headers)
     model._head = {"bias": [0.0, 0.0], "verbalizer_ids": [100, 101], "slots": {"ranges": {"yesno": [0, 2]}}}
     model._temperature, model._served_as = {"yesno": 1.0}, "jev-decision"
     return model
@@ -33,12 +33,12 @@ def test_decide_retries_server_errors_then_gives_up(monkeypatch):
     def fails_twice(request):
         calls.append(1)
         if len(calls) < 3:
-            return httpx.Response(503, text="busy")
-        return httpx.Response(200, json=EVEN)
+            return httpx2.Response(503, text="busy")
+        return httpx2.Response(200, json=EVEN)
 
     assert decision_model(fails_twice).decide("yesno", "s", "q", ["false", "true"]) == HALF and len(calls) == 3
     with pytest.raises(RuntimeError, match="after 3 attempts"):
-        decision_model(lambda r: httpx.Response(500, text="down")).decide("yesno", "s", "q", ["false", "true"])
+        decision_model(lambda r: httpx2.Response(500, text="down")).decide("yesno", "s", "q", ["false", "true"])
 
 
 def test_decide_does_not_retry_a_client_error():
@@ -46,9 +46,9 @@ def test_decide_does_not_retry_a_client_error():
 
     def rejected(request):
         calls.append(1)
-        return httpx.Response(401, request=request)
+        return httpx2.Response(401, request=request)
 
-    with pytest.raises(httpx.HTTPStatusError):
+    with pytest.raises(httpx2.HTTPStatusError):
         decision_model(rejected).decide("yesno", "s", "q", ["false", "true"])
     assert len(calls) == 1
 
@@ -72,14 +72,14 @@ def test_the_record_leaves_out_a_private_endpoint():
 @pytest.mark.parametrize("status", [408, 429])
 def test_decide_waits_out_a_busy_server(monkeypatch, status):
     monkeypatch.setattr("mteb_gym.serving.time.sleep", lambda s: None)
-    answers = iter([httpx.Response(status), httpx.Response(200, json=EVEN)])
+    answers = iter([httpx2.Response(status), httpx2.Response(200, json=EVEN)])
     assert decision_model(lambda r: next(answers)).decide("yesno", "s", "q", ["false", "true"]) == HALF
 
 
 def test_decide_reports_a_reply_that_is_not_json(monkeypatch):
     monkeypatch.setattr("mteb_gym.serving.time.sleep", lambda s: None)
     with pytest.raises(RuntimeError, match="not JSON"):
-        decision_model(lambda r: httpx.Response(200, text="<html>")).decide("yesno", "s", "q", ["false", "true"])
+        decision_model(lambda r: httpx2.Response(200, text="<html>")).decide("yesno", "s", "q", ["false", "true"])
 
 
 def test_an_answer_cut_off_by_the_token_limit_is_empty():
@@ -100,9 +100,9 @@ def test_a_model_context_error_is_told_apart_from_other_bad_requests():
 
     too_long = "This model's maximum context length is 32768 tokens. However, your prompt contains more."
     with pytest.raises(InputTooLong):
-        decision_model(lambda r: httpx.Response(400, text=too_long)).decide("yesno", "s", "q", ["false", "true"])
-    with pytest.raises(httpx.HTTPStatusError):
-        decision_model(lambda r: httpx.Response(400, text="unknown kind")).decide("yesno", "s", "q", ["false", "true"])
+        decision_model(lambda r: httpx2.Response(400, text=too_long)).decide("yesno", "s", "q", ["false", "true"])
+    with pytest.raises(httpx2.HTTPStatusError):
+        decision_model(lambda r: httpx2.Response(400, text="unknown kind")).decide("yesno", "s", "q", ["false", "true"])
 
 
 def test_an_llm_context_error_reads_as_too_long():
@@ -124,7 +124,7 @@ def test_an_llm_context_error_reads_as_too_long():
 def test_a_name_without_a_url_is_an_api_model_and_makes_no_call(monkeypatch):
     from mteb_gym.llm import load_model
 
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("no server to ask"))
+    monkeypatch.setattr(httpx2, "post", lambda *a, **k: pytest.fail("no server to ask"))
     assert isinstance(load_model("m", api_key="k"), LLM)
     existing = LLM("m", api_key="k")
     assert load_model(existing) is existing
@@ -193,10 +193,10 @@ def test_a_name_hugging_face_lacks_goes_to_the_api_or_says_what_to_do(monkeypatc
 @pytest.mark.parametrize(
     "error",
     [
-        errors.RepositoryNotFoundError("no", response=httpx.Response(404, request=httpx.Request("GET", "http://x"))),
+        errors.RepositoryNotFoundError("no", response=httpx2.Response(404, request=httpx2.Request("GET", "http://x"))),
         errors.OfflineModeIsEnabled("offline"),
         errors.HFValidationError("not a repo id"),
-        httpx.ConnectError("no network"),
+        httpx2.ConnectError("no network"),
         ConnectionError("no network"),
     ],
     ids=lambda e: type(e).__name__,
@@ -437,15 +437,15 @@ def server(monkeypatch, hub, tmp_path):
     def handle(request):
         s.http.append(request)
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{"id": m} for m in s.models]})
+            return httpx2.Response(200, json={"data": [{"id": m} for m in s.models]})
         body = json.loads(request.content)
         s.requests.append(body)
         found = s.logprobs or {f"token_id:{t}": -2.0 if t == 109 else -1.0 for t in body["allowed_token_ids"]}
-        return httpx.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
+        return httpx2.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
 
-    client = httpx.Client
+    client = httpx2.Client
     monkeypatch.setattr(local, "hf_hub_download", files)
-    monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
+    monkeypatch.setattr(httpx2, "Client", lambda **kw: client(transport=httpx2.MockTransport(handle), **kw))
     hub["org/jev"] = JEV | {"adapter_vllm/decision_head.json"}
     hub["org/chat"] = {"model.safetensors"}
     hub["org/v11"] = {"decision_config.json", "lm_head.safetensors"}
@@ -702,13 +702,13 @@ def test_a_name_that_is_no_repo_on_a_server_with_the_decision_module_is_refused(
 
 @pytest.mark.parametrize(
     "reply",
-    [httpx.Response(404), httpx.Response(200, text="<html>"), httpx.Response(200, json={"models": []})],
+    [httpx2.Response(404), httpx2.Response(200, text="<html>"), httpx2.Response(200, json={"models": []})],
     ids=["no route", "not json", "other shape"],
 )
 def test_a_server_that_cannot_list_its_models_is_treated_as_a_chat_server(monkeypatch, reply):
     from mteb_gym.llm import load_model
 
-    monkeypatch.setattr(httpx, "get", lambda url, **kw: reply)
+    monkeypatch.setattr(httpx2, "get", lambda url, **kw: reply)
     assert isinstance(load_model("name", "http://server/v1"), LLM)
 
 

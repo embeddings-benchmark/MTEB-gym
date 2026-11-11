@@ -2,7 +2,7 @@
 
 import json
 
-import httpx
+import httpx2
 import pytest
 
 from mteb_gym.judge import PairwiseJudge, PointwiseJudge, _cut, grade_state
@@ -126,7 +126,7 @@ def test_a_decision_model_grade_is_the_expected_grade():
     assert g.grade == 3.0 and g.parsed_ok and g.probabilities == {"1": 0.5, "5": 0.5}
 
 
-@pytest.mark.parametrize("error", [TimeoutError("slow"), httpx.ReadTimeout("slow")])
+@pytest.mark.parametrize("error", [TimeoutError("slow"), httpx2.ReadTimeout("slow")])
 def test_every_kind_of_timeout_costs_one_answer(error):
     def times_out(messages):
         raise error

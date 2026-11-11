@@ -12,7 +12,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, TypeVar, cast
 
-import httpx
+import httpx2
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
@@ -26,7 +26,7 @@ def repo_files(name: str, revision: str | None = None) -> set[str] | None:
         siblings = HfApi().model_info(name, revision=revision).siblings
         if siblings is not None:
             return {f.rfilename for f in siblings}
-    except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
+    except (RepositoryNotFoundError, HFValidationError, httpx2.TransportError, OSError):
         pass
     try:
         folder = Path(snapshot_download(name, revision=revision, local_files_only=True))
