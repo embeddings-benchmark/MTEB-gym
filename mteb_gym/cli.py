@@ -8,7 +8,7 @@ import logging
 import os
 
 from . import load_model, predict, run, submit
-from .llm import Client
+from .models.models_protocols import Client
 
 
 def _key(variable: str | None) -> str | None:

@@ -10,13 +10,14 @@ import json
 import logging
 import os
 import re
-from typing import TYPE_CHECKING, Any, Protocol, cast, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 from openai import OpenAI
 
 from .local import LocalChatModel, repo_files, shared
 from .models import MODEL_REGISTRY, decision_model_in_repo
-from .models.models_protocols import DecisionClient
+from .models.models_protocols import ChatClient as ChatClient
+from .models.models_protocols import Client as Client
 from .serving import InputTooLong, _too_long, served_models, server_client, server_url
 
 if TYPE_CHECKING:
@@ -24,15 +25,6 @@ if TYPE_CHECKING:
     from openai.types.chat.completion_create_params import CompletionCreateParamsNonStreaming
 
 logger = logging.getLogger(__name__)
-
-
-class ChatClient(Protocol):
-    """What a generator or an LLM judge needs."""
-
-    def chat(self, messages: list[dict[str, Any]]) -> str: ...
-
-
-Client = ChatClient | DecisionClient
 
 
 class MockLLM:

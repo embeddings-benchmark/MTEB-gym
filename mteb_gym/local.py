@@ -10,14 +10,16 @@ from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
+if TYPE_CHECKING:
+    from .models.models_protocols import _SharedModels
+
 _MAX_NEW_TOKENS = 1024
-_ModelT = TypeVar("_ModelT")
 
 
 def repo_files(name: str, revision: str | None = None) -> set[str] | None:
@@ -153,11 +155,5 @@ def _shared(cls: Callable[..., object], name: str, *args: Any) -> object:
     return cls(name, *args)
 
 
-class _SharedModels(Protocol):
-    def __call__(self, cls: Callable[..., _ModelT], name: str, *args: Any) -> _ModelT: ...
-
-    def cache_clear(self) -> None: ...
-
-
 # Preserve the constructor's return type, which functools.cache otherwise erases.
-shared = cast(_SharedModels, _shared)
+shared = cast("_SharedModels", _shared)

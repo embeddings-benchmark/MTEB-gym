@@ -23,8 +23,7 @@ from .retrieval import Ranked
 from .serving import InputTooLong
 
 if TYPE_CHECKING:
-    from .llm import ChatClient
-    from .models.models_protocols import DecisionClient
+    from .models.models_protocols import ChatClient, DecisionClient
 
 logger = logging.getLogger(__name__)
 

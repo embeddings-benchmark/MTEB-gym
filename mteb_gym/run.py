@@ -44,9 +44,9 @@ from .cache import (
 )
 from .corpus import Corpus
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
-from .llm import ChatClient, Client, llm_settings, load_model
+from .llm import llm_settings, load_model
 from .local import load_now
-from .models.models_protocols import DecisionClient
+from .models.models_protocols import ChatClient, Client, DecisionClient
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result

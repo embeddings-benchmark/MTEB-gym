@@ -16,8 +16,9 @@ from typing import Any
 
 from tqdm.auto import tqdm
 
-from .llm import ChatClient, llm_settings
+from .llm import llm_settings
 from .local import load_now
+from .models.models_protocols import ChatClient
 
 logger = logging.getLogger(__name__)
 

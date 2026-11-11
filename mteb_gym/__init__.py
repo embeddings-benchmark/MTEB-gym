@@ -5,9 +5,9 @@ from importlib.metadata import PackageNotFoundError, version
 from .benchmarks import Benchmark, get_benchmark, get_benchmarks
 from .cache import cache_files
 from .judge import Grade, Verdict
-from .llm import LLM, ChatClient, MockLLM, load_model
+from .llm import LLM, MockLLM, load_model
 from .models import DecisionModel, get_model_meta, get_model_metas
-from .models.models_protocols import DecisionClient
+from .models.models_protocols import ChatClient, DecisionClient
 from .queries import Query
 from .rank import ModelRating
 from .results import Result, Results, load_results
