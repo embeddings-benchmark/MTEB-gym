@@ -685,7 +685,7 @@ def test_a_run_prints_its_judge_and_generator_without_any_logging_set_up(tmp_pat
 @pytest.mark.parametrize("judging", ["pointwise", "pairwise"])
 def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_download(tmp_path, monkeypatch, judging):
     """The final build of a large run: the same record, from the cache, by a judge named the same that is never asked."""
-    import httpx
+    import httpx2
 
     from mteb_gym import run
     from mteb_gym.models.jev_wrapper import JevServer as DecisionModel
@@ -713,7 +713,7 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
         pytest.fail("a cached run fetched something")
 
     monkeypatch.setattr("mteb_gym.local.hf_hub_download", nothing_is_fetched)
-    monkeypatch.setattr(httpx.Client, "send", nothing_is_fetched)
+    monkeypatch.setattr(httpx2.Client, "send", nothing_is_fetched)
     again = run(docs, judge=DecisionModel("org/jev", url="http://unused/v1", api_key="k"), **kw)
     assert again.record == first.record and again.path == first.path
 

@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
 
-import httpx
+import httpx2
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
@@ -20,7 +20,7 @@ def repo_files(name: str, revision: str | None = None) -> set[str] | None:
     """The files of a Hugging Face model, from the local cache if the Hub cannot tell, or None if neither has it."""
     try:
         return {f.rfilename for f in HfApi().model_info(name, revision=revision).siblings}
-    except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
+    except (RepositoryNotFoundError, HFValidationError, httpx2.TransportError, OSError):
         pass
     try:
         folder = Path(snapshot_download(name, revision=revision, local_files_only=True))

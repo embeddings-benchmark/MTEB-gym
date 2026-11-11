@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import httpx
+import httpx2
 from openai import APITimeoutError
 
 from .queries import DOC_CHARS, extract_json, task_line
@@ -45,7 +45,7 @@ def _reply(client: ChatClient, messages: list[dict]) -> str | None:
     or grade, not the run."""
     try:
         return client.chat(messages)
-    except (TimeoutError, APITimeoutError, httpx.TimeoutException):
+    except (TimeoutError, APITimeoutError, httpx2.TimeoutException):
         logger.warning("judge call timed out after its retries; it is left out")
         return None
 

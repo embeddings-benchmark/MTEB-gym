@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 import pytest
 
 
@@ -9,6 +9,6 @@ def no_hugging_face(monkeypatch):
     monkeypatch.setattr("mteb_gym.models.repo_files", lambda name: None)
 
     def no_server(*args, **kwargs):
-        raise httpx.ConnectError("no server here")
+        raise httpx2.ConnectError("no server here")
 
-    monkeypatch.setattr(httpx, "get", no_server)
+    monkeypatch.setattr(httpx2, "get", no_server)

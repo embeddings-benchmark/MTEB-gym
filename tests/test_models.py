@@ -8,7 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from types import SimpleNamespace as NS
 
-import httpx
+import httpx2
 import pytest
 
 from mteb_gym.judge import is_decision_model
@@ -117,13 +117,13 @@ def v11_server(monkeypatch, tmp_path):
     def handle(request):
         seen.paths.append(request.url.path)
         if seen.dead:
-            raise httpx.ConnectError("refused")
+            raise httpx2.ConnectError("refused")
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{"id": seen.served}]})
+            return httpx2.Response(200, json={"data": [{"id": seen.served}]})
         body = json.loads(request.content)
         seen.requests.append(body)
         found = seen.logprobs or {f"token_id:{t}": -0.1 * (t - 50) for t in body["allowed_token_ids"]}
-        return httpx.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
+        return httpx2.Response(200, json={"choices": [{"logprobs": {"top_logprobs": [found]}}]})
 
     def files(name, file, revision=None):
         seen.downloads.append((name, file, revision))
@@ -135,8 +135,8 @@ def v11_server(monkeypatch, tmp_path):
         seen.template = kw
         return "|".join(f"{m['role']}:{m['content']}" for m in messages)
 
-    client = httpx.Client
-    monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
+    client = httpx2.Client
+    monkeypatch.setattr(httpx2, "Client", lambda **kw: client(transport=httpx2.MockTransport(handle), **kw))
     monkeypatch.setattr("mteb_gym.local.hf_hub_download", files)
     tokenizer = NS(apply_chat_template=template)
     monkeypatch.setattr(
@@ -259,11 +259,11 @@ def test_a_known_served_model_reads_its_files_at_its_revision(repo_reads):
 
     def handle(request):
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": [{"id": "jev-decision"}]})
-        return httpx.Response(200, json=answer)
+            return httpx2.Response(200, json={"data": [{"id": "jev-decision"}]})
+        return httpx2.Response(200, json=answer)
 
     for model in (load_model(JEV9, "http://server/v1"), DecisionModel(JEV9, "http://server/v1")):
-        model._http = httpx.Client(transport=httpx.MockTransport(handle))
+        model._http = httpx2.Client(transport=httpx2.MockTransport(handle))
         model.decide("choice", "s", "q", ["x", "y"])
     assert repo_reads == [("adapter_vllm/decision_head.json", PIN9), ("calibration.json", PIN9)] * 2
 
@@ -350,19 +350,19 @@ def s1_server(monkeypatch):
     def handle(request):
         seen.paths.append(request.url.path)
         if seen.status != 200:
-            return httpx.Response(seen.status, text="no")
+            return httpx2.Response(seen.status, text="no")
         body = json.loads(request.content)
         seen.bodies.append(body)
         q = body["questions"]["q"]
         if q["type"] == "noul":
-            return httpx.Response(200, json={"answers": {"q": {"type": "noul", "noul": seen.noul}}})
+            return httpx2.Response(200, json={"answers": {"q": {"type": "noul", "noul": seen.noul}}})
         names = [str(i) for i in range(len(q["criteria"]))] if q["type"] == "score" else list(q["criteria"])
         n = len(names)
         probabilities = {name: (i + 1) / (n * (n + 1) / 2) for i, name in enumerate(names)}
-        return httpx.Response(200, json={"answers": {"q": {"type": q["type"], "probabilities": probabilities}}})
+        return httpx2.Response(200, json={"answers": {"q": {"type": q["type"], "probabilities": probabilities}}})
 
-    client = httpx.Client
-    monkeypatch.setattr(httpx, "Client", lambda **kw: client(transport=httpx.MockTransport(handle), **kw))
+    client = httpx2.Client
+    monkeypatch.setattr(httpx2, "Client", lambda **kw: client(transport=httpx2.MockTransport(handle), **kw))
     monkeypatch.setattr("mteb_gym.serving.time.sleep", lambda s: None)
     return seen
 
@@ -425,7 +425,7 @@ def test_a_chat_model_with_a_url_stays_chat_and_nothing_probes_the_route(monkeyp
     from mteb_gym.llm import LLM
 
     monkeypatch.setattr("mteb_gym.llm.repo_files", lambda name: {"model.safetensors"})
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("no probing"))
+    monkeypatch.setattr(httpx2, "post", lambda *a, **k: pytest.fail("no probing"))
     assert isinstance(load_model("Qwen/chat", "http://server/v1"), LLM)
 
 
@@ -458,11 +458,11 @@ def _jev_on(models, name=JEV9):
 
     def handle(request):
         if request.url.path == "/v1/models":
-            return httpx.Response(200, json={"data": models})
-        return httpx.Response(200, json=answer)
+            return httpx2.Response(200, json={"data": models})
+        return httpx2.Response(200, json=answer)
 
     model = DecisionModel(name, base_url="http://server/v1")
-    model._http = httpx.Client(transport=httpx.MockTransport(handle))
+    model._http = httpx2.Client(transport=httpx2.MockTransport(handle))
     return model
 
 
@@ -491,10 +491,10 @@ def test_a_server_of_another_model_warns(repo_reads, caplog):
 
 def test_a_dead_server_says_it_could_not_be_reached(repo_reads, monkeypatch):
     def dead(request):
-        raise httpx.ConnectError("refused")
+        raise httpx2.ConnectError("refused")
 
     model = _jev_on(RECORDED_9B)
-    model._http = httpx.Client(transport=httpx.MockTransport(dead))
+    model._http = httpx2.Client(transport=httpx2.MockTransport(dead))
     with pytest.raises(ValueError, match="could not reach http://server"):
         model.decide("choice", "s", "q", ["x", "y"])
 
@@ -625,7 +625,7 @@ def installed(monkeypatch):
     extras = [
         'decider-ai<2,>=1.10; extra == "decider"',
         'transformers<6,>=5; extra == "transformers5"',
-        "httpx>=0.27",
+        "httpx2>=2.0.0",
     ]
 
     def version(name):
