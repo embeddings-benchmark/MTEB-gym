@@ -16,17 +16,23 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
+from typing import Any, Never, TypeVar
+
+from tqdm.auto import tqdm
 
 from .judge import Grade, PairwiseJudge, PointwiseJudge, Verdict
 from .local import load_now
 from .retrieval import Ranked, slug
 
+_JudgmentT = TypeVar("_JudgmentT", Grade, Verdict)
+
 logger = logging.getLogger(__name__)
 
 
-def sha(*parts) -> str:
+def sha(*parts: object) -> str:
     canonical = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
@@ -40,7 +46,7 @@ def resolve_cache_folder(cache_folder: str | Path | None) -> Path:
     return Path(cache_folder) if cache_folder is not None else default_cache_folder()
 
 
-def model_id(client) -> str:
+def model_id(client: object) -> str:
     """The judge or generator as its answers depend on it: the model, and the temperature, output cap and server
     settings it was built with."""
     name = str(getattr(client, "model", type(client).__name__))
@@ -64,13 +70,23 @@ def prediction_folder(
     return cache / "predictions" / task / f"{slug(model)}@{capped(revision, max_seq_length)}" / query_set
 
 
-def verdict_key(judge_id, system, top_k, doc_chars, query_set, a, rev_a, b, rev_b) -> str:
+def verdict_key(
+    judge_id: str,
+    system: str,
+    top_k: int,
+    doc_chars: int,
+    query_set: str,
+    a: str,
+    rev_a: str | None,
+    b: str,
+    rev_b: str | None,
+) -> str:
     """Identity of a pair's verdicts: the judge, what it is told and shown, the query set, both models at their
     revisions."""
     return sha(judge_id, system, top_k, doc_chars, query_set, f"{a}@{rev_a}", f"{b}@{rev_b}")
 
 
-def grades_key(judge_id, system, instruction, doc_chars, query_set) -> str:
+def grades_key(judge_id: str, system: str, instruction: str | None, doc_chars: int, query_set: str) -> str:
     """Identity of a query set's grades. The pool's depth is not part of it: a grade belongs to a (query, document), so
     a deeper pool only adds grades."""
     return sha(judge_id, system, instruction, doc_chars, query_set)
@@ -84,7 +100,7 @@ def grade_file(folder: Path, judge_id: str, key: str) -> Path:
     return folder / f"{slug(judge_id)}-{key}.jsonl"
 
 
-def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[str, list[Path]]:
+def cache_files(record: dict[str, Any], cache_folder: str | Path | None = None) -> dict[str, list[Path]]:
     """The cached files a record was computed from, named from the record alone."""
     cache = resolve_cache_folder(cache_folder)
     cfg, task = record["config"], record["task_name"]
@@ -125,7 +141,7 @@ def cache_files(record: dict, cache_folder: str | Path | None = None) -> dict[st
     return {"queries": queries, "predictions": predictions, "judgments": judgments}
 
 
-def _read_jsonl(path: Path, cls) -> list:
+def _read_jsonl(path: Path, cls: type[_JudgmentT]) -> list[_JudgmentT]:
     if not path.exists():
         return []
     items = []
@@ -137,7 +153,7 @@ def _read_jsonl(path: Path, cls) -> list:
     return items
 
 
-def _appender(path: Path, run: dict):
+def _appender(path: Path, run: dict[str, Any]) -> Callable[[Grade | Verdict], None]:
     """A function that appends an item to `path`, so a crash loses at most the item being written."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists() and not path.read_bytes().endswith(b"\n"):  # a crash cut the last line short
@@ -145,7 +161,7 @@ def _appender(path: Path, run: dict):
             f.write("\n")
     lock = threading.Lock()
 
-    def append(item) -> None:
+    def append(item: Grade | Verdict) -> None:
         with lock, path.open("a", encoding="utf-8") as f:
             f.write(json.dumps({**asdict(item), **run}) + "\n")
 
@@ -159,7 +175,7 @@ def judge_pool_cached(
     docs: dict[str, str],
     key: str,
     query_set: str = "",
-    bar=None,
+    bar: tqdm[Never] | None = None,
 ) -> list[Grade]:
     """A grade for every document in every query's pool (the union of the models' lists). A crash, a rerun or an added
     model grades only what is missing, and a failed answer counts as missing."""
@@ -188,7 +204,12 @@ def judge_pool_cached(
         if failed:
             logger.info("asking again for %d failed grades", len(failed))
             grades += judge.grade_all([t for t in todo if (t[0], t[2]) in failed], on_grade=append)
-        done.update({(g.qid, g.doc_id): replace(g, **run) for g in grades})
+        done.update(
+            {
+                (g.qid, g.doc_id): replace(g, task=run["task"], judge=run["judge"], query_set=run["query_set"])
+                for g in grades
+            }
+        )
     return [done[p] for p in pool]
 
 
@@ -206,7 +227,7 @@ def judge_pair_cached(
     rb: list[Ranked],
     key: str,
     query_set: str = "",
-    bar=None,
+    bar: tqdm[Never] | None = None,
 ) -> list[Verdict]:
     """Verdicts for one pair under `key`, for the queries in `ra`. A crash, a rerun or a run over a subset of queries
     judges only what is missing, and a failed answer counts as missing."""
@@ -227,6 +248,8 @@ def judge_pair_cached(
                 bar.update()
 
         verdicts = judge.judge_all(todo, rb, a, b, on_verdict=append)
-        done.update({v.qid: replace(v, **run) for v in verdicts})
+        done.update(
+            {v.qid: replace(v, task=run["task"], judge=run["judge"], query_set=run["query_set"]) for v in verdicts}
+        )
     order = {r.qid: i for i, r in enumerate(ra)}
     return sorted((v for v in done.values() if v.qid in order), key=lambda v: order[v.qid])

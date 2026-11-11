@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import _create_table
 
@@ -48,7 +48,7 @@ class Benchmark:
     reference: str | None = None
     citation: str | None = None
 
-    def matches(self, record: dict) -> bool:
+    def matches(self, record: dict[str, Any]) -> bool:
         config = record["config"]
         judge = (record.get("llms") or {}).get("judge") or {}
         n = config["n_queries"]

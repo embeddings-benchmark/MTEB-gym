@@ -14,6 +14,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from .cache import cache_files, resolve_cache_folder, texts_hash
 from .results import load_results
@@ -31,7 +32,7 @@ def _git(*args: str, cwd: Path) -> str:
     return done.stdout.strip()
 
 
-def _check_query_file(record: dict, path: Path) -> None:
+def _check_query_file(record: dict[str, Any], path: Path) -> None:
     """A generated query set's file is named before its queries exist: check it holds this record's queries."""
     texts = {q["qid"]: q["text"] for q in json.loads(path.read_text())["queries"]}
     if record["config"]["query_set"].rsplit("-", 1)[1] != texts_hash(texts):
@@ -45,7 +46,7 @@ def submit(
     create_pr: bool = False,
     repository: str = RESULTS_REPOSITORY,
     dataset: str = DATASET,
-) -> dict:
+) -> dict[str, Any]:
     """Commit the records in `results_folder` that the results repository lacks, and with `create_pr`
     open a pull request there and one on the dataset with their queries and judgments. Without it,
     the commit is prepared locally and nothing leaves this machine.
@@ -67,6 +68,8 @@ def submit(
 
     new = []
     for result in load_results(results_folder).results:
+        if result.path is None:
+            raise ValueError("a submitted result must have a path on disk")
         if result.record["source"] != "mteb":
             logger.warning("not submitting %s: it is a run on a local corpus", result.path)
             continue

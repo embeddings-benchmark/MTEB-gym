@@ -307,7 +307,10 @@ mteb-gym run --corpus path/to/docs --models mteb/baseline-bm25s BAAI/bge-small-e
 make install
 make test
 make lint
+make typecheck
 ```
+
+`make typecheck` installs the `typing` dependency group and runs mypy on `mteb_gym`.
 
 ## Citing
 

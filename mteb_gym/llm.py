@@ -10,13 +10,18 @@ import json
 import logging
 import os
 import re
-from typing import Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast, overload
 
 from openai import OpenAI
 
 from .local import LocalChatModel, repo_files, shared
 from .models import MODEL_REGISTRY, decision_model_in_repo
+from .models.models_protocols import DecisionClient
 from .serving import InputTooLong, _too_long, served_models, server_client, server_url
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
+    from openai.types.chat.completion_create_params import CompletionCreateParamsNonStreaming
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +29,10 @@ logger = logging.getLogger(__name__)
 class ChatClient(Protocol):
     """What a generator or an LLM judge needs."""
 
-    def chat(self, messages: list[dict]) -> str: ...
+    def chat(self, messages: list[dict[str, Any]]) -> str: ...
+
+
+Client = ChatClient | DecisionClient
 
 
 class MockLLM:
@@ -39,7 +47,7 @@ class MockLLM:
     def _hash(self, text: str) -> int:
         return int(hashlib.sha256(f"{self.seed}:{text}".encode()).hexdigest()[:8], 16)
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict[str, Any]]) -> str:
         prompt = " ".join(m.get("content", "") for m in messages)
         h = self._hash(prompt)
         if "rate the quality" in prompt.lower():
@@ -65,7 +73,7 @@ class LLM:
         max_tokens: int | None = None,
         temperature: float | None = None,
         max_retries: int = 4,
-        extra_body: dict | None = None,
+        extra_body: dict[str, Any] | None = None,
         timeout: float = 120.0,
     ):
         key = api_key or (os.environ.get("MTEB_GYM_API_KEY") if base_url else os.environ.get("OPENAI_API_KEY"))
@@ -85,17 +93,25 @@ class LLM:
         self._rejected: set[str] = set()  # sampling parameters this model refused
         self.served_model: str | None = None  # the model string the server reported, e.g. a dated snapshot
 
-    def chat(self, messages: list[dict]) -> str:
-        params = {}
+    def chat(self, messages: list[dict[str, Any]]) -> str:
+        params: CompletionCreateParamsNonStreaming = {
+            "model": self.model,
+            "messages": cast("list[ChatCompletionMessageParam]", messages),
+        }
         if self.temperature is not None:
             params["temperature"] = self.temperature
         if self.max_tokens is not None:
             params["max_completion_tokens"] = self.max_tokens
         while True:
             try:
-                sent = {k: v for k, v in params.items() if k not in self._rejected}
+                sent = params.copy()
+                if "temperature" in self._rejected:
+                    sent.pop("temperature", None)
+                if "max_completion_tokens" in self._rejected:
+                    sent.pop("max_completion_tokens", None)
                 resp = self.client.chat.completions.create(
-                    model=self.model, messages=messages, extra_body=self.extra_body, **sent
+                    extra_body=self.extra_body,
+                    **sent,
                 )
                 self.served_model = getattr(resp, "model", None) or self.served_model
                 choice = resp.choices[0]
@@ -107,7 +123,11 @@ class LLM:
                 if _too_long(getattr(e, "status_code", None), str(e)):
                     raise InputTooLong(str(e)) from e
                 # A model may refuse a parameter with a 400 naming it: drop it, and run at its defaults.
-                rejected = [k for k in params if k in str(e) and k not in self._rejected]
+                rejected = [
+                    k
+                    for k in ("temperature", "max_completion_tokens")
+                    if k in params and k in str(e) and k not in self._rejected
+                ]
                 if getattr(e, "status_code", None) != 400 or not rejected:
                     raise
                 self._rejected.update(rejected)
@@ -121,7 +141,24 @@ def _serves_a_decision_module(url: str, api_key: str | None) -> bool:
         return False
 
 
-def load_model(model, url: str | None = None, api_key: str | None = None, extra_body: dict | None = None):
+@overload
+def load_model(
+    model: None, url: str | None = None, api_key: str | None = None, extra_body: dict[str, Any] | None = None
+) -> None: ...
+
+
+@overload
+def load_model(
+    model: str | Client, url: str | None = None, api_key: str | None = None, extra_body: dict[str, Any] | None = None
+) -> Client: ...
+
+
+def load_model(
+    model: str | Client | None,
+    url: str | None = None,
+    api_key: str | None = None,
+    extra_body: dict[str, Any] | None = None,
+) -> Client | None:
     """A generator or judge by name. A decision model is known by name (see `models`) or by the files of its Hugging Face
     repo. Any other name with `url` is the chat model served there; without it, a model on Hugging Face is loaded here on
     first use, and any other goes to the API. Anything that is not a name is returned as it is."""
@@ -154,7 +191,7 @@ def load_model(model, url: str | None = None, api_key: str | None = None, extra_
     )
 
 
-def llm_settings(client) -> dict:
+def llm_settings(client: object) -> dict[str, Any]:
     """How a client is configured, for the record. The endpoint is left out: it can be private."""
     configured = {
         "revision": getattr(client, "revision", None),

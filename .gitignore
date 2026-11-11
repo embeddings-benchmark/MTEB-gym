@@ -9,5 +9,6 @@ results/
 .ipynb_checkpoints/
 .ruff_cache/
 .pytest_cache/
+.mypy_cache/
 dist/
 build/

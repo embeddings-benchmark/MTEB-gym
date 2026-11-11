@@ -10,6 +10,8 @@ from typing import Any
 from packaging.requirements import Requirement
 from packaging.version import InvalidVersion, Version
 
+from .models_protocols import DecisionClient
+
 INSTALL = "git+https://github.com/embeddings-benchmark/MTEB-gym.git"
 
 
@@ -28,12 +30,12 @@ class ModelMeta:
 
     name: str
     revision: str | None
-    loader: Callable
+    loader: Callable[..., DecisionClient]
     loader_kwargs: dict[str, Any] = field(default_factory=dict)
     extra_requirements_groups: list[str] = field(default_factory=list)
     reference: str | None = None
 
-    def load_model(self, url: str | None = None, api_key: str | None = None):
+    def load_model(self, url: str | None = None, api_key: str | None = None) -> DecisionClient:
         if url is None:  # the extras are for running it here: a server brings its own
             self._check_requirements()
         return self.loader(

@@ -21,7 +21,9 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple, cast
+
+from tqdm.auto import tqdm
 
 from . import corpus as corpus_mod
 from . import results, retrieval
@@ -40,11 +42,11 @@ from .cache import (
     verdict_key,
     verdicts_done,
 )
+from .corpus import Corpus
 from .judge import PAIRWISE_DOC_CHARS, PairwiseJudge, PointwiseJudge, Verdict, is_decision_model
-from .llm import ChatClient, llm_settings, load_model
+from .llm import ChatClient, Client, llm_settings, load_model
 from .local import load_now
 from .models.models_protocols import DecisionClient
-from .progress import progress_bar
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
@@ -57,14 +59,14 @@ MAX_QUERIES_LEFT_OUT = 0.1  # of a run's queries, for lack of a complete set of 
 MIN_MODEL_COVERAGE = 0.5  # share of a model's comparisons that must have a usable answer
 
 
-def _read_query_set(path: Path) -> tuple[list[Query], int | None, dict | None]:
+def _read_query_set(path: Path) -> tuple[list[Query], int | None, dict[str, Any] | None]:
     data = json.loads(path.read_text())
     return [Query(**q) for q in data["queries"]], data["n_generated"], data["generator"]
 
 
 def _cached_queries(
     path: Path, gen: QueryGenerator, docs: dict[str, str]
-) -> tuple[list[Query], int | None, dict | None]:
+) -> tuple[list[Query], int | None, dict[str, Any] | None]:
     """The query set and the generator settings it was written with. When two processes generate the same set, the
     first to finish wins and the other reads its queries."""
     if path.exists():
@@ -99,7 +101,7 @@ def sample_queries(queries: dict[str, str], n: int, seed: int) -> dict[str, str]
     return {qid: text for qid, text in queries.items() if qid in keep}
 
 
-def own_queries(spec) -> list[Query]:
+def own_queries(spec: str | Path | list[str] | tuple[str, ...]) -> list[Query]:
     """Your own queries: a list of strings, a .txt (one per line) or a .jsonl with id/text."""
     if isinstance(spec, (list, tuple)):
         queries = [Query(f"q{i}", str(t), []) for i, t in enumerate(spec)]
@@ -133,10 +135,12 @@ class QuerySet(NamedTuple):
     queries: list[Query] | None  # None when they are the dataset's own
     query_source: str  # synthetic | original | own
     n_generated: int | None  # before filtering
-    generator_settings: dict | None
+    generator_settings: dict[str, Any] | None
 
 
-def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: int, seed: int) -> QuerySet:
+def resolve_queries(
+    corp: Corpus, cache: Path, queries: str | Path | list[str], gen: QueryGenerator, n_queries: int, seed: int
+) -> QuerySet:
     """Generate the queries, take the dataset's own, or read the ones you supplied."""
     if queries == "synthetic":
         recipe = f"{slug(corp.id)}-{slug(model_id(gen.client))}-{sha(sorted(gen.params.items()), *gen.prompts)}"
@@ -159,7 +163,7 @@ def resolve_queries(corp, cache: Path, queries, gen: QueryGenerator, n_queries: 
     return QuerySet(f"{slug(corp.id)}-own-{texts_hash(texts)}", texts, qs, "own", None, None)
 
 
-def _check_judging(diagnostics: dict, ratings: list[ModelRating], models: list[str]) -> None:
+def _check_judging(diagnostics: dict[str, Any], ratings: list[ModelRating], models: list[str]) -> None:
     """Raise if the judging is too incomplete to rank on."""
     failure_rate = diagnostics.get("parse_failure_rate") or 0.0
     if failure_rate > MAX_JUDGE_FAILURE_RATE:
@@ -173,8 +177,8 @@ def _check_judging(diagnostics: dict, ratings: list[ModelRating], models: list[s
 
 def _check_coverage(verdicts: list[Verdict]) -> None:
     """Raise if failed answers left a model with too few comparisons to rate fairly."""
-    asked: Counter = Counter()
-    usable: Counter = Counter()
+    asked: Counter[str] = Counter()
+    usable: Counter[str] = Counter()
     for v in verdicts:
         for m in (v.model_a, v.model_b):
             asked[m] += 1
@@ -184,7 +188,7 @@ def _check_coverage(verdicts: list[Verdict]) -> None:
         raise RuntimeError(f"most comparisons failed for {thin}: check the endpoint and its answers")
 
 
-def _load(role: str, model, url: str | None):
+def _load(role: str, model: str | Client | None, url: str | None) -> Client | None:
     """A judge or generator by name, saying what it turned out to be: on stdout, so a Python caller sees it too."""
     client = load_model(model, url)
     if client is not None:
@@ -193,7 +197,7 @@ def _load(role: str, model, url: str | None):
     return client
 
 
-def _resolve_judging(judging: str, judge, generator, queries) -> str:
+def _resolve_judging(judging: str, judge: Client, generator: Client | None, queries: str | Path | list[str]) -> str:
     """The judging mode, after checking the judge can do it."""
     if judging not in ("pointwise", "pairwise"):
         raise ValueError(f"judging must be 'pointwise' or 'pairwise', not {judging!r}")
@@ -208,7 +212,7 @@ def _resolve_judging(judging: str, judge, generator, queries) -> str:
 class _Judging:
     """What both kinds of judging need to know about the run."""
 
-    corpus: object
+    corpus: Corpus
     cache: Path
     query_set: str
     top_k: int
@@ -219,13 +223,13 @@ class _Judging:
 
 
 def _judge_pointwise(
-    judge, instruction: str | None, ranked: dict[str, list[Ranked]], run: _Judging
-) -> tuple[list[ModelRating], dict, str]:
+    judge: Client, instruction: str | None, ranked: dict[str, list[Ranked]], run: _Judging
+) -> tuple[list[ModelRating], dict[str, Any], str]:
     """Grade every pooled document once and rate each model by nDCG over the grades."""
     pj = PointwiseJudge(judge, instruction=instruction, workers=run.workers, doc_chars=run.doc_chars)
     key = grades_key(model_id(pj.client), pj.system, pj.instruction, pj.doc_chars, run.query_set)
     folder = run.cache / "grades" / run.corpus.name
-    with progress_bar("Judging", 0, run.show_progress_bar, unit="grade") as bar:
+    with tqdm(total=0, desc="Judging", unit="grade", disable=not run.show_progress_bar) as bar:
         grades = judge_pool_cached(folder, pj, ranked, run.corpus.docs, key, run.query_set, bar)
     diagnostics = results.grade_diagnostics(grades)
     # A query with an ungraded document is left out: counting it as 0 would punish whichever model found it.
@@ -245,13 +249,13 @@ def _judge_pointwise(
 
 
 def _judge_pairwise(
-    judge,
+    judge: Client,
     instruction: str | None,
     ranked: dict[str, list[Ranked]],
     revisions: dict[str, str | None],
     pairs_per_query: int | None,
     run: _Judging,
-) -> tuple[list[ModelRating], dict, str]:
+) -> tuple[list[ModelRating], dict[str, Any], str]:
     """Compare the models' lists pair by pair, and rate them with Bradley-Terry."""
     # One limit on LLM calls in flight: `workers` pairs at once, each judged one query at a time.
     jd = PairwiseJudge(judge, instruction=instruction, workers=1, doc_chars=run.doc_chars)
@@ -273,11 +277,13 @@ def _judge_pairwise(
     if any(set(r.qid for r in ra) - set(verdicts_done(verdict_file(folder, a, b, key))) for a, b, ra, _, key in jobs):
         load_now(judge)  # before the bar, so it times only the judging
 
-    def judge_pair(job) -> list[Verdict]:
+    def judge_pair(job: tuple[str, str, list[Ranked], list[Ranked], str]) -> list[Verdict]:
         return judge_pair_cached(folder, jd, *job, run.query_set, bar)
 
     with (
-        progress_bar("Judging", sum(len(job[2]) for job in jobs), run.show_progress_bar, unit="comparison") as bar,
+        tqdm(
+            total=sum(len(job[2]) for job in jobs), desc="Judging", unit="comparison", disable=not run.show_progress_bar
+        ) as bar,
         ThreadPoolExecutor(max_workers=run.workers) as pool,
     ):
         # map keeps pair order, so the verdict list, and the bootstrap over it, is the same every run
@@ -323,13 +329,13 @@ def predict(
             "predict() needs the generator that run() will use: a generated query set is identified by it, "
             "and predictions are stored per query set. Pass generator=, or queries='original' / your own."
         )
-    generator = _load("generator", generator, generator_url)
-    if is_decision_model(generator):
+    generator_client = _load("generator", generator, generator_url)
+    if is_decision_model(generator_client):
         raise ValueError("a decision model cannot write queries: choose a chat model as the generator")
     cache = resolve_cache_folder(cache_folder)
     corp = corpus_mod.load(corpus)
     gen = QueryGenerator(
-        generator,
+        cast(ChatClient, generator_client),
         task_instruction=task_instruction or None,
         n_queries=n_queries,
         seed=seed,
@@ -420,10 +426,13 @@ def run(
     cache = resolve_cache_folder(cache_folder)
     if not models:
         raise ValueError("no models given")
-    judge, generator = _load("judge", judge, judge_url), _load("generator", generator, generator_url)
-    judging = _resolve_judging(judging, judge, generator, queries)
-    gen_client = generator if generator is not None else judge
-    if generator is None and queries == "synthetic":
+    judge_client = _load("judge", judge, judge_url)
+    generator_client = _load("generator", generator, generator_url)
+    if judge_client is None:
+        raise ValueError("a judge is required")
+    judging = _resolve_judging(judging, judge_client, generator_client, queries)
+    gen_client = generator_client if generator_client is not None else judge_client
+    if generator_client is None and queries == "synthetic":
         logger.warning("no generator given: the judge also writes the queries")
 
     corp = corpus_mod.load(corpus)
@@ -435,7 +444,7 @@ def run(
     gen_doc_chars = doc_chars or DOC_CHARS
     doc_chars = doc_chars or (PAIRWISE_DOC_CHARS if judging == "pairwise" else DOC_CHARS)
     gen = QueryGenerator(
-        gen_client,
+        cast(ChatClient, gen_client),
         task_instruction=instruction,
         n_queries=n_queries,
         seed=seed,
@@ -456,7 +465,7 @@ def run(
     labels = task_mod.labels(corp, qs, texts)  # None for your own queries
     ranked: dict[str, list[Ranked]] = {}
     ndcg: dict[str, float] = {}  # the baseline that needs no judge: nDCG@10 against the labels
-    with progress_bar("Retrieving", len(models), show_progress_bar, unit="model") as bar:
+    with tqdm(total=len(models), desc="Retrieving", unit="model", disable=not show_progress_bar) as bar:
         for m in models:
             bar.set_postfix_str(m)
             folder = prediction_folder(cache, corp.name, m, revisions[m], query_set, max_seq_length)
@@ -475,10 +484,10 @@ def run(
 
     judging_run = _Judging(corp, cache, query_set, top_k, doc_chars, seed, workers, show_progress_bar)
     if judging == "pointwise":
-        ratings, diagnostics, judge_system = _judge_pointwise(judge, instruction, ranked, judging_run)
+        ratings, diagnostics, judge_system = _judge_pointwise(judge_client, instruction, ranked, judging_run)
     else:
         ratings, diagnostics, judge_system = _judge_pairwise(
-            judge,
+            judge_client,
             instruction,
             ranked,
             {m: capped(r, max_seq_length) for m, r in revisions.items()},
@@ -490,7 +499,7 @@ def run(
         "corpus_id": corp.id,
         "query_set": query_set,
         "query_source": query_source,
-        "judge_model": model_id(judge),
+        "judge_model": model_id(judge_client),
         "generator_model": model_id(gen_client) if query_source == "synthetic" else None,
         "task_instruction": instruction,
         "judge_system": judge_system,
@@ -508,7 +517,7 @@ def run(
     }
     experiment["config_hash"] = results.config_hash(experiment)
     path = results.record_path(out, corp.name, experiment)
-    llms = {"judge": llm_settings(judge), "generator": qset.generator_settings}
+    llms = {"judge": llm_settings(judge_client), "generator": qset.generator_settings}
     label_source = "dataset" if query_source == "original" else "seed_documents" if labels else None
     result = Result(
         results.build_record(
