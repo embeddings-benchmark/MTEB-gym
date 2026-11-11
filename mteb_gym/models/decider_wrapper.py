@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 from ..local import fetch_folder, fits, shared
 from ..serving import GRADES
@@ -17,9 +18,9 @@ class DeciderModel:
         self.model = name
         self.revision = revision
         self._lock = threading.Lock()
-        self._net = None
+        self._net: Any = None
 
-    def _load(self):
+    def _load(self) -> None:
         try:
             from decider.infer import Decider
         except ImportError as e:
@@ -49,7 +50,7 @@ def decider_loader(
     url: str | None = None,
     api_key: str | None = None,
     reference: str | None = None,
-):
+) -> DeciderModel:
     """Loaded in this process once per model. A URL is refused: its server grades differently under the same name."""
     if url:
         raise ValueError(f"{name} runs in this process through the decider-ai package. Leave out its URL.")

@@ -8,30 +8,37 @@ import logging
 import os
 
 from . import load_model, predict, run, submit
+from .llm import Client
 
 
 def _key(variable: str | None) -> str | None:
     return os.environ[variable] if variable else None
 
 
-def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None):
+def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None) -> Client:
     return load_model(model, base_url, _key(key_variable), json.loads(extra_body) if extra_body else None)
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     """The arguments that decide the query set and how models run: `predict` and `run` must agree on them."""
-    ap.add_argument("--corpus", required=True, help="mteb retrieval task name, or a directory / .jsonl of documents")
-    ap.add_argument("--generator", default=None, help="query generator model id (default: the judge)")
-    ap.add_argument("--generator-url", default=None)
-    ap.add_argument("--generator-key-env", default=None, help="environment variable holding the generator's API key")
-    ap.add_argument("--generator-extra-body", default=None, help="JSON passed to the generator's server")
+    ap.add_argument(
+        "--corpus", type=str, required=True, help="mteb retrieval task name, or a directory / .jsonl of documents"
+    )
+    ap.add_argument("--generator", type=str, default=None, help="query generator model id (default: the judge)")
+    ap.add_argument("--generator-url", type=str, default=None)
+    ap.add_argument(
+        "--generator-key-env", type=str, default=None, help="environment variable holding the generator's API key"
+    )
+    ap.add_argument("--generator-extra-body", type=str, default=None, help="JSON passed to the generator's server")
     ap.add_argument(
         "--queries",
+        type=str,
         default="synthetic",
         help="'synthetic', 'original' (the dataset's own queries), or a path to your queries",
     )
     ap.add_argument(
         "--task-instruction",
+        type=str,
         default=None,
         help="optional sentence describing the retrieval task, given to the generator and the judge (recommended)",
     )
@@ -48,11 +55,12 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument(
         "--cache-folder",
+        type=str,
         default=None,
         help="queries, predictions and judgments (default: $MTEB_GYM_CACHE, else ~/.cache/mteb_gym)",
     )
     ap.add_argument(
-        "--embedding-cache", default=None, help="folder for mteb's embedding cache, to encode a corpus once"
+        "--embedding-cache", type=str, default=None, help="folder for mteb's embedding cache, to encode a corpus once"
     )
     ap.add_argument(
         "--max-seq-length",
@@ -65,52 +73,72 @@ def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--no-progress", action="store_true", help="no progress bars")
 
 
-def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(
-        prog="mteb-gym", description="Rank embedding models on a corpus, without relevance labels."
-    )
-    sub = ap.add_subparsers(dest="command", required=True)
-
+def _add_run_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     run_ap = sub.add_parser("run", help="rank models: queries, retrieval, judging, ranking")
     _corpus_and_queries(run_ap)
-    run_ap.add_argument("--models", nargs="+", required=True, help="mteb model ids, e.g. mteb/baseline-bm25s")
+    run_ap.add_argument("--models", type=str, nargs="+", required=True, help="mteb model ids, e.g. mteb/baseline-bm25s")
     run_ap.add_argument(
-        "--judge", required=True, help="judge model id on an OpenAI-compatible endpoint ('mock' for a dry run)"
+        "--judge",
+        type=str,
+        required=True,
+        help="judge model id on an OpenAI-compatible endpoint ('mock' for a dry run)",
     )
-    run_ap.add_argument("--judge-url", default=None, help="base url for the judge endpoint")
-    run_ap.add_argument("--judge-key-env", default=None, help="environment variable holding the judge's API key")
+    run_ap.add_argument("--judge-url", type=str, default=None, help="base url for the judge endpoint")
+    run_ap.add_argument(
+        "--judge-key-env", type=str, default=None, help="environment variable holding the judge's API key"
+    )
     run_ap.add_argument(
         "--judging",
+        type=str,
         default="pointwise",
         choices=["pointwise", "pairwise"],
         help="pointwise: grade every pooled document, rank by nDCG; pairwise: compare lists",
     )
     run_ap.add_argument(
         "--judge-extra-body",
+        type=str,
         default=None,
         help='JSON passed to the judge\'s server, e.g. \'{"chat_template_kwargs": {"enable_thinking": false}}\'',
     )
     run_ap.add_argument(
-        "--output-folder", default="results", help="records, as <task>/<record>.json: the results repository's layout"
+        "--output-folder",
+        type=str,
+        default="results",
+        help="records, as <task>/<record>.json: the results repository's layout",
     )
     run_ap.add_argument("--top-k", type=int, default=10)
     run_ap.add_argument(
         "--pairs-per-query", type=int, default=None, help="judge only this many random model pairs per query"
     )
 
+
+def _add_submit_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     sub_ap = sub.add_parser(
         "submit",
         help="records to the results repository on GitHub; their queries, predictions and judgments to the dataset on Hugging Face",
     )
-    sub_ap.add_argument("--results-folder", default="results")
-    sub_ap.add_argument("--cache-folder", default=None)
+    sub_ap.add_argument("--results-folder", type=str, default="results")
+    sub_ap.add_argument("--cache-folder", type=str, default=None)
     sub_ap.add_argument(
         "--create-pr", action="store_true", help="open both pull requests; without it, nothing is uploaded"
     )
 
+
+def _add_predict_parser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     pred_ap = sub.add_parser("predict", help="retrieve one model's results, so a roster runs one model per process")
     _corpus_and_queries(pred_ap)
-    pred_ap.add_argument("--model", required=True, help="one mteb model id")
+    pred_ap.add_argument("--model", type=str, required=True, help="one mteb model id")
+
+
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(
+        prog="mteb-gym", description="Rank embedding models on a corpus, without relevance labels."
+    )
+    sub = ap.add_subparsers(dest="command", required=True)
+
+    _add_run_parser(sub)
+    _add_submit_parser(sub)
+    _add_predict_parser(sub)
 
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")

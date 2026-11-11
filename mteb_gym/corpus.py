@@ -11,8 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +44,20 @@ def load(spec: str | Path) -> Corpus:
     return _load_task(str(spec))
 
 
-def _text(row) -> str:
+def _text(row: Mapping[str, str | None]) -> str:
     return ((row.get("title") or "") + " " + (row.get("text") or "")).strip()
 
 
 def _load_task(name: str) -> Corpus:
     import mteb
+    from mteb.abstasks.retrieval import AbsTaskRetrieval
 
-    task = mteb.get_tasks(tasks=[name])[0]
+    task = cast(AbsTaskRetrieval, mteb.get_tasks(tasks=[name])[0])
     task.load_data()
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset
+    if subsets is None:
+        raise ValueError(f"{name} has no loaded dataset")
     filled = [name_ for name_, splits in subsets.items() if splits]
     if "en" in filled:  # a multilingual task runs on its English subset, as an English corpus
         filled = ["en"]
@@ -70,15 +75,17 @@ def _load_task(name: str) -> Corpus:
     langs = meta.eval_langs[subset] if isinstance(meta.eval_langs, dict) else meta.eval_langs
     metadata = meta.model_copy(update={"eval_splits": ["test"], "eval_langs": list(langs)})  # one subset, one split
     queries = {row["id"]: row["text"] for row in data["queries"]} if "queries" in data else None
+    qrels = data.get("relevant_docs")
+    top_ranked = data.get("top_ranked")
     return Corpus(
         name=name,
         id=f"{dataset.get('path')}@{dataset.get('revision')}/{subset}/{split}",
         docs=docs,
         metadata=metadata,
         queries=queries,
-        qrels=data.get("relevant_docs"),
+        qrels={qid: dict(rels) for qid, rels in qrels.items()} if qrels is not None else None,
         ignore_identical_ids=task.ignore_identical_ids,
-        top_ranked=dict(data["top_ranked"]) if data.get("top_ranked") else None,
+        top_ranked=dict(top_ranked) if top_ranked else None,
     )
 
 
