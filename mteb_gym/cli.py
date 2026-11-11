@@ -7,8 +7,10 @@ import json
 import logging
 import os
 from pathlib import Path
+from typing import cast
 
 import mteb
+from mteb.abstasks.retrieval import AbsTaskRetrieval
 
 from . import load_model, predict, run, submit
 from .llm import Client
@@ -178,7 +180,7 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     path = Path(args.corpus)
-    corpus = _documents(path) if path.exists() else mteb.get_task(args.corpus)
+    corpus = _documents(path) if path.exists() else cast(AbsTaskRetrieval, mteb.get_task(args.corpus))
     if args.command == "predict":
         print(f"predictions -> {predict(corpus, mteb.get_model_meta(args.model), **shared)}")
         return

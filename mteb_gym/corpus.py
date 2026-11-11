@@ -9,14 +9,12 @@ local corpus, which has no revision, is identified by a content hash.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from mteb.abstasks.retrieval import AbsTaskRetrieval
 
 
@@ -43,9 +41,9 @@ def load(spec: AbsTaskRetrieval | Iterable[str]) -> Corpus:
             f"a corpus is an mteb task or the documents' texts, not a {type(spec).__name__}: "
             "pass mteb.get_task(name), or the texts as a list"
         )
-    if hasattr(spec, "load_data"):
-        return _load_task(spec)
-    return _load_local(spec)
+    if isinstance(spec, Iterable):
+        return _load_local(spec)
+    return _load_task(spec)
 
 
 def _text(row: Mapping[str, str | None]) -> str:

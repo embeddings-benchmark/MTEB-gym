@@ -33,12 +33,20 @@ def slug(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
+def model_name(meta: ModelMeta) -> str:
+    """`meta`'s name with its experiment, as mteb's result cache keys a model."""
+    name = meta.model_name_with_experiment
+    if name is None:
+        raise ValueError("this ModelMeta has no name, and records and caches are keyed by it: set its name=")
+    return name
+
+
 def _cacheable(meta: ModelMeta, model: object) -> bool:
     """A model with one vector per text that takes time to encode."""
     late_interaction = "late-interaction" in (meta.model_type or [])
     return (
         callable(getattr(model, "encode", None))
-        and "bm25" not in meta.name.lower()
+        and "bm25" not in model_name(meta).lower()
         and not late_interaction
         and not _is_static(getattr(model, "model", None))
     )
@@ -119,9 +127,7 @@ def predict(
         cap = (
             "" if max_seq_length is None else f"-max{max_seq_length}"
         )  # vectors made under one cap stay apart from another's
-        model = _cached(
-            cast("EncoderProtocol", model), Path(embedding_cache) / f"{slug(meta.model_name_with_experiment)}{cap}"
-        )
+        model = _cached(cast("EncoderProtocol", model), Path(embedding_cache) / f"{slug(model_name(meta))}{cap}")
     with tempfile.TemporaryDirectory(dir=folder) as temporary:  # the file appears whole or not at all
         mteb.evaluate(
             model,

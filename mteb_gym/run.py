@@ -50,7 +50,7 @@ from .models.models_protocols import DecisionClient
 from .queries import DOC_CHARS, Query, QueryGenerator
 from .rank import ModelRating, rate, rate_pointwise
 from .results import Result
-from .retrieval import Ranked, slug
+from .retrieval import Ranked, model_name, slug
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -352,9 +352,7 @@ def predict(
     )
     qset = resolve_queries(corp, cache, queries, gen, n_queries, seed)
     logger.info("query set: %s", qset.id)
-    folder = prediction_folder(
-        cache, corp.name, model.model_name_with_experiment, model.revision, qset.id, max_seq_length
-    )
+    folder = prediction_folder(cache, corp.name, model_name(model), model.revision, qset.id, max_seq_length)
     return retrieval.predict(
         model,
         task_mod.build(corp, qset.queries, qset.texts),
@@ -432,10 +430,10 @@ def run(
     models = list(models)
     if any(isinstance(m, str) for m in models):
         raise ValueError("models are mteb's ModelMeta, not names: pass mteb.get_model_metas([...])")
-    metas = {m.model_name_with_experiment: m for m in models}  # a variant with experiment_kwargs is a model of its own
-    out, models = Path(output_folder), sorted(metas)  # the order must not change what is judged or its identity
+    metas = {model_name(m): m for m in models}  # a variant with experiment_kwargs is a model of its own
+    out, names = Path(output_folder), sorted(metas)  # the order must not change what is judged or its identity
     cache = resolve_cache_folder(cache_folder)
-    if not models:
+    if not names:
         raise ValueError("no models given")
     judge_client = _load("judge", judge, judge_url)
     generator_client = _load("generator", generator, generator_url)
@@ -469,13 +467,13 @@ def run(
     logger.info("query set: %s", qset.id)
     query_set, texts, qs, query_source = qset.id, qset.texts, qset.queries, qset.query_source
 
-    revisions = {m: metas[m].revision for m in models}  # mteb's pins: part of every cache identity
+    revisions = {m: metas[m].revision for m in names}  # mteb's pins: part of every cache identity
     gym_task = task_mod.build(corp, qs, texts)
     labels = task_mod.labels(corp, qs, texts)  # None for your own queries
     ranked: dict[str, list[Ranked]] = {}
     ndcg: dict[str, float] = {}  # the baseline that needs no judge: nDCG@10 against the labels
-    with tqdm(total=len(models), desc="Retrieving", unit="model", disable=not show_progress_bar) as bar:
-        for m in models:
+    with tqdm(total=len(names), desc="Retrieving", unit="model", disable=not show_progress_bar) as bar:
+        for m in names:
             bar.set_postfix_str(m)
             folder = prediction_folder(cache, corp.name, m, revisions[m], query_set, max_seq_length)
             pred = retrieval.predict(
@@ -503,7 +501,7 @@ def run(
             pairs_per_query,
             judging_run,
         )
-    _check_judging(diagnostics, ratings, models)
+    _check_judging(diagnostics, ratings, names)
     experiment = {
         "corpus_id": corp.id,
         "query_set": query_set,
@@ -520,7 +518,7 @@ def run(
         "judging": judging,
         "seed": seed,
         **({f"gen_{k}": v for k, v in gen.params.items()} if query_source == "synthetic" else {}),
-        "models": models,
+        "models": names,
         "model_revisions": revisions,
         **({"max_seq_length": max_seq_length} if max_seq_length is not None else {}),
     }
