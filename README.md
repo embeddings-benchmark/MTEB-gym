@@ -37,7 +37,7 @@ import mteb
 import mteb_gym as gym
 
 result = gym.run(
-    corpus=mteb.get_task("NFCorpus"),  # an MTEB task, or "path/to/docs" for your own documents
+    corpus=mteb.get_task("NFCorpus"),  # an MTEB task, or your own documents' texts
     models=mteb.get_model_metas(["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"]),
     judge="Mapika/decider-4b",
     generator="Qwen/Qwen3.5-4B",
@@ -76,9 +76,10 @@ Pointwise is the default. Set `judging="pairwise"` to compare lists. It costs mo
 
 | Corpus | Example |
 |---|---|
-| A folder of `.txt` or `.md` files | `corpus="path/to/docs"` |
-| A `.jsonl` file with `id` and `text` | `corpus="docs.jsonl"` |
+| Your documents' texts | `corpus=["first document", "second document"]` |
 | An MTEB task | `corpus=mteb.get_task("NFCorpus")` |
+
+The command line also reads a folder of `.txt` or `.md` files, or a `.jsonl` with `text`: `--corpus path/to/docs`.
 
 ### Describe the task
 

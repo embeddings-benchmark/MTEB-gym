@@ -8,6 +8,8 @@ import logging
 import os
 from pathlib import Path
 
+import mteb
+
 from . import load_model, predict, run, submit
 
 
@@ -17,6 +19,14 @@ def _key(variable: str | None) -> str | None:
 
 def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None):
     return load_model(model, base_url, _key(key_variable), json.loads(extra_body) if extra_body else None)
+
+
+def _documents(path: Path) -> list[str]:
+    """The texts of a .jsonl's rows, or of a folder's .txt and .md files."""
+    if path.is_file() and path.suffix == ".jsonl":
+        rows = (json.loads(line) for line in path.read_text().split("\n") if line.strip())
+        return [str(r.get("text") or "") for r in rows]
+    return [p.read_text(errors="ignore") for p in sorted(path.rglob("*")) if p.suffix in (".txt", ".md")]
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
@@ -139,9 +149,8 @@ def main(argv=None) -> None:
         show_progress_bar=not args.no_progress,
     )
 
-    import mteb
-
-    corpus = args.corpus if Path(args.corpus).exists() else mteb.get_task(args.corpus)
+    path = Path(args.corpus)
+    corpus = _documents(path) if path.exists() else mteb.get_task(args.corpus)
     if args.command == "predict":
         print(f"predictions -> {predict(corpus, mteb.get_model_meta(args.model), **shared)}")
         return

@@ -46,10 +46,7 @@ def test_end_to_end_local_corpus():
             return super().chat(messages, **kw)
 
     with tempfile.TemporaryDirectory() as tmp:
-        docs = Path(tmp) / "docs"
-        docs.mkdir()
-        for did, text in make_corpus(12).items():
-            (docs / f"{did}.txt").write_text(text)
+        docs = list(make_corpus(12).values())
         kw = dict(
             task_instruction="Given a topic, retrieve documents about it",
             models=metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]),
@@ -98,10 +95,7 @@ def test_end_to_end_pointwise_decision_judge():
     from mteb_gym import run
 
     with tempfile.TemporaryDirectory() as tmp:
-        docs = Path(tmp) / "docs"
-        docs.mkdir()
-        for did, text in make_corpus(12).items():
-            (docs / f"{did}.txt").write_text(text)
+        docs = list(make_corpus(12).values())
         decider = Deciding()
         kw = dict(
             task_instruction="Given a topic, retrieve documents about it",
@@ -138,10 +132,7 @@ def test_predict_then_run_reuses_the_predictions():
 
     models = metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"])
     with tempfile.TemporaryDirectory() as tmp:
-        docs = Path(tmp) / "docs"
-        docs.mkdir()
-        for did, text in make_corpus(12).items():
-            (docs / f"{did}.txt").write_text(text)
+        docs = list(make_corpus(12).values())
         shared = dict(
             task_instruction="Given a topic, retrieve documents about it",
             doc_chars=2000,
@@ -199,12 +190,8 @@ def test_end_to_end_mteb_task():
         assert res.record["source"] == "mteb" and "@" in res.record["corpus_id"] and cfg["query_set"]
 
 
-def _docs(tmp, n=30):
-    docs = Path(tmp) / "docs"
-    docs.mkdir(exist_ok=True)
-    for i in range(n):
-        (docs / f"{i}.txt").write_text(f"document {i} about topic {i % 5} and words alpha beta gamma {i * 7}")
-    return docs
+def _docs(n=30):
+    return [f"document {i} about topic {i % 5} and words alpha beta gamma {i * 7}" for i in range(n)]
 
 
 class Calls(MockLLM):
@@ -228,7 +215,7 @@ def test_the_generator_writes_and_the_judge_judges(tmp_path):
 
     gen, judge = Calls(), Calls()
     run(
-        _docs(tmp_path),
+        _docs(),
         metas(_TWO),
         judge=judge,
         generator=gen,
@@ -251,7 +238,7 @@ def test_pairs_per_query_limits_the_comparisons(tmp_path):
     three = metas([*_TWO, "BAAI/bge-small-en-v1.5"])
     judge = Calls()
     res = run(
-        _docs(tmp_path),
+        _docs(),
         three,
         judge=judge,
         generator=MockLLM(),
@@ -279,9 +266,9 @@ def test_model_order_does_not_change_what_is_judged(tmp_path):
         cache_folder=tmp_path / "c",
         workers=1,
     )
-    first = run(_docs(tmp_path), metas(_TWO), **kw)
+    first = run(_docs(), metas(_TWO), **kw)
     calls = len(kw["judge"].prompts)
-    second = run(_docs(tmp_path), metas(list(reversed(_TWO))), **kw)
+    second = run(_docs(), metas(list(reversed(_TWO))), **kw)
     assert len(kw["judge"].prompts) == calls and first.path == second.path
 
 
@@ -293,7 +280,7 @@ def test_original_queries_retrieve_and_score_only_the_sample(tmp_path, monkeypat
     docs = {f"d{i}": f"document {i} about alpha beta" for i in range(20)}
     queries = {f"q{i}": f"alpha question {i}" for i in range(10)}
     qrels = {f"q{i}": {f"d{i}": 1} for i in range(10)}
-    local = corpus_mod.load(_docs(tmp_path, 3))
+    local = corpus_mod.load(_docs(3))
     local.docs, local.queries, local.qrels = docs, queries, qrels
     monkeypatch.setattr(corpus_mod, "load", lambda spec: local)
     res = run(
@@ -346,12 +333,10 @@ def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatc
         cache_folder=tmp_path / "c",
         workers=1,
     )
-    first = run(_docs(tmp_path), metas(_TWO), **kw)
+    first = run(_docs(), metas(_TWO), **kw)
     first.record["agreement"] = {"kept": True}
     first.to_disk()
-    assert run(_docs(tmp_path), metas(_TWO), **kw).record["agreement"] == {
-        "kept": True
-    }  # nothing changed: the record stands
+    assert run(_docs(), metas(_TWO), **kw).record["agreement"] == {"kept": True}  # nothing changed: the record stands
     real = run_module.rate
 
     def shifted(*a, **k):
@@ -361,7 +346,7 @@ def test_a_rerun_after_a_scoring_change_rewrites_the_record(tmp_path, monkeypatc
         return out
 
     monkeypatch.setattr(run_module, "rate", shifted)
-    again = run(_docs(tmp_path), metas(_TWO), **kw).record
+    again = run(_docs(), metas(_TWO), **kw).record
     assert "agreement" not in again and again["ratings"][0]["rating"] == first.record["ratings"][0]["rating"] + 1
 
 
@@ -370,7 +355,7 @@ def test_the_instruction_reaches_the_pairwise_judge(tmp_path):
 
     judge = Calls()
     run(
-        _docs(tmp_path),
+        _docs(),
         metas(_TWO),
         judge=judge,
         generator=MockLLM(),
@@ -393,7 +378,7 @@ def test_a_run_whose_judge_failed_writes_no_record(tmp_path):
 
     with pytest.raises(RuntimeError):
         run(
-            _docs(tmp_path),
+            _docs(),
             metas(_TWO),
             judge=Broken(),
             generator=MockLLM(),
@@ -417,7 +402,7 @@ def test_each_models_no_judge_baseline_is_recorded(tmp_path):
     from mteb_gym import retrieval, run
 
     res = run(
-        _docs(tmp_path),
+        _docs(),
         metas(_TWO),
         judge=MockLLM(),
         generator=MockLLM(),
@@ -436,42 +421,39 @@ def test_each_models_no_judge_baseline_is_recorded(tmp_path):
         assert rating["ndcg_at_10"] == pytest.approx(retrieval.ndcg_at_10(path, qrels))
 
 
-def _excluding_corpus(tmp_path):
+def _excluding_corpus():
     from mteb_gym import corpus as corpus_mod
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
     texts = {
         "copy": "statins heart disease statins heart disease",
         "good": "statins and the heart",
         "other": "gardening in the spring",
         "more": "fibre and the gut",
     }
-    for did, text in texts.items():
-        (docs / f"{did}.txt").write_text(text)
-    corp = corpus_mod.load(docs)
+    corp = corpus_mod.load(list(texts.values()))
+    corp.docs = texts
     corp.queries = {"q": "statins heart disease"}
-    corp.qrels = {"q": {"good.txt": 1}}
-    corp.top_ranked = {"q": ["good.txt", "other.txt", "more.txt"]}
+    corp.qrels = {"q": {"good": 1}}
+    corp.top_ranked = {"q": ["good", "other", "more"]}
     return corp
 
 
 def test_a_tasks_excluded_documents_stay_out_of_its_own_queries_results(tmp_path):
-    """Scored on `good.txt`: first of what `q` may retrieve, so nDCG@10 is 1. With `copy.txt` in the results it is second, and
+    """Scored on `good`: first of what `q` may retrieve, so nDCG@10 is 1. With `copy` in the results it is second, and
     nDCG@10 is 1 / log2(3) = 0.631."""
     import mteb
 
     from mteb_gym import retrieval, task
 
-    corp = _excluding_corpus(tmp_path)
+    corp = _excluding_corpus()
     pred = retrieval.predict(
         mteb.get_model_meta("mteb/baseline-bm25s"),
         task.build(corp, None, corp.queries),
         tmp_path / "with",
         batch_size=2,
     )
-    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["good.txt"]
-    assert "copy.txt" not in retrieval.hits(pred)["q"]
+    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["good"]
+    assert "copy" not in retrieval.hits(pred)["q"]
     assert retrieval.ndcg_at_10(pred, corp.qrels) == pytest.approx(1.0)
     corp.top_ranked = None
     pred = retrieval.predict(
@@ -480,7 +462,7 @@ def test_a_tasks_excluded_documents_stay_out_of_its_own_queries_results(tmp_path
         tmp_path / "without",
         batch_size=2,
     )
-    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["copy.txt"]
+    assert retrieval.top_k(pred, corp, corp.queries, 1)[0].doc_ids == ["copy"]
     assert retrieval.ndcg_at_10(pred, corp.qrels) == pytest.approx(0.6309, abs=1e-3)
 
 
@@ -489,13 +471,13 @@ def test_only_a_tasks_own_queries_are_limited_and_their_limit_is_part_of_their_i
     from mteb_gym.run import resolve_queries
     from mteb_gym.task import build
 
-    corp = _excluding_corpus(tmp_path)
+    corp = _excluding_corpus()
     only_asked = corp.top_ranked
-    corp.top_ranked = {**only_asked, "not-asked": ["good.txt"]}  # the task's list covers queries this run does not ask
+    corp.top_ranked = {**only_asked, "not-asked": ["good"]}  # the task's list covers queries this run does not ask
     own = build(corp, None, corp.queries)
     own.load_data()
     assert own.dataset["default"]["test"]["top_ranked"] == only_asked
-    new = build(corp, [Query("q", "statins", ["good.txt"])], {"q": "statins"})  # the same id, not the task's query
+    new = build(corp, [Query("q", "statins", ["good"])], {"q": "statins"})  # the same id, not the task's query
     new.load_data()
     assert new.dataset["default"]["test"]["top_ranked"] is None
     limited = resolve_queries(corp, tmp_path, "original", None, 1, 0).id
@@ -528,10 +510,7 @@ def test_loading_a_task_keeps_its_documents_per_query():
 def test_a_pairwise_run_shows_the_generator_and_the_judge_the_pairwise_limit(tmp_path):
     from mteb_gym import MockLLM, run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(8).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(8).values())
     rec = run(
         docs,
         metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]),
@@ -559,10 +538,7 @@ def test_the_sentence_reaches_the_generator_and_the_judge(tmp_path):
             self.systems.append(messages[0]["content"])
             return super().chat(messages, **kw)
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
 
     def go(sentence):
         generator, judge = Recording(), Recording()
@@ -593,10 +569,7 @@ def test_a_cap_is_part_of_what_a_run_identifies_and_the_embedding_cache_is_not(t
     __import__("mteb")
     from mteb_gym import run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     shared = dict(
         models=metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]),
         judge=MockLLM(),
@@ -628,10 +601,7 @@ def test_run_and_predict_pass_the_cache_and_the_cap_on_to_retrieval(tmp_path, mo
     mteb = __import__("mteb")
     from mteb_gym import predict, retrieval, run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(6).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(6).values())
     real, seen = retrieval.predict, []
 
     def spy(model, task, folder, **kw):
@@ -662,10 +632,9 @@ def test_a_decision_model_is_refused_as_a_generator(tmp_path):
         def decide(self, kind, state, question, options=None):
             return {}
 
-    (tmp_path / "a.txt").write_text("text")
     with pytest.raises(ValueError, match="cannot write queries"):
         run(
-            tmp_path,
+            ["text"],
             metas(_BM25),
             MockLLM(),
             Decides(),
@@ -673,16 +642,13 @@ def test_a_decision_model_is_refused_as_a_generator(tmp_path):
             cache_folder=tmp_path / "c",
         )
     with pytest.raises(ValueError, match="cannot write queries"):
-        predict(tmp_path, metas(_BM25)[0], generator=Decides(), cache_folder=tmp_path / "c")
+        predict(["text"], metas(_BM25)[0], generator=Decides(), cache_folder=tmp_path / "c")
 
 
 def test_a_run_prints_its_judge_and_generator_without_any_logging_set_up(tmp_path, capsys):
     from mteb_gym import run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     run(
         docs,
         metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]),
@@ -705,10 +671,7 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
     from mteb_gym import run
     from mteb_gym.models.jev_wrapper import JevServer as DecisionModel
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     kw = dict(
         models=metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"]),
         generator=MockLLM(),
@@ -737,10 +700,7 @@ def test_a_record_is_built_again_from_cached_judgments_with_no_server_and_no_dow
 def test_progress_bars_show_each_stage_and_change_nothing(tmp_path, capsys, judging):
     from mteb_gym import run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     kw = dict(n_queries=4, judging=judging, cache_folder=tmp_path / "c", workers=2)
     models = metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"])
     quiet = run(docs, models, MockLLM(), "mock", output_folder=tmp_path / "quiet", show_progress_bar=False, **kw)
@@ -758,10 +718,7 @@ def test_progress_bars_show_each_stage_and_change_nothing(tmp_path, capsys, judg
 def test_writing_queries_shows_as_queries_are_kept(tmp_path, capsys):
     from mteb_gym import run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     run(
         docs,
         metas(["mteb/baseline-bm25s"]),
@@ -802,10 +759,7 @@ class _Loading(MockLLM):
 def test_models_load_before_their_stage_and_only_when_it_has_work(tmp_path, judging):
     from mteb_gym import run
 
-    docs = tmp_path / "docs"
-    docs.mkdir()
-    for did, text in make_corpus(12).items():
-        (docs / f"{did}.txt").write_text(text)
+    docs = list(make_corpus(12).values())
     seen = []
     kw = dict(n_queries=4, judging=judging, cache_folder=tmp_path / "c", output_folder=tmp_path / "r", workers=2)
     models = metas(["mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2"])

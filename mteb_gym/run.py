@@ -51,6 +51,8 @@ from .results import Result
 from .retrieval import Ranked, slug
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from mteb.abstasks.retrieval import AbsTaskRetrieval
     from mteb.models import ModelMeta
 
@@ -292,7 +294,7 @@ def _judge_pairwise(
 
 
 def predict(
-    corpus: AbsTaskRetrieval | str | Path,
+    corpus: AbsTaskRetrieval | Iterable[str],
     model: ModelMeta,
     *,
     generator: str | ChatClient | None = None,
@@ -358,7 +360,7 @@ def predict(
 
 
 def run(
-    corpus: AbsTaskRetrieval | str | Path,
+    corpus: AbsTaskRetrieval | Iterable[str],
     models: list[ModelMeta],
     judge: str | ChatClient | DecisionClient,
     generator: str | ChatClient | None = None,
@@ -385,8 +387,7 @@ def run(
     """Rank `models` on `corpus` without relevance labels.
 
     Args:
-        corpus: An mteb retrieval task, as mteb.get_task returns it, a folder of .txt/.md files, or a .jsonl with id
-            and text.
+        corpus: An mteb retrieval task, as mteb.get_task returns it, or the documents' texts.
         models: The models' ModelMeta, as mteb.get_model_metas returns them. They run through mteb itself.
         judge: A model name: a chat model or a decision model, loaded directly or served.
         generator: The name of a chat model that writes the queries. Defaults to the judge.
