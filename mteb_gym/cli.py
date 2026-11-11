@@ -28,8 +28,12 @@ def _documents(path: Path) -> list[str]:
     """The texts of a .jsonl's rows, or of a folder's .txt and .md files."""
     if path.is_file() and path.suffix == ".jsonl":
         rows = (json.loads(line) for line in path.read_text().split("\n") if line.strip())
-        return [str(r.get("text") or "") for r in rows]
-    return [p.read_text(errors="ignore") for p in sorted(path.rglob("*")) if p.suffix in (".txt", ".md")]
+        texts = [str(r.get("text") or "") for r in rows]
+    else:
+        texts = [p.read_text(errors="ignore") for p in sorted(path.rglob("*")) if p.suffix in (".txt", ".md")]
+    if not texts:
+        raise ValueError(f"no documents found in {path}: a corpus is a folder of .txt or .md files, or a .jsonl")
+    return texts
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:

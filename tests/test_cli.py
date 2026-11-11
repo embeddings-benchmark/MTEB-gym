@@ -74,6 +74,7 @@ def test_no_progress_turns_the_bars_off(monkeypatch, tmp_path):
     seen = {}
     monkeypatch.setattr(cli, "predict", lambda corpus, model, **kw: seen.update(kw) or tmp_path)
     monkeypatch.setattr("mteb.get_model_meta", lambda name: f"meta {name}")
+    (tmp_path / "a.txt").write_text("text")
     cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original", "--no-progress"])
     assert seen["show_progress_bar"] is False
     cli.main(["predict", "--corpus", str(tmp_path), "--model", "m", "--queries", "original"])
