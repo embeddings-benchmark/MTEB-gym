@@ -18,5 +18,7 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.11"
+      - name: Install
+        run: uv sync --group typing --frozen
       - name: Typecheck
         run: make typecheck

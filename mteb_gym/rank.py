@@ -73,7 +73,8 @@ def _bradley_terry(
 
 def _ratings(verdicts: list[Verdict], names: list[str], warn: bool = True) -> npt.NDArray[np.float64]:
     r = SCALE * np.log10(np.clip(_bradley_terry(_win_matrix(verdicts, names), warn=warn), 1e-12, None))
-    return r - r.mean() + BASE
+    ratings: npt.NDArray[np.float64] = r - r.mean() + BASE
+    return ratings
 
 
 def rate(verdicts: list[Verdict], bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRating]:
