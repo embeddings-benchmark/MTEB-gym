@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import pandas as pd
 
-    from ..results import Results
+    from ..results import Result, Results
     from .benchmark import Benchmark
 
 
-def _benchmark_records(results: Results, benchmark: Benchmark) -> dict[str, dict]:
+def _benchmark_records(results: Results, benchmark: Benchmark) -> dict[str, dict[str, Any]]:
     """The record of each task that has one. Where a task has several, the one with the most queries; a tie is an
     error, because the table would depend on which was read first."""
-    found: dict[str, list] = {}
+    found: dict[str, list[Result]] = {}
     for result in results.results:
         if benchmark.matches(result.record):
             found.setdefault(result.record["task_name"], []).append(result)

@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 from pathlib import Path
+from typing import Any
 
 from ..local import fetch, fetch_folder, fits, known_architecture, repo_files, shared, transformers_and_peft
 from ..serving import GRADES, READ_ONE_TOKEN, model_card, post_json, served_models, server_client, server_url, softmax
@@ -15,9 +16,10 @@ logger = logging.getLogger(__name__)
 LETTERS = "ABCDEFGHIJKLMNOP"
 
 
-def decision_head(name: str, revision: str | None) -> dict:
+def decision_head(name: str, revision: str | None) -> dict[str, Any]:
     with open(fetch(name, "adapter_vllm/decision_head.json", revision)) as f:
-        return json.load(f)
+        head: dict[str, Any] = json.load(f)
+        return head
 
 
 def is_jev_repo(files: set[str]) -> bool:
@@ -50,12 +52,14 @@ class JevServer:
     ):
         self.model = name
         self.revision = revision
+        if url is None:
+            raise ValueError("JevServer needs a server URL")
         self.base_url = server_url(url)
         self.max_retries = max_retries
         self.card = model_card(name, reference)
         self._http = server_client(api_key)
         self._lock = threading.Lock()
-        self._head = None
+        self._head: dict[str, Any] | None = None
 
     def _prepare(self) -> None:
         """Read the decision head and calibration, and check what the server serves."""
@@ -80,6 +84,8 @@ class JevServer:
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
         self._prepare()
+        if self._head is None:
+            raise RuntimeError("the model's decision head was not loaded")
         options, text = decision_prompt(kind, state, question, options)
         start = self._head["slots"]["ranges"][kind][0]
         ids = self._head["verbalizer_ids"][start : start + len(options)]
@@ -125,7 +131,7 @@ class LocalDecisionModel:
         self._has_adapter = has_adapter
         self._has_head = has_head  # a merged model has no head: its answer is read from the next-token logits
         self._lock = threading.Lock()
-        self._net = None
+        self._net: Any = None  # Loaded lazily from transformers/peft.
 
     def load(self) -> None:
         """Load the model now rather than on its first answer."""
@@ -133,7 +139,7 @@ class LocalDecisionModel:
             if self._net is None:
                 self._load()
 
-    def _load(self):
+    def _load(self) -> None:
         import torch
         from safetensors.torch import load_file
 
@@ -198,7 +204,7 @@ def jev_loader(
     api_key: str | None = None,
     reference: str | None = None,
     files: set[str] | None = None,
-):
+) -> JevServer | LocalDecisionModel:
     """The model served at `url`, or loaded in this process once per model."""
     if url:
         return JevServer(name, revision, url, api_key, reference)

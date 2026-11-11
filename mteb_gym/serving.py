@@ -6,6 +6,7 @@ from __future__ import annotations
 import math
 import os
 import time
+from typing import Any
 
 import httpx2
 
@@ -38,12 +39,13 @@ def server_client(api_key: str | None) -> httpx2.Client:
     return httpx2.Client(timeout=600.0, headers={"Authorization": f"Bearer {key}"})
 
 
-def served_models(http: httpx2.Client, base_url: str) -> list[dict]:
+def served_models(http: httpx2.Client, base_url: str) -> list[dict[str, Any]]:
     """What a server lists at /v1/models."""
     try:
         r = http.get(f"{base_url}/v1/models")
         r.raise_for_status()
-        return r.json()["data"]
+        models: list[dict[str, Any]] = r.json()["data"]
+        return models
     except (httpx2.HTTPError, ValueError, KeyError, TypeError) as e:
         raise ValueError(f"could not reach {base_url}: {e!r}") from e
 
@@ -65,7 +67,7 @@ def _too_long(status: int | None, message: str) -> bool:
     )
 
 
-def post_json(http: httpx2.Client, url: str, body: dict, max_retries: int) -> dict:
+def post_json(http: httpx2.Client, url: str, body: dict[str, Any], max_retries: int) -> dict[str, Any]:
     # retries back off; a client error is final
     error = ""
     for attempt in range(max_retries + 1):
@@ -83,7 +85,8 @@ def post_json(http: httpx2.Client, url: str, body: dict, max_retries: int) -> di
             raise InputTooLong(r.text[:200])
         r.raise_for_status()
         try:
-            return r.json()
+            result: dict[str, Any] = r.json()
+            return result
         except ValueError:
             error = f"not JSON: {r.text[:200]}"
     raise RuntimeError(f"{url} failed after {max_retries + 1} attempts: {error}")

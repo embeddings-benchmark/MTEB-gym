@@ -9,8 +9,15 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from .judge import Verdict
+    from .retrieval import Ranked
+
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +38,7 @@ class ModelRating:
     n: int
 
 
-def _win_matrix(verdicts, names) -> np.ndarray:
+def _win_matrix(verdicts: list[Verdict], names: list[str]) -> npt.NDArray[np.float64]:
     idx = {n: i for i, n in enumerate(names)}
     W = np.zeros((len(names), len(names)))
     for v in verdicts:
@@ -42,15 +49,16 @@ def _win_matrix(verdicts, names) -> np.ndarray:
 
 
 def _bradley_terry(
-    W: np.ndarray, iters: int = 20000, tol: float = 1e-9, smoothing: float = 0.1, warn: bool = True
-) -> np.ndarray:
+    W: npt.NDArray[np.float64], iters: int = 20000, tol: float = 1e-9, smoothing: float = 0.1, warn: bool = True
+) -> npt.NDArray[np.float64]:
     """MM fixed point; strengths normalised to geometric mean 1. `smoothing` adds a symmetric pseudo-win per pair, so a
     winless model converges to the bottom instead of staying at its initial strength."""
     n = W.shape[0]
     W = W + smoothing * (1.0 - np.eye(n))
     wins = W.sum(axis=1)
     games = W + W.T
-    p = np.ones(n)
+    p: npt.NDArray[np.float64] = np.ones(n)
+    update: npt.NDArray[np.float64]
     for _ in range(iters):
         update = wins / (games / (p[:, None] + p[None, :])).sum(axis=1)
         update = update / np.exp(np.mean(np.log(update)))
@@ -63,12 +71,13 @@ def _bradley_terry(
     return p
 
 
-def _ratings(verdicts, names, warn: bool = True) -> np.ndarray:
+def _ratings(verdicts: list[Verdict], names: list[str], warn: bool = True) -> npt.NDArray[np.float64]:
     r = SCALE * np.log10(np.clip(_bradley_terry(_win_matrix(verdicts, names), warn=warn), 1e-12, None))
-    return r - r.mean() + BASE
+    ratings: npt.NDArray[np.float64] = r - r.mean() + BASE
+    return ratings
 
 
-def rate(verdicts, bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRating]:
+def rate(verdicts: list[Verdict], bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRating]:
     # A comparison with a failed order is left out whole: keeping one order would bring back position bias.
     failed = sum(not all(v.parsed_ok) for v in verdicts)
     if failed:
@@ -83,7 +92,7 @@ def rate(verdicts, bootstrap: int = BOOTSTRAP, seed: int = 0) -> list[ModelRatin
     # verdicts sharing a qid are correlated and per-verdict resampling understates the CI.
     lo = hi = point
     if bootstrap and len(verdicts) > 1:
-        by_qid: dict[str, list] = {}
+        by_qid: dict[str, list[Verdict]] = {}
         for v in verdicts:
             by_qid.setdefault(v.qid, []).append(v)
         qids = np.array(list(by_qid), dtype=object)
@@ -139,7 +148,7 @@ def ndcg_per_query(doc_ids: list[str], grades: dict[str, float], pool_grades: li
 
 def rate_pointwise(
     grades: dict[tuple[str, str], float],
-    ranked: dict[str, list],
+    ranked: dict[str, list[Ranked]],
     k: int = 10,
     bootstrap: int = BOOTSTRAP,
     seed: int = 0,
@@ -149,7 +158,7 @@ def rate_pointwise(
     above, below or equal to the mean of the other models."""
     names = sorted(ranked)
     qids = sorted({r.qid for lists in ranked.values() for r in lists})
-    by_q = {q: {} for q in qids}
+    by_q: dict[str, dict[str, float]] = {q: {} for q in qids}
     for (q, d), g in grades.items():
         if q in by_q:
             by_q[q][d] = g
@@ -182,7 +191,7 @@ def rate_pointwise(
     return sorted(out, key=lambda m: m.rating, reverse=True)
 
 
-def format_leaderboard(ratings: list) -> str:
+def format_leaderboard(ratings: list[dict[str, Any]]) -> str:
     """From the record's rating rows."""
     lines = ["=" * 78, f"{'Rank':<5}{'Model':<38}{'Rating':>8}{'CI±':>7}{'W':>5}{'L':>5}{'T':>5}", "-" * 78]
     for i, r in enumerate(ratings, 1):

@@ -7,20 +7,28 @@ own labels.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
 from .corpus import Corpus
 from .queries import Query
+
+if TYPE_CHECKING:
+    from mteb.abstasks.retrieval import AbsTaskRetrieval
+    from mteb.abstasks.retrieval_dataset_loaders import RetrievalSplitData
 
 
 def labels(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]) -> dict[str, dict[str, int]] | None:
     """What a run can be scored against without a judge, on exactly the queries it judges: the dataset's own qrels for
     its own queries, each synthetic query's seed documents, nothing for queries you supplied."""
     if queries is None:
+        if corpus.qrels is None:
+            raise ValueError(f"{corpus.name} has no labels of its own")
         return {q: corpus.qrels[q] for q in texts}
     qrels = {q.qid: {d: 1 for d in q.seed_doc_ids} for q in queries if q.seed_doc_ids}
     return qrels or None
 
 
-def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
+def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]) -> AbsTaskRetrieval:
     """An mteb AbsTaskRetrieval over `corpus` and the queries in `texts`. `queries=None` means they are the task's own,
     with its own qrels and, where the task has them, its documents per query (`top_ranked`), which mteb applies. A
     generated query or one you supply has no such list, so it searches the whole corpus."""
@@ -42,7 +50,7 @@ def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
         allowed = {q: corpus.top_ranked[q] for q in texts if q in corpus.top_ranked} or None
 
     ids = list(corpus.docs)
-    data = {
+    data: dict[str, dict[str, RetrievalSplitData]] = {
         "default": {
             "test": {
                 "corpus": Dataset.from_dict(
@@ -55,8 +63,12 @@ def build(corpus: Corpus, queries: list[Query] | None, texts: dict[str, str]):
         }
     }
 
-    def load_data(self, **kwargs):
+    def load_data(self: AbsTaskRetrieval, **kwargs: Any) -> None:
         self.dataset = data
         self.data_loaded = True
 
-    return type("GymTask", (AbsTaskRetrieval,), {"metadata": corpus.metadata, "load_data": load_data})()
+    task_type = cast(
+        type[AbsTaskRetrieval],
+        type("GymTask", (AbsTaskRetrieval,), {"metadata": corpus.metadata, "load_data": load_data}),
+    )
+    return task_type()
