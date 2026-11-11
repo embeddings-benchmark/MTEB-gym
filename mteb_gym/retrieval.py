@@ -9,12 +9,14 @@ import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .corpus import Corpus
 
 if TYPE_CHECKING:
+    from mteb.abstasks.retrieval import AbsTaskRetrieval
     from mteb.models import ModelMeta
+    from mteb.models.models_protocols import EncoderProtocol
 
 
 @dataclass
@@ -31,7 +33,7 @@ def slug(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", name)
 
 
-def _cacheable(meta: ModelMeta, model) -> bool:
+def _cacheable(meta: ModelMeta, model: object) -> bool:
     """A model with one vector per text that takes time to encode."""
     late_interaction = "late-interaction" in (meta.model_type or [])
     return (
@@ -42,20 +44,21 @@ def _cacheable(meta: ModelMeta, model) -> bool:
     )
 
 
-def _is_static(encoder) -> bool:
+def _is_static(encoder: object) -> bool:
     """A static embedding model has no attention, hence no length limit, and encodes too fast to need a cache."""
     modules = getattr(encoder, "_modules", {}).values()
     return type(encoder).__name__ == "StaticEmbedding" or any(type(m).__name__ == "StaticEmbedding" for m in modules)
 
 
-def _cap_length(model, max_seq_length: int) -> None:
+def _cap_length(model: object, max_seq_length: int) -> None:
     """Cap a SentenceTransformer's length. Anything else, and a static model, is left as mteb loads it."""
     encoder = getattr(model, "model", None)
-    if getattr(encoder, "max_seq_length", 0) and encoder.max_seq_length > max_seq_length and not _is_static(encoder):
+    length = getattr(encoder, "max_seq_length", None)
+    if encoder is not None and length is not None and length > max_seq_length and not _is_static(encoder):
         encoder.max_seq_length = max_seq_length
 
 
-def _cached(model, folder: Path):
+def _cached(model: EncoderProtocol, folder: Path) -> EncoderProtocol:
     """The model behind mteb's embedding cache."""
     import numpy as np
     from mteb.models.cache_wrappers import CachedEmbeddingWrapper
@@ -64,28 +67,31 @@ def _cached(model, folder: Path):
     class ReopeningCache(NumpyCache):
         """mteb's NumpyCache opens its vectors with shape (-1, dim), which numpy rejects, so it cannot reopen them."""
 
-        def _open(self):
+        def _open(self) -> None:
+            if self.vector_dim is None:
+                raise ValueError("the vector dimension is required to reopen the cache")
             rows = os.path.getsize(self.vectors_file) // (4 * self.vector_dim)
             self.vectors = np.memmap(self.vectors_file, dtype="float32", mode="r+", shape=(rows, self.vector_dim))
 
-        def _initialize_vectors_file(self):
+        def _initialize_vectors_file(self) -> None:
             if self.vector_dim is not None and self.vectors_file.exists():
                 self._open()
             else:
                 super()._initialize_vectors_file()
 
-        def load(self):
+        def load(self) -> None:
             self._load_dimension()
             if self.index_file.exists() and self.vectors_file.exists() and self.vector_dim is not None:
                 self.hash_to_index = {str(k): int(v) for k, v in json.loads(self.index_file.read_text()).items()}
                 self._open()
 
-    return CachedEmbeddingWrapper(model, folder, cache_backend=ReopeningCache)
+    # The wrapper forwards this encoder's metadata; upstream types allow missing metadata for other inputs.
+    return cast("EncoderProtocol", CachedEmbeddingWrapper(model, folder, cache_backend=ReopeningCache))
 
 
 def predict(
     meta: ModelMeta,
-    task,
+    task: AbsTaskRetrieval,
     folder: Path,
     *,
     batch_size: int = 32,
@@ -113,7 +119,9 @@ def predict(
         cap = (
             "" if max_seq_length is None else f"-max{max_seq_length}"
         )  # vectors made under one cap stay apart from another's
-        model = _cached(model, Path(embedding_cache) / f"{slug(meta.model_name_with_experiment)}{cap}")
+        model = _cached(
+            cast("EncoderProtocol", model), Path(embedding_cache) / f"{slug(meta.model_name_with_experiment)}{cap}"
+        )
     with tempfile.TemporaryDirectory(dir=folder) as temporary:  # the file appears whole or not at all
         mteb.evaluate(
             model,
@@ -133,7 +141,7 @@ def predict(
 def hits(path: Path, ignore_identical_ids: bool = False) -> dict[str, dict[str, float]]:
     """What each model retrieved, from mteb's prediction file. A query that is itself a document is
     dropped from its own results where mteb's flag says so (ArguAna, FiQA), as mteb does when it scores."""
-    scores = json.loads(path.read_text())["default"]["test"]
+    scores: dict[str, dict[str, float]] = json.loads(path.read_text())["default"]["test"]
     if ignore_identical_ids:
         scores = {qid: {d: s for d, s in rels.items() if d != qid} for qid, rels in scores.items()}
     return scores
@@ -145,7 +153,7 @@ def top_k(path: Path, corpus: Corpus, queries: dict[str, str], k: int) -> list[R
     out = []
     for qid, text in queries.items():
         scores = retrieved.get(qid, {})
-        ids = sorted(scores, key=scores.get, reverse=True)[:k]
+        ids = sorted(scores, key=scores.__getitem__, reverse=True)[:k]
         out.append(Ranked(qid, text, ids, [corpus.docs[d] for d in ids]))
     return out
 

@@ -15,9 +15,15 @@ import subprocess
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .rank import format_leaderboard
+from .rank import ModelRating, format_leaderboard
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from .benchmarks import Benchmark
+    from .corpus import Corpus
 
 
 def config_hash(config: dict[str, Any], length: int = 8) -> str:
@@ -103,16 +109,16 @@ def grade_diagnostics(grades: list[Any]) -> dict[str, Any]:
 
 
 def build_record(
-    corpus,
-    experiment,
-    ratings,
-    diagnostics: dict,
+    corpus: Corpus,
+    experiment: dict[str, Any],
+    ratings: list[ModelRating],
+    diagnostics: dict[str, Any],
     evaluation_time: float,
     revisions: dict[str, str | None],
-    llms: dict | None = None,
+    llms: dict[str, Any] | None = None,
     ndcg: dict[str, float] | None = None,
     labels: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     dataset = getattr(corpus.metadata, "dataset", None) or {}
     return {
         "task_name": corpus.name,
@@ -149,7 +155,7 @@ def build_record(
 class Result:
     """One run's record."""
 
-    record: dict
+    record: dict[str, Any]
     path: Path | None = None
 
     @classmethod
@@ -157,7 +163,10 @@ class Result:
         return cls(json.loads(Path(path).read_text()), Path(path))
 
     def to_disk(self, path: str | Path | None = None) -> Path:
-        self.path = Path(path or self.path)
+        destination = path or self.path
+        if destination is None:
+            raise ValueError("a path is required to save a result")
+        self.path = Path(destination)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(f".tmp{os.getpid()}")
         temporary.write_text(json.dumps(self.record, indent=2))
@@ -168,7 +177,7 @@ class Result:
     def leaderboard(self) -> str:
         return format_leaderboard(self.record["ratings"])
 
-    def to_dataframe(self):
+    def to_dataframe(self) -> pd.DataFrame:
         """One row per model, with the task, judge, generator and query source."""
         import pandas as pd
 
@@ -182,12 +191,12 @@ class Result:
         }
         return pd.DataFrame([{**head, **r} for r in self.record["ratings"]])
 
-    def agreement(self, *, evaluate_missing: bool = False, bootstrap: int = 1000, seed: int = 0) -> dict:
+    def agreement(self, *, evaluate_missing: bool = False, bootstrap: int = 1000, seed: int = 0) -> dict[str, Any]:
         """Rank agreement with the official MTEB ranking; written into the record as "agreement"."""
         from . import agreement as agree
 
         if self.record["source"] != "mteb":
-            agreement = {"error": "local corpus: no official scores to compare with"}
+            agreement: dict[str, Any] = {"error": "local corpus: no official scores to compare with"}
         else:
             ratings = {r["model"]: r["rating"] for r in self.record["ratings"]}
             truth, source = agree.fetch_truth(
@@ -213,15 +222,20 @@ class Results:
 
     results: list[Result]
 
-    def to_dataframe(self):
+    def to_dataframe(self) -> pd.DataFrame:
         import pandas as pd
 
         return pd.concat([r.to_dataframe() for r in self.results], ignore_index=True)
 
-    def agreement(self, **kwargs) -> dict[str, dict]:
-        return {str(r.path): r.agreement(**kwargs) for r in self.results}
+    def agreement(
+        self, *, evaluate_missing: bool = False, bootstrap: int = 1000, seed: int = 0
+    ) -> dict[str, dict[str, Any]]:
+        return {
+            str(r.path): r.agreement(evaluate_missing=evaluate_missing, bootstrap=bootstrap, seed=seed)
+            for r in self.results
+        }
 
-    def get_benchmark_result(self, benchmark):
+    def get_benchmark_result(self, benchmark: Benchmark | str) -> pd.DataFrame:
         """Each model's rank and mean rating on `benchmark`, a `Benchmark` or its name, as a DataFrame, as mteb's
         `get_benchmark_result` gives."""
         from .benchmarks import get_benchmark

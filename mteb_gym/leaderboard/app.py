@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import gradio as gr
 
@@ -14,6 +15,9 @@ from .table import (
     apply_per_task_styling_from_benchmark,
     apply_summary_styling_from_benchmark,
 )
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _load(source: str | None) -> Results:
@@ -27,7 +31,7 @@ def get_leaderboard_app(results: str | None = None) -> gr.Blocks:
     """The leaderboard over the results repository, or over `results`: a results folder or a repository's URL."""
     loaded = _load(results)
 
-    def on_benchmark_select(name):
+    def on_benchmark_select(name: str) -> tuple[str, pd.DataFrame, pd.DataFrame, dict[str, Any]]:
         benchmark = get_benchmark(name)
         agreement = apply_agreement_styling_from_benchmark(benchmark, loaded)
         return (

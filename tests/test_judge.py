@@ -37,12 +37,12 @@ def test_judge():
 
 
 def test_a_timed_out_judge_call_is_left_out():
-    import httpx
+    import httpx2
     import openai
 
     class Slow(MockLLM):
         def chat(self, messages, **kw):
-            raise openai.APITimeoutError(request=httpx.Request("POST", "http://judge"))
+            raise openai.APITimeoutError(request=httpx2.Request("POST", "http://judge"))
 
     queries = [Query("q0", "query", ["D0"])]
     v = PairwiseJudge(Slow(), "t", workers=1).judge_pair(

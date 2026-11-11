@@ -3,7 +3,7 @@ calibration, so nothing here depends on the model. A server says which version i
 
 from __future__ import annotations
 
-import httpx
+import httpx2
 
 from ..serving import GRADES, model_card, post_json, server_client, server_url
 
@@ -36,7 +36,7 @@ class SystemOne:
         body = {"model": self.model, "state": state, "questions": {"q": spec}}
         try:
             answer = post_json(self._http, f"{self.base_url}/v1/systemone", body, self.max_retries)["answers"]["q"]
-        except httpx.HTTPStatusError as e:
+        except httpx2.HTTPStatusError as e:
             if e.response.status_code in (404, 501):
                 raise ValueError(f"{self.base_url} does not answer decisions for {self.model} on /v1/systemone.") from e
             raise

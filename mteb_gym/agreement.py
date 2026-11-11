@@ -8,26 +8,32 @@ evaluate_missing=True, evaluated by mteb on the real task and stored in that cac
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from mteb import ResultCache
 
 logger = logging.getLogger(__name__)
 
 
-def official_scores(cache, task: str, models: list[str]) -> dict[str, tuple[float, str]]:
+def official_scores(cache: ResultCache, task: str, models: list[str]) -> dict[str, tuple[float, str]]:
     """Each model's official score on `task` and the revision it came from. A model can have
     results under several revisions; `join_revisions` picks one by mteb's own rule."""
-    frame = (
-        cache.load_results(models=models, tasks=[task])
-        .join_revisions()
-        .to_dataframe(format="long", include_model_revision=True)
-    )
-    return {row.model_name: (float(row.score), row.model_revision) for row in frame.itertuples()}
+    results = cache.load_results(models=models, tasks=[task]).join_revisions()
+    return {
+        model.model_name: (result.get_score(), model.model_revision)
+        for model in results.model_results
+        for result in model.task_results
+        if model.model_revision is not None
+    }
 
 
 def fetch_truth(
     models: list[str], task: str, *, evaluate_missing: bool = False
-) -> tuple[dict[str, float], dict[str, dict]]:
+) -> tuple[dict[str, float], dict[str, dict[str, Any]]]:
     """Official main score (nDCG@10, x100) per model on `task`, and per model where it came from:
     {"model_revision": the revision the score is filed under, "official": whether it is MTEB's
     published score or one we ran}. Field names follow mteb's ModelResult."""
@@ -40,7 +46,7 @@ def fetch_truth(
         logger.warning("could not refresh the MTEB results cache; using the local copy")
     official = official_scores(cache, task, models)
     scores: dict[str, float] = {}
-    source: dict[str, dict] = {}
+    source: dict[str, dict[str, Any]] = {}
     for name in models:
         meta = mteb.get_model_meta(name)
         if name in official:
@@ -66,7 +72,7 @@ def fetch_truth(
     return scores, source
 
 
-def _tau_ap(g: np.ndarray, t: np.ndarray) -> float | None:
+def _tau_ap(g: npt.NDArray[np.float64], t: npt.NDArray[np.float64]) -> float | None:
     """AP rank correlation (Yilmaz et al. 2008): Kendall's tau weighted toward the
     top of the reference ranking t. 1 = identical order, -1 = reversed. None if g is all tied."""
     if len(set(g.tolist())) == 1:
@@ -79,7 +85,7 @@ def _tau_ap(g: np.ndarray, t: np.ndarray) -> float | None:
 
 def correlate(
     gym_ratings: dict[str, float], ground_truth: dict[str, float], bootstrap: int = 1000, seed: int = 0
-) -> dict:
+) -> dict[str, Any]:
     """Rank agreement over the models present in both dicts."""
     from scipy.stats import kendalltau, spearmanr
 

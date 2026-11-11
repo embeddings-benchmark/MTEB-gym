@@ -12,4 +12,7 @@ lint-check:
 test:
 	uv run --no-sync --group test pytest -q
 
-pr: lint test
+typecheck:
+	uv run --locked --group typing mypy
+
+pr: lint typecheck test

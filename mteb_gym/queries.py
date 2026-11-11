@@ -12,10 +12,12 @@ import random
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any
+
+from tqdm.auto import tqdm
 
 from .llm import ChatClient, llm_settings
 from .local import load_now
-from .progress import progress_bar
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,7 @@ def task_line(instruction: str | None) -> str:
     return f"The retrieval task is: {instruction}\n" if instruction else ""
 
 
-def extract_json(text: str) -> dict:
+def extract_json(text: str) -> dict[str, Any]:
     """The last JSON object of an answer, read only after any reasoning. {} if there is none, if the reasoning never
     closed, or if the answer was cut off after its last complete object."""
     text = re.split(r"</think(?:ing)?>", text or "")[-1]
@@ -67,7 +69,7 @@ def extract_json(text: str) -> dict:
         return {}
     text = re.sub(r"```(?:json)?", "", text)
     decoder = json.JSONDecoder()
-    found: dict = {}
+    found: dict[str, Any] = {}
     cut_off = False
     i = text.find("{")
     while i != -1:
@@ -85,7 +87,8 @@ def extract_json(text: str) -> dict:
         return {}
     # A \u escape for half a character decodes to a lone surrogate, which UTF-8 rejects; each becomes U+FFFD.
     text = json.dumps(found, ensure_ascii=False)
-    return json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
+    cleaned: dict[str, Any] = json.loads(text.encode("utf-16", "surrogatepass").decode("utf-16", "replace"))
+    return cleaned
 
 
 class QueryGenerator:
@@ -123,10 +126,10 @@ class QueryGenerator:
         self.system = _GEN_ROLE + (task_line(task_instruction) + _GEN_BODY_TASK if task_instruction else _GEN_BODY)
         self.workers = max(1, workers)
         self.n_generated: int | None = None  # before filtering
-        self.settings: dict | None = None  # what the generator ran with
+        self.settings: dict[str, Any] | None = None  # what the generator ran with
 
     @property
-    def params(self) -> dict:
+    def params(self) -> dict[str, Any]:
         """Everything that changes the query set."""
         return {
             "task_instruction": self.task_instruction,
@@ -143,9 +146,9 @@ class QueryGenerator:
         }
 
     @property
-    def prompts(self) -> tuple:
+    def prompts(self) -> tuple[str, str, str, str]:
         """What the generator and the filter are told: part of the query set's identity."""
-        return (self.system, _GEN_USER, self._filter_system, _FILTER_USER)
+        return self.system, _GEN_USER, self._filter_system, _FILTER_USER
 
     @property
     def _filter_system(self) -> str:
@@ -180,7 +183,7 @@ class QueryGenerator:
         out: list[Query] = []
         attempts = 0
         load_now(self.client)  # before the bar, so it times only the writing
-        bar = progress_bar("Writing queries", target, self.show_progress_bar, unit="query")
+        bar = tqdm(total=target, desc="Writing queries", unit="query", disable=not self.show_progress_bar)
         while len(out) < target and attempts < cap:
             wave = min(target - len(out), cap - attempts)  # failed attempts are retried by the next wave
             seeds = [rng.sample(doc_ids, min(self.docs_per_query, len(doc_ids))) for _ in range(wave)]
@@ -229,11 +232,11 @@ class QueryGenerator:
     def _deduplicate(self, queries: list[Query]) -> list[Query]:
         """Drop a query whose token set overlaps an earlier one at Jaccard >= dedup."""
 
-        def tokens(q):
+        def tokens(q: Query) -> set[str]:
             return set(re.findall(r"\w+", q.text.lower()))
 
         kept: list[Query] = []
-        sets: list[set] = []
+        sets: list[set[str]] = []
         for q, t in zip(queries, map(tokens, queries)):
             if all(len(t & s) / len(t | s) < self.dedup for s in sets if t | s):
                 kept.append(q)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from typing import Any, cast
 
 from ..local import fetch
 from ..serving import GRADES, READ_ONE_TOKEN, model_card, post_json, served_models, server_client, server_url, softmax
@@ -39,7 +40,7 @@ class V11Model:
         self.max_retries = max_retries
         self._http = server_client(api_key)
         self._lock = threading.Lock()
-        self._readout = None
+        self._readout: dict[str, Any] | None = None
 
     def _prepare(self) -> None:
         from transformers import AutoTokenizer
@@ -58,18 +59,25 @@ class V11Model:
                     self._readout = json.load(f)
 
     def _prompt(self, state: str, question: str, options: list[str]) -> str:
+        if self._readout is None:
+            raise RuntimeError("the readout must be prepared before building a prompt")
         lines = "\n".join(f"{code}: {o}" for code, o in zip(self._readout["codes"], options, strict=False))
         user = (
             f"State:\n{state}\n\nQuestion:\n{question}\n\nOptions:\n{lines}\n\n"
             "Reply with only the code of the best option."
         )
         messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
-        return self._tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+        return cast(
+            str,
+            self._tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+            ),
         )
 
     def decide(self, kind: str, state: str, question: str, options: list[str] | None = None) -> dict[str, float]:
         self._prepare()
+        if self._readout is None:
+            raise RuntimeError("the model's readout was not loaded")
         options = options or GRADES
         ids = self._readout["readout_token_ids"][: len(options)]
         out = post_json(

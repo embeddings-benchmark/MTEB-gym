@@ -5,22 +5,28 @@ Chat models loaded directly from Hugging Face into this process, on first use, a
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import cache
 from pathlib import Path
+from types import ModuleType
+from typing import Any, Protocol, TypeVar, cast
 
-import httpx
+import httpx2
 from huggingface_hub import HfApi, hf_hub_download, snapshot_download
 from huggingface_hub.errors import HFValidationError, LocalEntryNotFoundError, RepositoryNotFoundError
 
 _MAX_NEW_TOKENS = 1024
+_ModelT = TypeVar("_ModelT")
 
 
 def repo_files(name: str, revision: str | None = None) -> set[str] | None:
     """The files of a Hugging Face model, from the local cache if the Hub cannot tell, or None if neither has it."""
     try:
-        return {f.rfilename for f in HfApi().model_info(name, revision=revision).siblings}
-    except (RepositoryNotFoundError, HFValidationError, httpx.TransportError, OSError):
+        siblings = HfApi().model_info(name, revision=revision).siblings
+        if siblings is not None:
+            return {f.rfilename for f in siblings}
+    except (RepositoryNotFoundError, HFValidationError, httpx2.TransportError, OSError):
         pass
     try:
         folder = Path(snapshot_download(name, revision=revision, local_files_only=True))
@@ -30,7 +36,7 @@ def repo_files(name: str, revision: str | None = None) -> set[str] | None:
 
 
 @contextmanager
-def _says_what_is_missing(name: str, revision: str | None):
+def _says_what_is_missing(name: str, revision: str | None) -> Iterator[None]:
     try:
         yield
     except LocalEntryNotFoundError as e:
@@ -51,7 +57,7 @@ def fetch_folder(name: str, revision: str | None = None, allow_patterns: str | N
 
 
 @contextmanager
-def fits(name: str, card: str | None = None):
+def fits(name: str, card: str | None = None) -> Iterator[None]:
     """An out-of-memory error from a model loaded here says what to do about it."""
     import torch
 
@@ -67,7 +73,7 @@ def fits(name: str, card: str | None = None):
 
 
 @contextmanager
-def known_architecture(name: str):
+def known_architecture(name: str) -> Iterator[None]:
     """A model newer than the installed transformers says so, instead of transformers' own error."""
     try:
         yield
@@ -81,7 +87,7 @@ def known_architecture(name: str):
         raise
 
 
-def transformers_and_peft():
+def transformers_and_peft() -> tuple[ModuleType, ModuleType]:
     """Imported where a model is loaded, so importing the library stays fast."""
     import peft
     import transformers
@@ -97,9 +103,9 @@ class LocalChatModel:
     def __init__(self, name: str):
         self.model = name
         self._lock = threading.Lock()
-        self._net = None
+        self._net: Any = None  # Loaded lazily from transformers.
 
-    def _load(self):
+    def _load(self) -> None:
         import torch
 
         _, transformers = transformers_and_peft()
@@ -115,7 +121,7 @@ class LocalChatModel:
             if self._net is None:
                 self._load()
 
-    def chat(self, messages: list[dict]) -> str:
+    def chat(self, messages: list[dict[str, Any]]) -> str:
         import torch
 
         self.load()
@@ -131,10 +137,10 @@ class LocalChatModel:
                     do_sample=True,
                     pad_token_id=self._tokenizer.eos_token_id,
                 )
-        return self._tokenizer.decode(out[0, ids["input_ids"].shape[1] :], skip_special_tokens=True)
+        return cast(str, self._tokenizer.decode(out[0, ids["input_ids"].shape[1] :], skip_special_tokens=True))
 
 
-def load_now(client) -> None:
+def load_now(client: object) -> None:
     """A model loaded in this process loads before a stage's progress starts, so its bar times only the work."""
     load = getattr(client, "load", None)
     if callable(load):
@@ -142,6 +148,16 @@ def load_now(client) -> None:
 
 
 @cache
-def shared(cls, name: str, *args):
-    """One object per model: a judge and a generator of one name share it, and so do repeated runs."""
+def _shared(cls: Callable[..., object], name: str, *args: Any) -> object:
+    """One object per model, shared across judges, generators, and repeated runs."""
     return cls(name, *args)
+
+
+class _SharedModels(Protocol):
+    def __call__(self, cls: Callable[..., _ModelT], name: str, *args: Any) -> _ModelT: ...
+
+    def cache_clear(self) -> None: ...
+
+
+# Preserve the constructor's return type, which functools.cache otherwise erases.
+shared = cast(_SharedModels, _shared)

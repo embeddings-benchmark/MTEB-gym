@@ -10,11 +10,12 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-import httpx
+import httpx2
 from openai import APITimeoutError
 
 from .queries import DOC_CHARS, extract_json, task_line
@@ -40,12 +41,12 @@ _TAIL = (
 )
 
 
-def _reply(client: ChatClient, messages: list[dict]) -> str | None:
+def _reply(client: ChatClient, messages: list[dict[str, Any]]) -> str | None:
     """The judge's answer, or None once a call has timed out through its retries. One stuck call costs one comparison
     or grade, not the run."""
     try:
         return client.chat(messages)
-    except (TimeoutError, APITimeoutError, httpx.TimeoutException):
+    except (TimeoutError, APITimeoutError, httpx2.TimeoutException):
         logger.warning("judge call timed out after its retries; it is left out")
         return None
 
@@ -106,7 +107,7 @@ def _format(r: Ranked, doc_chars: int) -> str:
     return "\n".join(f"  {i + 1}. {_cut(t, doc_chars)}" for i, t in enumerate(r.doc_texts))
 
 
-def _reasoning(answer: dict) -> str:
+def _reasoning(answer: dict[str, Any]) -> str:
     reasoning = answer.get("reasoning", "")
     return reasoning if isinstance(reasoning, str) else ""
 
@@ -153,7 +154,7 @@ class PairwiseJudge:
         self, query: str, first: Ranked, second: Ranked, doc_chars: int
     ) -> tuple[float, str, bool, dict[str, float] | None]:
         state = _task_state(self.instruction) + self._lists(query, first, second, doc_chars)
-        p = self.client.decide("choice", state, PAIR_QUESTION, _PAIR_OPTIONS)
+        p = cast("DecisionClient", self.client).decide("choice", state, PAIR_QUESTION, _PAIR_OPTIONS)
         if not _valid_probabilities(p, _PAIR_OPTIONS):
             return 0.5, "tie", False, None
         a, b, tie = (p.get(o, 0.0) for o in _PAIR_OPTIONS)
@@ -165,7 +166,7 @@ class PairwiseJudge:
             {"role": "system", "content": self.system},
             {"role": "user", "content": f"{self._lists(query, first, second, doc_chars)}\n\nReply as JSON."},
         ]
-        reply = _reply(self.client, msg)
+        reply = _reply(cast("ChatClient", self.client), msg)
         return ("tie", "", False) if reply is None else _parse(reply)
 
     def judge_pair(self, ra: Ranked, rb: Ranked, model_a: str, model_b: str) -> Verdict:
@@ -194,7 +195,8 @@ class PairwiseJudge:
             return Verdict(ra.qid, ra.query, model_a, model_b, 0.5, raw=["tie", "tie"], parsed_ok=[False, False])
         shortened = doc_chars if doc_chars != self.doc_chars else None
         if self.decision:
-            (s1, w1, ok1, p1), (s2, w2, ok2, p2) = one, two
+            s1, w1, ok1, p1 = cast(tuple[float, str, bool, dict[str, float] | None], one)
+            s2, w2, ok2, p2 = cast(tuple[float, str, bool, dict[str, float] | None], two)
             return Verdict(
                 ra.qid,
                 ra.query,
@@ -206,7 +208,8 @@ class PairwiseJudge:
                 probabilities=[p1, p2] if p1 and p2 else None,
                 doc_chars=shortened,
             )
-        (w1, why1, ok1), (w2, why2, ok2) = one, two
+        w1, why1, ok1 = cast(tuple[str, str, bool], one)
+        w2, why2, ok2 = cast(tuple[str, str, bool], two)
         score = (_OUTCOME[w1] + 1.0 - _OUTCOME[w2]) / 2
         return Verdict(
             ra.qid,
@@ -229,7 +232,12 @@ class PairwiseJudge:
             )
 
     def judge_all(
-        self, ranked_a: list[Ranked], ranked_b: list[Ranked], model_a: str, model_b: str, on_verdict=None
+        self,
+        ranked_a: list[Ranked],
+        ranked_b: list[Ranked],
+        model_a: str,
+        model_b: str,
+        on_verdict: Callable[[Verdict], None] | None = None,
     ) -> list[Verdict]:
         """Judge every shared query; `on_verdict` is called per verdict as it completes."""
         by_qid = {r.qid: r for r in ranked_b}
@@ -237,8 +245,9 @@ class PairwiseJudge:
         guard_lock = threading.Lock()
         counts = {"done": 0, "failed": 0}
 
-        def one(pair):
-            v = self.judge_pair(*pair, model_a, model_b)
+        def one(pair: tuple[Ranked, Ranked]) -> Verdict:
+            ra, rb = pair
+            v = self.judge_pair(ra, rb, model_a, model_b)
             with guard_lock:
                 counts["done"] += 1
                 counts["failed"] += bool(v.parsed_ok) and not any(v.parsed_ok)
@@ -247,7 +256,7 @@ class PairwiseJudge:
                 on_verdict(v)
             return v
 
-        def collect(results):
+        def collect(results: Iterable[Verdict]) -> list[Verdict]:
             out = []
             for i, v in enumerate(results, 1):
                 out.append(v)
@@ -290,7 +299,7 @@ class Grade:
 _GRADES = ["0", "1", "2", "3", "4", "5"]
 
 
-def _valid_probabilities(p: dict, options: list[str]) -> bool:
+def _valid_probabilities(p: dict[str, Any], options: list[str]) -> bool:
     return (
         bool(p)
         and set(p) <= set(options)
@@ -299,7 +308,7 @@ def _valid_probabilities(p: dict, options: list[str]) -> bool:
     )
 
 
-def is_decision_model(client) -> bool:
+def is_decision_model(client: object) -> bool:
     """A client with decide() and no chat()."""
     return callable(getattr(client, "decide", None)) and not callable(getattr(client, "chat", None))
 
@@ -341,7 +350,9 @@ class PointwiseJudge:
 
     def _grade(self, qid: str, query: str, doc_id: str, document: str, doc_chars: int) -> Grade:
         if self.decision:
-            p = self.client.decide("score", grade_state(query, document, self.instruction, doc_chars), self.question)
+            p = cast("DecisionClient", self.client).decide(
+                "score", grade_state(query, document, self.instruction, doc_chars), self.question
+            )
             if not _valid_probabilities(p, _GRADES):
                 return Grade(qid, doc_id, 0.0, parsed_ok=False)
             return Grade(qid, doc_id, sum(int(k) * v for k, v in p.items()), probabilities=p)
@@ -352,7 +363,7 @@ class PointwiseJudge:
                 "content": f"Query: {query}\n\nDocument:\n{_cut(document, doc_chars)}\n\nReply as JSON.",
             },
         ]
-        reply = _reply(self.client, msg)
+        reply = _reply(cast("ChatClient", self.client), msg)
         if reply is None:
             return Grade(qid, doc_id, 0.0, parsed_ok=False)
         out = extract_json(reply)
@@ -363,10 +374,12 @@ class PointwiseJudge:
             g, ok = 0.0, False
         return Grade(qid, doc_id, g, reasoning=_reasoning(out), parsed_ok=ok)
 
-    def grade_all(self, items: list[tuple[str, str, str, str]], on_grade=None) -> list[Grade]:
+    def grade_all(
+        self, items: list[tuple[str, str, str, str]], on_grade: Callable[[Grade], None] | None = None
+    ) -> list[Grade]:
         """`items` are (qid, query, doc_id, document); `on_grade` is called per grade as it completes."""
 
-        def one(item):
+        def one(item: tuple[str, str, str, str]) -> Grade:
             g = self.grade(*item)
             if on_grade is not None:
                 on_grade(g)
