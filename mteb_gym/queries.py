@@ -1,5 +1,5 @@
 """
-Synthetic queries. The generator sees a few corpus documents and writes one query, answerable from the corpus but not a
+Synthetic queries. The generator sees source documents and writes one query, answerable from the corpus but not a
 restatement of a shown document. A length check always applies. An optional filter adds an LLM quality score (keep >=
 min_score) and near-duplicate removal by token overlap.
 """
@@ -28,19 +28,51 @@ class Query:
     text: str
     seed_doc_ids: list[str]  # documents the query was generated from
     quality: int | None = None  # LLM quality score 1-5, None if unfiltered
+    original_text: str | None = None  # before a successful rewrite
+    source_overlap: dict[str, float] | None = None
 
+
+def query_document_overlap(query: str, documents: list[str]) -> dict[str, float]:
+    """Fraction of query word n-grams found in any source, case/punctuation insensitive.
+
+    Count occurrences in the query; never form n-grams across document boundaries.
+    Orders longer than the query are reported as zero.
+    """
+    words = re.findall(r"\w+", query.casefold())
+    sources = [re.findall(r"\w+", d.casefold()) for d in documents]
+    overlap = {}
+    for n in (1, 2, 3, 4):
+        grams = [tuple(words[i : i + n]) for i in range(len(words) - n + 1)]
+        source_grams = {tuple(w[i : i + n]) for w in sources for i in range(len(w) - n + 1)}
+        overlap[f"{n}gram"] = sum(g in source_grams for g in grams) / len(grams) if grams else 0.0
+    return overlap
+
+
+_DIVERSITY = (
+    "\nStyle: {style}. Information need: {kind}, only when supported by the source. "
+    "Use one information need with at most two modifiers. Paraphrase source wording; preserve necessary "
+    "entities and technical terms. Do not copy sentences, expose the answer, or mention the documents."
+)
+
+_REWRITE_SYSTEM = (
+    "Rewrite a search query in natural user vocabulary, preserving exactly its information need. "
+    "Avoid copied phrases; retain necessary names, identifiers and technical terms. Do not add constraints, "
+    "include the answer, or refer to the source. Check against the source documents that the result is "
+    "answerable and has the same intent. Return JSON with query (string), answerable (boolean), "
+    "and same_intent (boolean)."
+)
 
 DOC_CHARS = 16000  # characters of each document shown to the generator and, by default, to a pointwise judge
 
 _GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n"
 _GEN_BODY = (
-    "Given a few documents from a corpus, produce ONE natural query a real user might type that is answerable using "
+    "Given source documents from a corpus, produce ONE natural query a real user might type that is answerable using "
     "the corpus but is NOT a restatement of any single shown document. Vary phrasing and specificity. "
     'Reply with strict JSON: {"query": "..."}'
 )
 
 _GEN_BODY_TASK = (
-    "Given a few documents from a corpus, produce ONE query of the kind the retrieval task describes. The query must "
+    "Given source documents from a corpus, produce ONE query of the kind the retrieval task describes. The query must "
     "be answerable using the corpus but must NOT restate any single shown document, and must not mention the "
     'documents. Vary phrasing and specificity. Reply with strict JSON: {"query": "..."}'
 )
@@ -101,7 +133,7 @@ class QueryGenerator:
         seed: int = 0,
         filter_queries: bool = False,
         workers: int = 16,
-        docs_per_query: int = 3,
+        docs_per_query: int = 1,
         overshoot: float = 1.6,
         min_chars: int = 3,
         max_chars: int = 4000,
@@ -109,7 +141,9 @@ class QueryGenerator:
         dedup: float = 0.8,
         doc_chars: int = DOC_CHARS,
         show_progress_bar: bool = False,
+        rewrite_overlap: float = 0.5,
     ):
+        self.rewrite_overlap = rewrite_overlap
         self.client = client
         self.show_progress_bar = show_progress_bar  # not part of the query set
         self.task_instruction = task_instruction
@@ -132,6 +166,7 @@ class QueryGenerator:
     def params(self) -> dict[str, Any]:
         """Everything that changes the query set."""
         return {
+            "rewrite_overlap": self.rewrite_overlap,
             "task_instruction": self.task_instruction,
             "n_queries": self.n_queries,
             "seed": self.seed,
@@ -146,9 +181,9 @@ class QueryGenerator:
         }
 
     @property
-    def prompts(self) -> tuple[str, str, str, str]:
+    def prompts(self) -> tuple[str, ...]:
         """What the generator and the filter are told: part of the query set's identity."""
-        return self.system, _GEN_USER, self._filter_system, _FILTER_USER
+        return self.system, _GEN_USER, self._filter_system, _FILTER_USER, _REWRITE_SYSTEM, _DIVERSITY
 
     @property
     def _filter_system(self) -> str:
@@ -162,15 +197,45 @@ class QueryGenerator:
 
     def _one(self, doc_ids: list[str], docs: dict[str, str], idx: int) -> Query | None:
         snippet = "\n\n".join(f"[{i + 1}] {docs[d][: self.doc_chars]}" for i, d in enumerate(doc_ids))
+        # Derive diversity from attempt identity, independently of thread scheduling.
+        rng = random.Random(f"{self.seed}:{idx}")
+        style = rng.choice(["question", "keywords"])
+        kind = rng.choice(["factual lookup", "explanation", "instruction", "comparison"])
+        guidance = _DIVERSITY.format(style=style, kind=kind)
         msg = [
-            {"role": "system", "content": self.system},
+            {"role": "system", "content": self.system + guidance},
             {"role": "user", "content": _GEN_USER.format(documents=snippet)},
         ]
         # A client error propagates: a dead endpoint or a bad key fails on the first call. An unusable answer gives
         # None, and the next wave tries fresh documents.
         text = extract_json(self.client.chat(msg)).get("query")
         text = text.strip() if isinstance(text, str) else ""
-        return Query(qid=f"q{idx}", text=text, seed_doc_ids=doc_ids) if text else None
+        if not text or not self._heuristic_ok(text):
+            return None
+        sources = [docs[d][: self.doc_chars] for d in doc_ids]
+        overlap = query_document_overlap(text, sources)
+        original = None
+        if overlap["4gram"] >= self.rewrite_overlap:
+            rewrite = extract_json(
+                self.client.chat(
+                    [
+                        {"role": "system", "content": _REWRITE_SYSTEM + task_line(self.task_instruction)},
+                        {"role": "user", "content": f"Query: {text}\nDocuments:\n{snippet}"},
+                    ]
+                )
+            )
+            candidate = rewrite.get("query")
+            if (
+                isinstance(candidate, str)
+                and self._heuristic_ok(candidate.strip())
+                and rewrite.get("answerable") is True
+                and rewrite.get("same_intent") is True
+            ):
+                candidate = candidate.strip()
+                revised = query_document_overlap(candidate, sources)
+                if revised["4gram"] < overlap["4gram"]:
+                    original, text, overlap = text, candidate, revised
+        return Query(qid=f"q{idx}", text=text, seed_doc_ids=doc_ids, original_text=original, source_overlap=overlap)
 
     def generate(self, docs: dict[str, str]) -> list[Query]:
         """Order-preserving waves: the seeded RNG draws document samples in the main

@@ -427,7 +427,8 @@ def test_each_models_no_judge_baseline_is_recorded(tmp_path):
         workers=1,
     )
     assert res.record["labels"] == "seed_documents"
-    assert all(r["ndcg_at_10"] > 0 for r in res.record["ratings"])
+    # With one source per query, a model may miss every seed in its top ten.
+    assert all(0 <= r["ndcg_at_10"] <= 1 for r in res.record["ratings"])
     queries = json.loads(cache_files(res.record, tmp_path / "c")["queries"][0].read_text())["queries"]
     qrels = {q["qid"]: {d: 1 for d in q["seed_doc_ids"]} for q in queries}
     for rating, path in zip(res.record["ratings"], _prediction_of(res.record, tmp_path / "c"), strict=True):
