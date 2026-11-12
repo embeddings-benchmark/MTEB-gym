@@ -220,6 +220,7 @@ class _Judging:
     seed: int
     workers: int
     show_progress_bar: bool = False
+    source_pairs: dict[str, list[str]] | None = None
 
 
 def _judge_pointwise(
@@ -230,7 +231,9 @@ def _judge_pointwise(
     key = grades_key(model_id(pj.client), pj.system, pj.instruction, pj.doc_chars, run.query_set)
     folder = run.cache / "grades" / run.corpus.name
     with tqdm(total=0, desc="Judging", unit="grade", disable=not run.show_progress_bar) as bar:
-        grades = judge_pool_cached(folder, pj, ranked, run.corpus.docs, key, run.query_set, bar)
+        grades = judge_pool_cached(
+            folder, pj, ranked, run.corpus.docs, key, run.query_set, bar, source_pairs=run.source_pairs
+        )
     diagnostics = results.grade_diagnostics(grades)
     # A query with an ungraded document is left out: counting it as 0 would punish whichever model found it.
     failed = {g.qid for g in grades if not g.parsed_ok}
@@ -482,7 +485,17 @@ def run(
                 ndcg[m] = retrieval.ndcg_at_10(pred, labels, corp.ignore_identical_ids)
             bar.update()
 
-    judging_run = _Judging(corp, cache, query_set, top_k, doc_chars, seed, workers, show_progress_bar)
+    judging_run = _Judging(
+        corp,
+        cache,
+        query_set,
+        top_k,
+        doc_chars,
+        seed,
+        workers,
+        show_progress_bar,
+        source_pairs={q.qid: q.seed_doc_ids for q in qs or []},
+    )
     if judging == "pointwise":
         ratings, diagnostics, judge_system = _judge_pointwise(judge_client, instruction, ranked, judging_run)
     else:
@@ -494,6 +507,14 @@ def run(
             pairs_per_query,
             judging_run,
         )
+    if qs and query_source == "synthetic":
+        from .queries import query_document_overlap
+
+        overlaps = [query_document_overlap(q.text, [corp.docs[d][:gen_doc_chars] for d in q.seed_doc_ids]) for q in qs]
+        diagnostics["query_source_overlap_mean"] = {
+            key: sum(o[key] for o in overlaps) / len(overlaps) for key in overlaps[0]
+        }
+        diagnostics["queries_rewritten"] = sum(q.original_text is not None for q in qs)
     _check_judging(diagnostics, ratings, models)
     experiment = {
         "corpus_id": corp.id,

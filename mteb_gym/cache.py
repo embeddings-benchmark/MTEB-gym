@@ -176,6 +176,7 @@ def judge_pool_cached(
     key: str,
     query_set: str = "",
     bar: tqdm[Never] | None = None,
+    source_pairs: dict[str, list[str]] | None = None,
 ) -> list[Grade]:
     """A grade for every document in every query's pool (the union of the models' lists). A crash, a rerun or an added
     model grades only what is missing, and a failed answer counts as missing."""
@@ -183,6 +184,7 @@ def judge_pool_cached(
     done = {(g.qid, g.doc_id): g for g in _read_jsonl(path, Grade) if g.parsed_ok}
     query = {r.qid: r.query for lists in ranked.values() for r in lists}
     pool = sorted({(r.qid, d) for lists in ranked.values() for r in lists for d in r.doc_ids})
+    pool = sorted(set(pool) | {(q, d) for q, ids in (source_pairs or {}).items() if q in query for d in ids})
     todo = [(q, query[q], d, docs[d]) for q, d in pool if (q, d) not in done]
     if todo:
         load_now(judge.client)

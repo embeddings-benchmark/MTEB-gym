@@ -332,3 +332,22 @@ MTEB Gym builds on MTEB. A citation for MTEB Gym will follow with the paper.
 ## License
 
 Apache-2.0.
+
+### Synthetic query grounding and phrase overlap
+
+The generator samples one source document per query, varies question/keyword style and information need,
+and asks for natural paraphrases that preserve names and technical terms. When at least half of a query's
+word four-grams occur in its sources, it tries a second LLM call to rewrite it. A rewrite is accepted only
+when the model reports preserved intent and answerability and the measured four-gram overlap decreases;
+otherwise the original is retained. These model checks are not independent proof of answerability.
+
+Cached queries include `source_overlap` (word 1-, 2-, 3-, and 4-gram containment) and `original_text` for accepted
+rewrites. Each overlap is the fraction of query n-gram occurrences found in a source, ignoring case and punctuation.
+Orders longer than the query report zero. Overlap uses the truncated text shown to the generator and never joins
+phrases across source documents. This measures lexical copying, not grammatical similarity or reasoning difficulty.
+Run diagnostics include `query_source_overlap_mean` and `queries_rewritten`.
+
+Pointwise judging pools source documents together with all models' retrieved results and judges each unique
+query/document pair. Source documents can affect the ideal ranking but are never inserted into model results.
+The separate `seed_documents` nDCG baseline remains a diagnostic based on assumed source relevance;
+the main model ratings use judged grades.
