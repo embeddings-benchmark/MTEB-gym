@@ -48,6 +48,15 @@ def query_document_overlap(query: str, documents: list[str]) -> dict[str, float]
     return overlap
 
 
+_SELF_CONTAINED = (
+    "Every query must be precise and self-contained: explicitly name the subject and any necessary entities, "
+    "conditions, or time period so a reader can understand exactly what is being asked without seeing the source "
+    "or prior conversation. Never use source pointers such as 'in that text', 'in this passage', "
+    "'according to the document', 'the author', or 'as mentioned above', or unresolved references such as "
+    "'this method' or 'that event'. The source must contain enough information to answer the query without "
+    "additional unstated context. "
+)
+
 _DIVERSITY = (
     "\nStyle: {style}. Information need: {kind}, only when supported by the source. "
     "Use one information need with at most two modifiers. Paraphrase source wording; preserve necessary "
@@ -59,12 +68,12 @@ _REWRITE_SYSTEM = (
     "Avoid copied phrases; retain necessary names, identifiers and technical terms. Do not add constraints, "
     "include the answer, or refer to the source. Check against the source documents that the result is "
     "answerable and has the same intent. Return JSON with query (string), answerable (boolean), "
-    "and same_intent (boolean)."
+    "and same_intent (boolean). " + _SELF_CONTAINED
 )
 
 DOC_CHARS = 16000  # characters of each document shown to the generator and, by default, to a pointwise judge
 
-_GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n"
+_GEN_ROLE = "You write realistic search queries for evaluating retrieval systems.\n" + _SELF_CONTAINED
 _GEN_BODY = (
     "Given source documents from a corpus, produce ONE natural query a real user might type that is answerable using "
     "the corpus but is NOT a restatement of any single shown document. Vary phrasing and specificity. "
@@ -83,7 +92,9 @@ _FILTER_ROLE = "You rate the quality of search queries for benchmarking retrieva
 _FILTER_BODY = (
     "A 5 is a clear, specific, genuinely answerable information need that would separate good retrievers from bad "
     "ones. A 1 is vague, trivial, malformed, or answerable by exact keyword match. "
-    'Reply with strict JSON: {"score": 1-5, "reason": "..."}'
+    "A query that depends on source pointers or unstated context must receive a 1. "
+    + _SELF_CONTAINED
+    + 'Reply with strict JSON: {"score": 1-5, "reason": "..."}'
 )
 _FILTER_USER = "Query: {query}\nReply as JSON."
 
