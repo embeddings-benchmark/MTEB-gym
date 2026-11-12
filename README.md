@@ -33,11 +33,12 @@ Some embedding models need an extra of `mteb`, which their error names, and a fe
 The judge here, decider-4b, needs the `decider` extra: `pip install "mteb-gym[decider] @ git+https://github.com/embeddings-benchmark/MTEB-gym.git"`.
 
 ```python
+import mteb
 import mteb_gym as gym
 
 result = gym.run(
-    corpus="NFCorpus",  # an MTEB task, or "path/to/docs" for your own documents
-    models=["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"],
+    corpus=mteb.get_task("NFCorpus"),  # an MTEB task, or your own documents' texts
+    models=mteb.get_model_metas(["mteb/baseline-bm25s", "BAAI/bge-small-en-v1.5", "intfloat/e5-base-v2"]),
     judge="Mapika/decider-4b",
     generator="Qwen/Qwen3.5-4B",
     judging="pointwise",  # or "pairwise" to compare whole result lists
@@ -75,9 +76,10 @@ Pointwise is the default. Set `judging="pairwise"` to compare lists. It costs mo
 
 | Corpus | Example |
 |---|---|
-| A folder of `.txt` or `.md` files | `corpus="path/to/docs"` |
-| A `.jsonl` file with `id` and `text` | `corpus="docs.jsonl"` |
-| An MTEB task | `corpus="NFCorpus"` |
+| Your documents' texts | `corpus=["first document", "second document"]` |
+| An MTEB task | `corpus=mteb.get_task("NFCorpus")` |
+
+The command line also reads a folder of `.txt` or `.md` files, or a `.jsonl` with `text`: `--corpus path/to/docs`.
 
 ### Describe the task
 
@@ -225,7 +227,7 @@ The first four need the `transformers5` extra and decider-4b the `decider` extra
 
 **Generator.** Any chat model, such as `Qwen/Qwen3.5-4B`, or `gpt-5.4-mini` through an API with `OPENAI_API_KEY` set.
 
-**Models to compare.** Any model `mteb` can load.
+**Models to compare.** Any model `mteb` can load, as its `ModelMeta`: `mteb.get_model_metas([...])`. A variant made with `experiment_kwargs` is ranked as its own model, as mteb's result cache keeps it. The command line takes their names.
 
 To use a model on your own server, add its URL. If a model doesn't fit in your process, the error links its model card, which says how to serve it.
 

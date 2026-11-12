@@ -174,16 +174,11 @@ def test_own_queries_keep_their_ids(tmp_path):
     assert [(q.qid, q.text) for q in own_queries(path)] == [("mine", "a query")]
 
 
-def test_a_local_corpus_is_identified_by_its_ids_and_text(tmp_path):
-    def corpus_id(rows):
-        path = tmp_path / "corpus.jsonl"
-        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
-        return corpus_mod.load(path)
-
-    base = corpus_id([{"id": "a", "text": "one"}])
-    assert base.docs == {"a": "one"}
-    assert corpus_id([{"id": "a", "text": "two"}]).id != base.id
-    assert corpus_id([{"id": "b", "text": "one"}]).id != base.id
+def test_a_local_corpus_is_identified_by_its_ids_and_text():
+    base = corpus_mod.load(["one", "two"])
+    assert base.docs == {"d0": "one", "d1": "two"}
+    assert corpus_mod.load(["one", "three"]).id != base.id
+    assert corpus_mod.load(["two", "one"]).id != base.id
 
 
 def test_a_tasks_documents_include_their_titles():
@@ -200,8 +195,7 @@ def test_seed_labels_keep_every_seed_document():
     }
 
 
-def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
-    import mteb
+def test_a_multilingual_task_runs_on_its_english_subset():
     from datasets import Dataset
 
     from mteb_gym import corpus as corpus_mod
@@ -214,6 +208,7 @@ def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
     }
 
     class Meta:
+        name = "t"
         dataset = {"path": "p", "revision": "r"}
         eval_langs = {"en": ["eng-Latn"], "es": ["spa-Latn"]}
         prompt = None
@@ -232,6 +227,5 @@ def test_a_multilingual_task_runs_on_its_english_subset(monkeypatch):
         def convert_v1_dataset_format_to_v2(self, num_proc=None):
             pass
 
-    monkeypatch.setattr(mteb, "get_tasks", lambda tasks: [Task()])
-    corpus = corpus_mod.load("NotAFolderOnDisk")
+    corpus = corpus_mod.load(Task())
     assert "/en/all" in corpus.id and set(corpus.docs) == {"d1", "d2"}

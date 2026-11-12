@@ -6,6 +6,11 @@ import argparse
 import json
 import logging
 import os
+from pathlib import Path
+from typing import cast
+
+import mteb
+from mteb.abstasks.retrieval import AbsTaskRetrieval
 
 from . import load_model, predict, run, submit
 from .llm import Client
@@ -17,6 +22,18 @@ def _key(variable: str | None) -> str | None:
 
 def client(model: str, base_url: str | None, extra_body: str | None = None, key_variable: str | None = None) -> Client:
     return load_model(model, base_url, _key(key_variable), json.loads(extra_body) if extra_body else None)
+
+
+def _documents(path: Path) -> list[str]:
+    """The texts of a .jsonl's rows, or of a folder's .txt and .md files."""
+    if path.is_file() and path.suffix == ".jsonl":
+        rows = (json.loads(line) for line in path.read_text().split("\n") if line.strip())
+        texts = [str(r.get("text") or "") for r in rows]
+    else:
+        texts = [p.read_text(errors="ignore") for p in sorted(path.rglob("*")) if p.suffix in (".txt", ".md")]
+    if not texts:
+        raise ValueError(f"no documents found in {path}: a corpus is a folder of .txt or .md files, or a .jsonl")
+    return texts
 
 
 def _corpus_and_queries(ap: argparse.ArgumentParser) -> None:
@@ -166,14 +183,16 @@ def main(argv: list[str] | None = None) -> None:
         show_progress_bar=not args.no_progress,
     )
 
+    path = Path(args.corpus)
+    corpus = _documents(path) if path.exists() else cast(AbsTaskRetrieval, mteb.get_task(args.corpus))
     if args.command == "predict":
-        print(f"predictions -> {predict(args.corpus, args.model, **shared)}")
+        print(f"predictions -> {predict(corpus, mteb.get_model_meta(args.model), **shared)}")
         return
 
     judge = client(args.judge, args.judge_url, args.judge_extra_body, args.judge_key_env)
     result = run(
-        args.corpus,
-        args.models,
+        corpus,
+        [mteb.get_model_meta(m) for m in args.models],
         judge,
         judging=args.judging,
         top_k=args.top_k,

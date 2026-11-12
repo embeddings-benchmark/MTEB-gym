@@ -1,7 +1,7 @@
 """
 A corpus is {doc_id: "title text"} plus the mteb task metadata that tells models
-how to encode it (prompts, language). Loaded from an mteb retrieval task by name,
-or from a local directory of .txt/.md files or a .jsonl with id/text fields.
+how to encode it (prompts, language). Loaded from an mteb retrieval task, or
+from the documents' texts, numbered d0, d1, ...
 Identity follows mteb: dataset path@revision (plus subset and split); only a
 local corpus, which has no revision, is identified by a content hash.
 """
@@ -9,20 +9,19 @@ local corpus, which has no revision, is identified by a content hash.
 from __future__ import annotations
 
 import hashlib
-import json
-import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from mteb.abstasks.retrieval import AbsTaskRetrieval
 
 
 @dataclass
 class Corpus:
     name: str
-    id: str  # mteb: <dataset path>@<revision>/<subset>/<split>; local: local:<name>@<content hash>
+    id: str  # mteb: <dataset path>@<revision>/<subset>/<split>; local: local:docs@<content hash>
     docs: dict[str, str]
     metadata: object  # mteb TaskMetadata
     queries: dict[str, str] | None = None  # the task's own queries
@@ -35,24 +34,24 @@ class Corpus:
         return "local" if self.id.startswith("local:") else "mteb"
 
 
-def load(spec: str | Path) -> Corpus:
-    """`spec` is an mteb task name, or a path to a directory / .jsonl of documents."""
-    path = Path(spec)
-    if path.exists():
-        logger.info("loading the local corpus at %s", path)
-        return _load_local(path)
-    return _load_task(str(spec))
+def load(spec: AbsTaskRetrieval | Iterable[str]) -> Corpus:
+    """`spec` is an mteb retrieval task, as mteb.get_task returns it, or the documents' texts."""
+    if isinstance(spec, str | Path | Mapping):
+        raise ValueError(
+            f"a corpus is an mteb task or the documents' texts, not a {type(spec).__name__}: "
+            "pass mteb.get_task(name), or the texts as a list"
+        )
+    if isinstance(spec, Iterable):
+        return _load_local(spec)
+    return _load_task(spec)
 
 
 def _text(row: Mapping[str, str | None]) -> str:
     return ((row.get("title") or "") + " " + (row.get("text") or "")).strip()
 
 
-def _load_task(name: str) -> Corpus:
-    import mteb
-    from mteb.abstasks.retrieval import AbsTaskRetrieval
-
-    task = cast(AbsTaskRetrieval, mteb.get_tasks(tasks=[name])[0])
+def _load_task(task: AbsTaskRetrieval) -> Corpus:
+    name = task.metadata.name
     task.load_data()
     task.convert_v1_dataset_format_to_v2(num_proc=None)  # as mteb.evaluate does: some tasks still load the v1 layout
     subsets = task.dataset
@@ -89,17 +88,14 @@ def _load_task(name: str) -> Corpus:
     )
 
 
-def _load_local(root: Path) -> Corpus:
+def _load_local(texts: Iterable[str]) -> Corpus:
     from mteb.abstasks.task_metadata import TaskMetadata
 
-    if root.is_file() and root.suffix == ".jsonl":
-        rows = (json.loads(line) for line in root.read_text().split("\n") if line.strip())
-        docs = {str(r["id"]): str(r.get("text") or "") for r in rows}
-    else:
-        files = sorted(p for p in root.rglob("*") if p.suffix in (".txt", ".md"))
-        docs = {str(p.relative_to(root)): p.read_text(errors="ignore") for p in files}
+    docs = {f"d{i}": text for i, text in enumerate(texts)}
     if not docs:
-        raise ValueError(f"no documents found in {root}")
+        raise ValueError("no documents given")
+    if not all(isinstance(text, str) for text in docs.values()):
+        raise ValueError("a document is a text: pass mteb.get_task(name) for an mteb task, or the documents' texts")
     h = hashlib.sha256()
     for did, text in docs.items():
         h.update(did.encode())
@@ -109,14 +105,14 @@ def _load_local(root: Path) -> Corpus:
     digest = h.hexdigest()[:12]
     # no benchmark task behind a local corpus: minimal metadata
     metadata = TaskMetadata(
-        name=root.stem,
-        description=f"Local corpus {root.name}",
+        name="docs",
+        description="Local corpus",
         type="Retrieval",
         category="t2t",
         modalities=["text"],
         eval_splits=["test"],
         eval_langs=["eng-Latn"],
         main_score="ndcg_at_10",
-        dataset={"path": root.name, "revision": digest},
+        dataset={"path": "docs", "revision": digest},
     )
-    return Corpus(name=root.stem, id=f"local:{root.stem}@{digest}", docs=docs, metadata=metadata)
+    return Corpus(name="docs", id=f"local:docs@{digest}", docs=docs, metadata=metadata)

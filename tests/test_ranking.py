@@ -7,6 +7,7 @@ import pytest
 
 from mteb_gym import run
 from mteb_gym.retrieval import Ranked
+from tests.helpers import metas
 
 GOOD, OK, BAD = "mteb/baseline-bm25s", "sentence-transformers/all-MiniLM-L6-v2", "BAAI/bge-small-en-v1.5"
 GRADE = {"great": 5.0, "fine": 2.0, "useless": 0.0}
@@ -19,18 +20,15 @@ def retrieved(monkeypatch):
     """Each model retrieves documents of a known quality, without running any model."""
 
     def top_k(path, corpus, texts, k):
-        word = WORD[path]
-        return [Ranked(q, t, [f"{word} {q}"], [f"{word} {q}"]) for q, t in texts.items()]
+        word, ids = WORD[path], {text: did for did, text in corpus.docs.items()}
+        return [Ranked(q, t, [ids[f"{word} {q}"]], [f"{word} {q}"]) for q, t in texts.items()]
 
-    monkeypatch.setattr("mteb_gym.retrieval.predict", lambda model, task, folder, **kw: model)
+    monkeypatch.setattr("mteb_gym.retrieval.predict", lambda model, task, folder, **kw: model.name)
     monkeypatch.setattr("mteb_gym.retrieval.top_k", top_k)
 
 
-def docs(tmp_path):
-    path = tmp_path / "corpus.jsonl"
-    rows = [{"id": f"{w} q{i}", "text": f"{w} document"} for w in GRADE for i in range(len(QUERIES))]
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
-    return path
+def docs():
+    return [f"{w} q{i}" for w in GRADE for i in range(len(QUERIES))]
 
 
 class Decider:
@@ -58,8 +56,8 @@ class Comparer:
 )
 def test_the_better_model_ranks_first(tmp_path, retrieved, judge, judging):
     result = run(
-        docs(tmp_path),
-        [BAD, GOOD, OK],
+        docs(),
+        metas([BAD, GOOD, OK]),
         judge,
         judging=judging,
         queries=QUERIES,
@@ -75,8 +73,8 @@ def test_the_better_model_ranks_first(tmp_path, retrieved, judge, judging):
 
 def test_pointwise_rating_matches_the_hand_computed_ndcg(tmp_path, retrieved):
     result = run(
-        docs(tmp_path),
-        [BAD, GOOD, OK],
+        docs(),
+        metas([BAD, GOOD, OK]),
         Decider(),
         queries=QUERIES,
         task_instruction="t",
@@ -99,8 +97,8 @@ def test_a_run_stops_if_failed_answers_leave_a_model_short(tmp_path, retrieved):
 
     with pytest.raises(RuntimeError, match="most comparisons failed"):
         run(
-            docs(tmp_path),
-            [BAD, GOOD, OK],
+            docs(),
+            metas([BAD, GOOD, OK]),
             FailsOnOneModel(),
             queries=QUERIES,
             judging="pairwise",
@@ -119,8 +117,8 @@ def test_a_run_stops_if_every_model_retrieved_the_same_lists(tmp_path, retrieved
     monkeypatch.setattr("mteb_gym.retrieval.top_k", same_list)
     with pytest.raises(RuntimeError, match="identical"):
         run(
-            docs(tmp_path),
-            [BAD, GOOD, OK],
+            docs(),
+            metas([BAD, GOOD, OK]),
             Comparer(),
             queries=QUERIES,
             judging="pairwise",
