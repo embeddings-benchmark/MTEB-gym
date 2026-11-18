@@ -75,7 +75,7 @@ def _cached_queries(
     if not queries:
         raise RuntimeError(
             "query generation kept 0 queries: the generator's answers were not parseable JSON, "
-            "or the filter rejected all of them (see the log)"
+            "or validation, deduplication, or the quality filter rejected all of them (see the log)"
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"generator": gen.settings, "n_generated": gen.n_generated, "queries": [asdict(q) for q in queries]}
@@ -408,7 +408,8 @@ def run(
         judging: "pointwise" grades every pooled document once (0-5) and ranks models by nDCG@top_k over the grades;
             "pairwise" compares the models' lists and ranks with Bradley-Terry.
         seed: Seed for document sampling and the bootstrap.
-        filter_queries: Add an LLM quality filter and deduplication of generated queries.
+        filter_queries: Add an optional LLM quality score filter. Source validation, selective rewriting and
+            semantic deduplication of generated queries already run by default.
         output_folder: Where the record is written, as <task>/<record>.json: the results repository's layout.
         cache_folder: Where queries, predictions, grades and verdicts are cached. Defaults to $MTEB_GYM_CACHE,
             else ~/.cache/mteb_gym.
@@ -515,6 +516,17 @@ def run(
             key: sum(o[key] for o in overlaps) / len(overlaps) for key in overlaps[0]
         }
         diagnostics["queries_rewritten"] = sum(q.original_text is not None for q in qs)
+        diagnostics["queries_validated"] = sum(q.validation is not None for q in qs)
+        rewritten = [q for q in qs if q.original_overlap is not None]
+        if rewritten:
+            diagnostics["rewritten_source_overlap_before_mean"] = {
+                key: sum(q.original_overlap[key] for q in rewritten if q.original_overlap is not None) / len(rewritten)
+                for key in overlaps[0]
+            }
+            diagnostics["rewritten_source_overlap_after_mean"] = {
+                key: sum(q.source_overlap[key] for q in rewritten if q.source_overlap is not None) / len(rewritten)
+                for key in overlaps[0]
+            }
     _check_judging(diagnostics, ratings, models)
     experiment = {
         "corpus_id": corp.id,

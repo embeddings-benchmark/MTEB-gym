@@ -16,12 +16,17 @@ class Answers:
     def chat(self, messages):
         self.calls.append(messages)
         system = messages[0]["content"]
+        if system.startswith(("You independently validate", "You detect duplicate", "You rewrite search")):
+            from mteb_gym.llm import MockLLM
+
+            return MockLLM().chat(messages)
         if "You rate the quality" in system:
             for text, score in self.scores.items():
                 if text in messages[1]["content"]:
                     return json.dumps({"score": score})
             return json.dumps({"score": 5})
-        return json.dumps({"query": self.generated.pop(0) if self.generated else "enough other query"})
+        text = self.generated.pop(0) if self.generated else f"enough other query {len(self.calls)}"
+        return json.dumps({"main_finding": "document finding", "query": text})
 
 
 def generator(client, **kw):
@@ -89,12 +94,16 @@ def test_overshoot_generates_more_than_the_target_only_when_filtering():
 def test_unusable_answers_are_retried_with_fresh_documents():
     class Flaky(Answers):
         def chat(self, messages):
+            if not messages[0]["content"].startswith("You write realistic"):
+                return super().chat(messages)
             self.calls.append(messages)
-            return {1: "no json", 2: '{"query": 5}'}.get(len(self.calls), '{"query": "a usable query"}')
+            return {1: "no json", 2: '{"query": 5}'}.get(
+                len(self.calls), '{"main_finding": "document finding", "query": "a usable query"}'
+            )
 
     client = Flaky()
     assert [q.text for q in generator(client, n_queries=1, filter_queries=False).generate(DOCS)] == ["a usable query"]
-    assert len(client.calls) == 3
+    assert len(client.calls) == 4  # three drafts, then independent review
 
 
 def test_the_generator_sees_whole_documents_and_the_task():

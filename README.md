@@ -104,6 +104,14 @@ Keep each model's vectors, so a new run doesn't encode your documents again:
 gym.run(..., embedding_cache="path/to/vectors")
 ```
 
+### Small local test runs
+
+The test script `examples/evaluate_openai_compatible.py` has a script-only `MAX_DOCS = 1000` setting.
+It exports a reproducible document sample using `SEED` to `<cache>/test_corpora/*.jsonl`, then passes that local
+corpus to the normal `gym.run()` API. Set `MAX_DOCS = None` to use the original full corpus.
+The sample has its own local corpus identity and query/prediction caches. It uses synthetic queries rather than
+the source task's original qrels. Sampling limits indexing and encoding, but the source dataset still loads first.
+
 ### All options
 
 | Option | Default | |
@@ -115,7 +123,7 @@ gym.run(..., embedding_cache="path/to/vectors")
 | `n_queries` | `100` | Queries to generate or sample |
 | `top_k` | `10` | Documents judged per query |
 | `doc_chars` | `None` | Characters of each document shown: 16,000, with a pairwise judge on 4,000 |
-| `filter_queries` | `False` | Add an LLM quality filter and deduplication of generated queries |
+| `filter_queries` | `False` | Add an optional LLM quality score filter |
 | `embedding_cache` | `None` | A folder for each model's vectors |
 | `max_seq_length` | `None` | Cap a model's length. By default, each model runs as `mteb` loads it |
 | `output_folder` | `"results"` | Where records go |
@@ -335,19 +343,58 @@ Apache-2.0.
 
 ### Synthetic query grounding and phrase overlap
 
-The generator samples one source document per query, varies question/keyword style and information need,
-and asks for natural paraphrases that preserve names and technical terms. When at least half of a query's
-word four-grams occur in its sources, it tries a second LLM call to rewrite it. A rewrite is accepted only
-when the model reports preserved intent and answerability and the measured four-gram overlap decreases;
-otherwise the original is retained. These model checks are not independent proof of answerability.
+The generator samples one source document per query. It first identifies the main finding or purpose,
+then writes a question or keyword search about a central information need. It chooses the query type
+from the content instead of forcing instructions or comparisons. Queries must be precise and self-contained,
+without source pointers or artificial filler labels such as “explanation” or “protocol.”
 
-Cached queries include `source_overlap` (word 1-, 2-, 3-, and 4-gram containment) and `original_text` for accepted
-rewrites. Each overlap is the fraction of query n-gram occurrences found in a source, ignoring case and punctuation.
-Orders longer than the query report zero. Overlap uses the truncated text shown to the generator and never joins
-phrases across source documents. This measures lexical copying, not grammatical similarity or reasoning difficulty.
-Run diagnostics include `query_source_overlap_mean` and `queries_rewritten`.
+A separate LLM call reviews every query against the truncated source text. It checks answerability,
+self-contained wording, centrality, naturalness, and preservation of uncertainty and study scope.
+For example, a reported association must not become a causal claim or clinical advice. The review must
+provide an exact supporting quote that occurs in the visible source. Missing fields, malformed reviews,
+and invented evidence are rejected. This is a separate call to the same model, not independent ground truth.
 
-Pointwise judging pools source documents together with all models' retrieved results and judges each unique
-query/document pair. Source documents can affect the ideal ranking but are never inserted into model results.
-The separate `seed_documents` nDCG baseline remains a diagnostic based on assumed source relevance;
-the main model ratings use judged grades.
+Queries are considered for rewriting when the review flags copied or unnatural wording, when at least
+50% of their word four-grams occur in the source, or when both bigram overlap is at least 45% and trigram
+overlap is at least 20%. A rewrite is checked in another review call against both the source and the original
+query. It must preserve intent and pass all review checks, and either reduce phrase overlap or repair a wording
+problem. Necessary names and technical terms may remain. Failed rewrites retain the original only if it passed
+review; otherwise generation tries fresh documents.
+
+Accepted queries are compared with earlier queries for token overlap and semantic duplication of information
+needs, including paraphrases with low token overlap. Shared topics with different populations, outcomes or
+constraints are not automatically duplicates. Semantic comparisons use batches of up to 32 earlier queries.
+Malformed duplicate decisions are retried once, then fail the run rather than silently disabling deduplication.
+Generation retries rejected and duplicate candidates up to three times its target attempt count, and warns if
+it returns fewer queries. These checks run even when `filter_queries=False`; that option adds a quality score.
+
+Cached queries include `main_finding`, `validation` (checks, evidence and reason), `source_overlap`, and
+`original_text` plus `original_overlap` for accepted rewrites. Word 1–4-gram containment is the fraction of query
+n-gram occurrences found in a source, ignoring case and punctuation. Orders longer than the query report zero;
+phrases never cross document boundaries. Overlap measures copied wording, not grammatical similarity or reasoning
+difficulty. Run diagnostics report mean overlap, validated/rewritten counts, and before/after overlap for rewrites.
+Prompts and pipeline controls are included in query-set identity; older cached queries are not silently reused.
+
+This adds at least one review call per generated candidate, two calls per attempted rewrite, and semantic
+comparison calls as the accepted set grows. `QueryGenerator` exposes `rewrite_queries`, `validate_queries`,
+`semantic_dedup`, and `main_finding_first` controls for experiments; all default to true.
+
+Pointwise judging pools source documents with retrieved results and judges each unique query/document pair.
+Source documents can affect the ideal ranking but are never inserted into model results. The separate
+`seed_documents` nDCG baseline remains a diagnostic based on assumed source relevance; main ratings use judged grades.
+
+To compare generation variants on the same 100 source documents without running retrieval:
+
+```bash
+export GENERATOR_API_KEY="your-api-key"
+python examples/compare_query_generation.py --corpus NFCorpus --n-queries 100
+```
+
+Use `--model` and `--url` for another OpenAI-compatible generator, or `--mock` with a local corpus to check the workflow
+without API calls. The script compares a previous-style prompt, main-finding-first generation without rewriting,
+and the full pipeline. The two new-prompt variants reuse the exact same draft and initial review to isolate rewriting.
+Each variant gets one attempt per fixed source, with the same validation criteria and
+semantic deduplication. Rejected drafts remain available for review, and attempts are not replaced with different
+sources. It writes `attempts.json`, `summary.json`, shuffled `blind_review.json` with empty human-rating fields, and a
+separate `review_key.json`. Keep the key hidden while rating naturalness, answerability and specificity. Summary
+overlap includes rejected drafts when there is no accepted query; use the recorded statuses when interpreting it.

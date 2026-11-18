@@ -239,7 +239,9 @@ def test_the_generator_writes_and_the_judge_judges(tmp_path):
         cache_folder=tmp_path / "c",
         workers=1,
     )
-    assert all("write realistic" in p[0]["content"] for p in gen.prompts)
+    assert any("write realistic" in p[0]["content"] for p in gen.prompts)
+    assert any("independently validate" in p[0]["content"] for p in gen.prompts)
+    assert all("compare two retrieval systems" not in p[0]["content"] for p in gen.prompts)
     assert judge.prompts and all("compare two retrieval systems" in p[0]["content"] for p in judge.prompts)
 
 

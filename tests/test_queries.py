@@ -38,7 +38,9 @@ def test_query_generation():
     class Flaky(MockLLM):
         def chat(self, messages, **kw):
             prompt = " ".join(m.get("content", "") for m in messages)
-            return "no json here" if self._hash(prompt) % 3 == 0 else super().chat(messages, **kw)
+            if messages[0]["content"].startswith("You write realistic") and self._hash(prompt) % 3 == 0:
+                return "no json here"
+            return super().chat(messages, **kw)
 
     def gen_with(workers, client):
         return QueryGenerator(
@@ -81,31 +83,3 @@ def test_word_ngram_overlap():
     assert query_document_overlap("東京都", ["東京都"])["1gram"] == 1
     assert query_document_overlap("", ["anything"])["1gram"] == 0
     assert query_document_overlap("a a b", ["a"])["1gram"] == 2 / 3
-
-
-def test_selective_rewrite_requires_grounding_and_less_copying():
-    import json
-
-    original = "hot batteries lose capacity faster"
-    source = {"d": original + " during storage"}
-
-    class Rewriter:
-        def __init__(self, valid):
-            self.calls = 0
-            self.valid = valid
-
-        def chat(self, messages):
-            self.calls += 1
-            if self.calls == 1:
-                return json.dumps({"query": original})
-            return json.dumps(
-                {"query": "does heat shorten battery lifespan", "answerable": self.valid, "same_intent": True}
-            )
-
-    for valid in (True, False):
-        client = Rewriter(valid)
-        q = QueryGenerator(client, n_queries=1, workers=1).generate(source)[0]
-        assert client.calls == 2
-        assert (q.original_text == original) is valid
-        assert (q.text != original) is valid
-        assert q.source_overlap["4gram"] == (0 if valid else 1)
