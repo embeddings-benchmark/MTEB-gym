@@ -239,7 +239,9 @@ def test_the_generator_writes_and_the_judge_judges(tmp_path):
         cache_folder=tmp_path / "c",
         workers=1,
     )
-    assert all("write realistic" in p[0]["content"] for p in gen.prompts)
+    assert any("write realistic" in p[0]["content"] for p in gen.prompts)
+    assert any("independently validate" in p[0]["content"] for p in gen.prompts)
+    assert all("compare two retrieval systems" not in p[0]["content"] for p in gen.prompts)
     assert judge.prompts and all("compare two retrieval systems" in p[0]["content"] for p in judge.prompts)
 
 
@@ -427,7 +429,8 @@ def test_each_models_no_judge_baseline_is_recorded(tmp_path):
         workers=1,
     )
     assert res.record["labels"] == "seed_documents"
-    assert all(r["ndcg_at_10"] > 0 for r in res.record["ratings"])
+    # With one source per query, a model may miss every seed in its top ten.
+    assert all(0 <= r["ndcg_at_10"] <= 1 for r in res.record["ratings"])
     queries = json.loads(cache_files(res.record, tmp_path / "c")["queries"][0].read_text())["queries"]
     qrels = {q["qid"]: {d: 1 for d in q["seed_doc_ids"]} for q in queries}
     for rating, path in zip(res.record["ratings"], _prediction_of(res.record, tmp_path / "c"), strict=True):

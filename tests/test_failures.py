@@ -113,7 +113,11 @@ class Scripted:
 
     def chat(self, messages):
         self.calls += 1
-        return json.dumps({"query": f"{self.label} query number {self.calls}"})
+        if not messages[0]["content"].startswith("You write realistic"):
+            from mteb_gym.llm import MockLLM
+
+            return MockLLM().chat(messages)
+        return json.dumps({"main_finding": "document finding", "query": f"{self.label} query number {self.calls}"})
 
 
 def _generator(label="first"):

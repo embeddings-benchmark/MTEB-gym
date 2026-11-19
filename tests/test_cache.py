@@ -118,3 +118,18 @@ def test_pointwise_judge_and_grade_cache():
         chat = PointwiseJudge(MockLLM(), "t", workers=1)
         assert not chat.decision and chat.system != judge.system
         assert _gkey(chat, "qs") != key
+
+
+def test_source_documents_are_judged_without_becoming_model_results(tmp_path):
+    from mteb_gym.cache import judge_pool_cached
+
+    decider = Deciding()
+    judge = PointwiseJudge(decider, "t", workers=1)
+    ranked = {"m": [Ranked("q", "statins", ["retrieved"], ["gardening"])]}
+    docs = {"retrieved": "gardening", "source": "statins"}
+    grades = judge_pool_cached(tmp_path, judge, ranked, docs, "key", source_pairs={"q": ["source", "source"]})
+    assert {g.doc_id for g in grades} == set(docs)
+    assert decider.calls == 2
+    assert ranked["m"][0].doc_ids == ["retrieved"]
+    judge_pool_cached(tmp_path, judge, ranked, docs, "key", source_pairs={"q": ["source"]})
+    assert decider.calls == 2

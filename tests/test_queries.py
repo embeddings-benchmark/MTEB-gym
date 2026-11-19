@@ -38,7 +38,9 @@ def test_query_generation():
     class Flaky(MockLLM):
         def chat(self, messages, **kw):
             prompt = " ".join(m.get("content", "") for m in messages)
-            return "no json here" if self._hash(prompt) % 3 == 0 else super().chat(messages, **kw)
+            if messages[0]["content"].startswith("You write realistic") and self._hash(prompt) % 3 == 0:
+                return "no json here"
+            return super().chat(messages, **kw)
 
     def gen_with(workers, client):
         return QueryGenerator(
@@ -70,3 +72,14 @@ def test_a_changed_prompt_is_a_new_query_set():
         assert qset(gen) != qset(
             QueryGenerator(MockLLM(), task_instruction="t", n_queries=4, filter_queries=False, workers=1)
         )
+
+
+def test_word_ngram_overlap():
+    from mteb_gym.queries import query_document_overlap
+
+    overlap = query_document_overlap("HOT batteries lose capacity!", ["Hot batteries lose capacity faster."])
+    assert overlap == {"1gram": 1, "2gram": 1, "3gram": 1, "4gram": 1}
+    assert query_document_overlap("a b c d", ["a b", "c d"])["4gram"] == 0
+    assert query_document_overlap("東京都", ["東京都"])["1gram"] == 1
+    assert query_document_overlap("", ["anything"])["1gram"] == 0
+    assert query_document_overlap("a a b", ["a"])["1gram"] == 2 / 3

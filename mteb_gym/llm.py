@@ -50,14 +50,37 @@ class MockLLM:
     def chat(self, messages: list[dict[str, Any]]) -> str:
         prompt = " ".join(m.get("content", "") for m in messages)
         h = self._hash(prompt)
+        system = messages[0]["content"]
+        if system.startswith("You independently validate"):
+            source = messages[1]["content"].split("Documents:\n", 1)[-1].split("[1] ", 1)[-1]
+            return json.dumps(
+                {
+                    **dict.fromkeys(
+                        ("answerable", "self_contained", "central", "faithful", "natural", "same_intent"), True
+                    ),
+                    "needs_rewrite": False,
+                    "evidence": source.split("\n\n[2]", 1)[0][:80],
+                    "reason": "mock",
+                }
+            )
+        if system.startswith("You detect duplicate"):
+            return json.dumps({"duplicate_index": None})
+        if system.startswith("You rewrite search"):
+            return json.dumps({"query": messages[1]["content"].split("Query: ", 1)[-1].split("\n", 1)[0]})
         if "rate the quality" in prompt.lower():
             return json.dumps({"score": (h % 5) + 1, "reason": "mock"})
         if "grade how relevant" in prompt.lower():
             return json.dumps({"reasoning": "mock", "grade": h % 6})
         if "system a" in prompt.lower():
             return json.dumps({"winner": ["A", "B", "tie"][h % 3], "confidence": "low", "reasoning": "mock"})
-        words = re.findall(r"[A-Za-z]{4,}", prompt.split("[1] ", 1)[-1])[:6]  # from the first shown document
-        return json.dumps({"query": "what is known about " + (" ".join(words) or f"topic {h % 1000}")})
+        source = messages[1]["content"].split("[1] ", 1)[-1].split("\n\n", 1)[0]
+        words = re.findall(r"\w+", source)[:8]
+        return json.dumps(
+            {
+                "main_finding": source[:200] or "mock finding",
+                "query": "what is known about " + " ".join(words) + f" topic {h}",
+            }
+        )
 
 
 class LLM:

@@ -122,7 +122,13 @@ class Named:
         self.model = model
 
     def chat(self, messages):
-        return json.dumps({"query": "the same query every time"})
+        if "You rate the quality" in messages[0]["content"]:
+            return json.dumps({"score": 5})
+        if not messages[0]["content"].startswith("You write realistic"):
+            from mteb_gym.llm import MockLLM
+
+            return MockLLM().chat(messages)
+        return json.dumps({"main_finding": "document finding", "query": "the same query every time"})
 
 
 def _set_id(tmp, corp=None, model="m", **kw):
